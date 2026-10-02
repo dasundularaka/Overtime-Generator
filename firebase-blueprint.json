@@ -1,0 +1,91 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User profile with role, overtime limits, and organizational metadata",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "name": { "type": "string", "maxLength": 100 },
+        "role": { "type": "string", "enum": ["admin", "user"] },
+        "claimType": { "type": "string", "enum": ["OT", "OP"] },
+        "employeeNumber": { "type": "string", "maxLength": 50 },
+        "designation": { "type": "string", "maxLength": 100 },
+        "department": { "type": "string", "maxLength": 100 },
+        "branch": { "type": "string", "maxLength": 100 },
+        "maxOtHoursPerDay": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "email", "name", "role", "claimType"]
+    },
+    "Claim": {
+      "title": "Overtime Claim",
+      "description": "Monthly overtime claim record belonging to a specific user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "claimNumber": { "type": "string" },
+        "employeeName": { "type": "string" },
+        "employeeNumber": { "type": "string" },
+        "designation": { "type": "string" },
+        "branch": { "type": "string" },
+        "department": { "type": "string" },
+        "claimType": { "type": "string", "enum": ["OT", "OP"] },
+        "month": { "type": "string" },
+        "year": { "type": "number" },
+        "claimDate": { "type": "string" },
+        "rows": { "type": "array" },
+        "totalMinutes": { "type": "number" },
+        "totalHoursFormatted": { "type": "string" },
+        "totalDecimalHours": { "type": "number" },
+        "otDaysCount": { "type": "number" },
+        "status": { "type": "string", "enum": ["draft", "submitted", "approved", "rejected", "completed"] },
+        "templateId": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "employeeName", "month", "year"]
+    },
+    "Template": {
+      "title": "Form Template",
+      "description": "A4 Overtime Form Template overlay coordinates and settings",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "pageSize": { "type": "string" },
+        "widthMm": { "type": "number" },
+        "heightMm": { "type": "number" },
+        "backgroundImageUrl": { "type": "string" },
+        "backgroundType": { "type": "string", "enum": ["image", "pdf"] },
+        "fields": { "type": "array" },
+        "tableConfig": { "type": "object" },
+        "printerOffsetX": { "type": "number" },
+        "printerOffsetY": { "type": "number" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles with roles, claim types, and overtime caps"
+    },
+    "/claims/{claimId}": {
+      "schema": { "$ref": "#/entities/Claim" },
+      "description": "Individual overtime claims submitted by users"
+    },
+    "/templates/{templateId}": {
+      "schema": { "$ref": "#/entities/Template" },
+      "description": "Form layout templates configurable only by administrators"
+    },
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Marker collection denoting administrator access"
+    }
+  }
+}

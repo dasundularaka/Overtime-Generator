@@ -1,0 +1,6 @@
+{
+  "name": "Overtime Claim Manager",
+  "description": "Digitally enter overtime claims, calibrate custom form templates with millimetric precision, and generate print-ready official A4 PDFs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
