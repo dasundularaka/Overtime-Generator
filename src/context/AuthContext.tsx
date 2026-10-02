@@ -92,7 +92,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return newProfile;
       }
     } catch (err) {
-      handleFirestoreError(err, OperationType.GET, `users/${user.uid}`);
+      console.warn('Could not load Firestore profile, using fallback profile for authenticated user', err);
+      const isBootstrapAdmin = (user.email || '').toLowerCase() === BOOTSTRAP_ADMIN_EMAIL.toLowerCase();
+      return {
+        id: user.uid,
+        email: user.email || '',
+        name: user.displayName || user.email?.split('@')[0] || 'User',
+        role: isBootstrapAdmin ? 'admin' : 'user',
+        claimType: 'OT',
+        employeeNumber: 'EMP-' + Math.floor(1000 + Math.random() * 9000),
+        designation: isBootstrapAdmin ? 'Administrator' : 'Staff Member',
+        branch: 'Head Office',
+        department: 'IT & Infrastructure Operations',
+        maxOtHoursPerDay: 2.0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
     }
   };
 
