@@ -3,7 +3,7 @@
   "appId": "1:121344878354:web:5c39abdc8fb501a5bd75cb",
   "apiKey": "AIzaSyBQkd2jNiVf8MlAUhQlHvQLtHEokB8WR7Q",
   "authDomain": "overtimerequest-prod.firebaseapp.com",
-  "firestoreDatabaseId": "",
+  "firestoreDatabaseId": "(default)",
   "storageBucket": "overtimerequest-prod.firebasestorage.app",
   "messagingSenderId": "121344878354",
   "measurementId": "G-4ZKMJPR61Q",
