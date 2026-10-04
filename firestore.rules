@@ -7,16 +7,22 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Direct check for designated superadmin / bootstrap admin
     function isSuperAdmin() {
       return isSignedIn() && (
         request.auth.uid == 'qdGIZL4RtYeppzf8SYTcWN9zUkp1' ||
-        (request.auth.token.email != null && request.auth.token.email.matches('(?i)dasundularaka@gmail.com'))
+        (request.auth.token.email != null && (
+          request.auth.token.email == 'dasundularaka@gmail.com' ||
+          request.auth.token.email.matches('(?i)dasundularaka@gmail.com')
+        ))
       );
     }
 
+    // Check if the authenticated user has an 'admin' role
     function isAdmin() {
       return isSignedIn() && (
         isSuperAdmin() ||
+        (request.auth.token.role != null && request.auth.token.role == 'admin') ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
@@ -35,7 +41,7 @@ service cloud.firestore {
     // Admins marker collection
     match /admins/{adminId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow write: if isSuperAdmin() || isAdmin();
     }
 
     // User profiles & limits
@@ -56,12 +62,10 @@ service cloud.firestore {
       allow delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
-    // Form templates
+    // Form templates: Allow authenticated users with 'admin' roles to perform write operations (create, update, delete)
     match /templates/{templateId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isAdmin();
+      allow write: if isAdmin();
     }
   }
 }
