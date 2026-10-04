@@ -140,25 +140,29 @@ export async function saveTemplateToFirestore(
   if (options?.setAsDefault) clean.isDefault = true;
 
   try {
-    const batch = writeBatch(db);
-
-    // If marked as default, unmark any other existing default templates in Firestore
     if (clean.isDefault) {
-      const snap = await getDocs(collection(db, TEMPLATES_COLLECTION));
-      snap.forEach(docSnap => {
-        if (docSnap.id !== clean.id && docSnap.data().isDefault) {
-          batch.update(doc(db, TEMPLATES_COLLECTION, docSnap.id), { isDefault: false });
-        }
-      });
+      try {
+        const batch = writeBatch(db);
+        const snap = await getDocs(collection(db, TEMPLATES_COLLECTION));
+        snap.forEach(docSnap => {
+          if (docSnap.id !== clean.id && docSnap.data().isDefault) {
+            batch.update(doc(db, TEMPLATES_COLLECTION, docSnap.id), { isDefault: false });
+          }
+        });
+        batch.set(doc(db, TEMPLATES_COLLECTION, clean.id), clean);
+        await batch.commit();
+      } catch (batchErr) {
+        console.warn('Batch default update fallback to setDoc:', batchErr);
+        await setDoc(doc(db, TEMPLATES_COLLECTION, clean.id), clean);
+      }
 
       // Also update local active template setting
       const settings = getSettings();
       saveSettings({ ...settings, activeTemplateId: clean.id });
+    } else {
+      // Direct setDoc for new or custom template
+      await setDoc(doc(db, TEMPLATES_COLLECTION, clean.id), clean);
     }
-
-    // Save target template
-    batch.set(doc(db, TEMPLATES_COLLECTION, clean.id), clean);
-    await batch.commit();
 
     // Cache locally
     saveTemplateToLocal(clean);
