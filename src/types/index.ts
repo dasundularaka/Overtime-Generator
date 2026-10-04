@@ -93,6 +93,8 @@ export interface TableConfig {
 export interface TemplateConfig {
   id: string;
   name: string;
+  description?: string;
+  isDefault?: boolean;
   pageSize: 'A4';
   widthMm: number;
   heightMm: number;
@@ -103,6 +105,8 @@ export interface TemplateConfig {
   printerOffsetX: number;
   printerOffsetY: number;
   updatedAt: string;
+  createdBy?: string;
+  createdByName?: string;
 }
 
 export interface ClaimRecord {

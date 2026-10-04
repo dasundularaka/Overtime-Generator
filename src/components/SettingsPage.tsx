@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Settings as SettingsIcon,
   Save,
@@ -12,7 +12,7 @@ import {
   FileCode,
   HardDrive,
 } from 'lucide-react';
-import { AppSettings, FontFamily, OTDisplayFormat, TimeFormat } from '../types';
+import { AppSettings, FontFamily, OTDisplayFormat, TemplateConfig, TimeFormat } from '../types';
 import {
   getSettings,
   saveSettings,
@@ -20,13 +20,23 @@ import {
   exportAllData,
   importAllData,
   resetAllApplicationData,
+  getActiveTemplate,
 } from '../utils/storage';
+import { subscribeToTemplates, setDefaultTemplateInFirestore } from '../services/templateService';
 
 export const SettingsPage: React.FC = () => {
   const employees = getEmployees();
   const [settings, setSettings] = useState<AppSettings>(getSettings());
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<TemplateConfig[]>([getActiveTemplate()]);
+
+  useEffect(() => {
+    const unsub = subscribeToTemplates(list => {
+      if (list.length > 0) setTemplates(list);
+    });
+    return () => unsub();
+  }, []);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -170,6 +180,30 @@ export const SettingsPage: React.FC = () => {
                 <option value="TimesRoman">Times Roman (Formal Serif)</option>
                 <option value="Courier">Courier (Monospace Matrix)</option>
               </select>
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="block font-semibold text-slate-700 mb-1">
+                Default Form Template (Cloud)
+              </label>
+              <select
+                value={settings.activeTemplateId || ''}
+                onChange={e => {
+                  const newId = e.target.value;
+                  setSettings({ ...settings, activeTemplateId: newId });
+                  if (newId) setDefaultTemplateInFirestore(newId).catch(console.error);
+                }}
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 font-medium focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              >
+                {templates.map(t => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} {t.isDefault ? '★ (Organization Default)' : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-slate-500 mt-1">
+                Selected template is loaded by default across all employee claim forms. Configure layouts and printer offsets in the Template Designer tab.
+              </p>
             </div>
           </div>
         </div>

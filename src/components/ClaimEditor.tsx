@@ -16,6 +16,7 @@ import {
   ChevronDown,
   ShieldAlert,
   Info,
+  FileText,
 } from 'lucide-react';
 import {
   collection,
@@ -45,10 +46,13 @@ import {
 import {
   getActiveTemplate,
   getSettings,
+  saveClaim,
 } from '../utils/storage';
 import { generateOvertimePdf, printPdfDocument } from '../utils/pdfGenerator';
 import { PDFPreviewModal } from './PDFPreviewModal';
 import { useAuth } from '../context/AuthContext';
+import { subscribeToTemplates } from '../services/templateService';
+import { TemplateConfig } from '../types';
 
 interface ClaimEditorProps {
   initialClaim?: ClaimRecord | null;
@@ -63,7 +67,34 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 }) => {
   const { currentUser, userProfile, isAdmin } = useAuth();
   const settings = useMemo(() => getSettings(), []);
-  const activeTemplate = useMemo(() => getActiveTemplate(), []);
+
+  // Templates from Cloud Firestore
+  const [availableTemplates, setAvailableTemplates] = useState<TemplateConfig[]>([getActiveTemplate()]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(
+    initialClaim?.templateId || getSettings().activeTemplateId || 'standard-official-template-v1'
+  );
+
+  useEffect(() => {
+    const unsub = subscribeToTemplates(templates => {
+      if (templates.length > 0) {
+        setAvailableTemplates(templates);
+        if (!selectedTemplateId || !templates.some(t => t.id === selectedTemplateId)) {
+          const def = templates.find(t => t.isDefault) || templates[0];
+          if (def) setSelectedTemplateId(def.id);
+        }
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  const activeTemplate = useMemo(() => {
+    return (
+      availableTemplates.find(t => t.id === selectedTemplateId) ||
+      availableTemplates.find(t => t.isDefault) ||
+      availableTemplates[0] ||
+      getActiveTemplate()
+    );
+  }, [availableTemplates, selectedTemplateId]);
 
   // For Admin: list of selectable users
   const [allUsers, setAllUsers] = useState<any[]>([]);
@@ -393,6 +424,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     const claim = buildClaimRecord();
 
     try {
+      saveClaim(claim);
       await setDoc(doc(db, 'claims', claim.id), claim);
       setClaimSavedSuccess(true);
       if (onClaimSaved) onClaimSaved(claim);
@@ -539,6 +571,43 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           </div>
           <div className="flex items-center gap-2 font-mono text-[11px] font-bold text-blue-800">
             <span>Your Assigned Cap: {maxOtLimitHours} hrs/day</span>
+          </div>
+        </div>
+
+        {/* Template Selector Banner */}
+        <div className="mt-3 p-3 rounded-xl bg-slate-100/80 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-lg bg-indigo-50 text-indigo-600 border border-indigo-100">
+              <FileText className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="font-bold text-slate-800 block">Print Form Template</span>
+              <span className="text-[11px] text-slate-500">Official company layout configured in Template Designer</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <select
+              value={selectedTemplateId}
+              onChange={e => setSelectedTemplateId(e.target.value)}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-2xs focus:ring-2 focus:ring-indigo-500"
+            >
+              {availableTemplates.map(t => (
+                <option key={t.id} value={t.id}>
+                  {t.name} {t.isDefault ? '★ (Default)' : ''}
+                </option>
+              ))}
+            </select>
+
+            {isAdmin && onNavigateToDesigner && (
+              <button
+                type="button"
+                onClick={onNavigateToDesigner}
+                className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition"
+              >
+                Customize
+              </button>
+            )}
           </div>
         </div>
 

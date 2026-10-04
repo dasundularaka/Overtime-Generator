@@ -24,12 +24,13 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { handleFirestoreError, OperationType } from '../firebase/errors';
-import { ClaimRecord } from '../types';
+import { ClaimRecord, TemplateConfig } from '../types';
 import { getActiveTemplate } from '../utils/storage';
 import { generateOvertimePdf, printPdfDocument } from '../utils/pdfGenerator';
 import { PDFPreviewModal } from './PDFPreviewModal';
 import { MONTH_NAMES } from '../utils/timeCalculations';
 import { useAuth } from '../context/AuthContext';
+import { subscribeToTemplates } from '../services/templateService';
 
 interface ClaimHistoryProps {
   onEditClaim: (claim: ClaimRecord) => void;
@@ -43,7 +44,24 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
   const { currentUser, isAdmin } = useAuth();
   const [claims, setClaims] = useState<ClaimRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const activeTemplate = getActiveTemplate();
+  const [templates, setTemplates] = useState<TemplateConfig[]>([getActiveTemplate()]);
+
+  useEffect(() => {
+    const unsub = subscribeToTemplates(list => {
+      if (list.length > 0) setTemplates(list);
+    });
+    return () => unsub();
+  }, []);
+
+  const resolveTemplate = (claim?: ClaimRecord | null): TemplateConfig => {
+    if (!claim) return templates[0] || getActiveTemplate();
+    return (
+      templates.find(t => t.id === claim.templateId) ||
+      templates.find(t => t.isDefault) ||
+      templates[0] ||
+      getActiveTemplate()
+    );
+  };
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('ALL');
@@ -88,7 +106,8 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
 
   const handlePreviewPdf = async (claim: ClaimRecord) => {
     try {
-      const { url, filename } = await generateOvertimePdf(claim, activeTemplate);
+      const templateToUse = resolveTemplate(claim);
+      const { url, filename } = await generateOvertimePdf(claim, templateToUse);
       setPreviewPdfUrl(url);
       setPreviewFilename(filename);
       setIsPreviewOpen(true);
@@ -99,7 +118,8 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
 
   const handleDownloadPdf = async (claim: ClaimRecord) => {
     try {
-      const { url, filename } = await generateOvertimePdf(claim, activeTemplate);
+      const templateToUse = resolveTemplate(claim);
+      const { url, filename } = await generateOvertimePdf(claim, templateToUse);
       const a = document.createElement('a');
       a.href = url;
       a.download = filename;
@@ -113,7 +133,8 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
 
   const handlePrint = async (claim: ClaimRecord) => {
     try {
-      const { url } = await generateOvertimePdf(claim, activeTemplate);
+      const templateToUse = resolveTemplate(claim);
+      const { url } = await generateOvertimePdf(claim, templateToUse);
       printPdfDocument(url);
     } catch (err: any) {
       alert('Failed to print document: ' + err.message);
