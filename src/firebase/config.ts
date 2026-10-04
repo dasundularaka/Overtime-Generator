@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
-import { initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import bundledConfig from '../firebase-applet-config.json';
 
 const firebaseConfig = {
@@ -11,43 +11,25 @@ const firebaseConfig = {
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || bundledConfig.messagingSenderId,
   appId: import.meta.env.VITE_FIREBASE_APP_ID || bundledConfig.appId,
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || bundledConfig.measurementId,
-  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || bundledConfig.firestoreDatabaseId || '',
+  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || bundledConfig.firestoreDatabaseId,
 };
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-const customDatabaseId =
-  firebaseConfig.firestoreDatabaseId &&
-  firebaseConfig.firestoreDatabaseId !== '(default)' &&
-  firebaseConfig.firestoreDatabaseId.trim() !== ''
-    ? firebaseConfig.firestoreDatabaseId
-    : undefined;
-
-// Use experimentalForceLongPolling to ensure reliable connectivity in iframe / container environments
-export const db = initializeFirestore(
-  app,
-  {
-    experimentalForceLongPolling: true,
-  },
-  customDatabaseId
-);
-
+// Connect strictly using getFirestore with the database ID as prescribed by the skill
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
-// Test connection on boot with graceful error handling
+// Test connection on boot according to skill guidelines
 async function testConnection() {
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
-    // Offline mode is supported by Firestore local persistence
     if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn('Firestore is running in offline cache mode.');
+      console.error('Please check your Firebase configuration.');
     }
   }
 }
 
-// Defer connection check to allow browser environment to initialize
-setTimeout(() => {
-  testConnection();
-}, 1500);
+testConnection();
