@@ -16,8 +16,15 @@ const firebaseConfig = {
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-// Connect strictly using getFirestore with the database ID as prescribed by the skill
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// Connect to (default) or named database on overtimerequest-prod
+const dbId =
+  firebaseConfig.firestoreDatabaseId &&
+  firebaseConfig.firestoreDatabaseId !== '(default)' &&
+  firebaseConfig.firestoreDatabaseId.trim() !== ''
+    ? firebaseConfig.firestoreDatabaseId
+    : undefined;
+
+export const db = dbId ? getFirestore(app, dbId) : getFirestore(app);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 

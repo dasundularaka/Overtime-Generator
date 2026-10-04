@@ -1,12 +1,12 @@
 {
-  "projectId": "jittery-avatar-nrwfn",
-  "appId": "1:726461356342:web:6a2fa99cdcd210d4b5bb97",
-  "apiKey": "AIzaSyDggYCXk67au0H7W7fOS2EpqqjEGMJeJLU",
-  "authDomain": "jittery-avatar-nrwfn.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-overtimeclaimaut-8a35a644-c6e5-425b-b8cc-dbe3c5654abc",
-  "storageBucket": "jittery-avatar-nrwfn.firebasestorage.app",
-  "messagingSenderId": "726461356342",
-  "measurementId": "",
-  "oAuthClientId": "726461356342-hkt6c32tii9om5vf1qmn8roqe1djvimk.apps.googleusercontent.com",
+  "projectId": "overtimerequest-prod",
+  "appId": "1:121344878354:web:5c39abdc8fb501a5bd75cb",
+  "apiKey": "AIzaSyBQkd2jNiVf8MlAUhQlHvQLtHEokB8WR7Q",
+  "authDomain": "overtimerequest-prod.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "overtimerequest-prod.firebasestorage.app",
+  "messagingSenderId": "121344878354",
+  "measurementId": "G-4ZKMJPR61Q",
+  "oAuthClientId": "",
   "recaptchaSiteKey": ""
 }
