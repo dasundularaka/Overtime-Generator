@@ -139,6 +139,14 @@ export async function saveTemplateToFirestore(
   if (options?.userName) clean.createdByName = options.userName;
   if (options?.setAsDefault) clean.isDefault = true;
 
+  // Optimistically save to local cache so user work is NEVER lost
+  saveTemplateToLocal(clean);
+
+  if (clean.isDefault) {
+    const settings = getSettings();
+    saveSettings({ ...settings, activeTemplateId: clean.id });
+  }
+
   try {
     if (clean.isDefault) {
       try {
@@ -155,22 +163,20 @@ export async function saveTemplateToFirestore(
         console.warn('Batch default update fallback to setDoc:', batchErr);
         await setDoc(doc(db, TEMPLATES_COLLECTION, clean.id), clean);
       }
-
-      // Also update local active template setting
-      const settings = getSettings();
-      saveSettings({ ...settings, activeTemplateId: clean.id });
     } else {
       // Direct setDoc for new or custom template
       await setDoc(doc(db, TEMPLATES_COLLECTION, clean.id), clean);
     }
 
-    // Cache locally
-    saveTemplateToLocal(clean);
-
     return clean;
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, `${TEMPLATES_COLLECTION}/${clean.id}`);
-    throw err;
+  } catch (err: any) {
+    console.warn('Could not write to Cloud Firestore collection, template saved in local cache:', err);
+    try {
+      handleFirestoreError(err, OperationType.WRITE, `${TEMPLATES_COLLECTION}/${clean.id}`);
+    } catch (formattedErr) {
+      throw formattedErr;
+    }
+    return clean;
   }
 }
 

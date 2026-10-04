@@ -13,7 +13,7 @@ service cloud.firestore {
         request.auth.uid == 'qdGIZL4RtYeppzf8SYTcWN9zUkp1' ||
         (request.auth.token.email != null && (
           request.auth.token.email == 'dasundularaka@gmail.com' ||
-          request.auth.token.email.matches('(?i)dasundularaka@gmail.com')
+          request.auth.token.email.lower() == 'dasundularaka@gmail.com'
         ))
       );
     }
