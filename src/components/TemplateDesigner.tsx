@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Upload,
   Save,
@@ -25,9 +25,19 @@ import {
   Sliders,
   RotateCw,
   Maximize2,
+  Minimize2,
   Code,
   ExternalLink,
   ClipboardCopy,
+  Table,
+  Type,
+  Move,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  Columns,
+  Square,
+  Sparkle,
 } from 'lucide-react';
 import {
   ClaimRecord,
@@ -41,7 +51,7 @@ import {
   getSettings,
   saveSettings,
 } from '../utils/storage';
-import { DEFAULT_TEMPLATE } from '../utils/defaultTemplate';
+import { DEFAULT_TEMPLATE, getDefaultTemplateSvgDataUrl } from '../utils/defaultTemplate';
 import { generateOvertimePdf } from '../utils/pdfGenerator';
 import { PDFPreviewModal } from './PDFPreviewModal';
 import { useAuth } from '../context/AuthContext';
@@ -57,19 +67,51 @@ import { convertPdfToImageDataUrl } from '../utils/pdfToImage';
 
 const MM_TO_PX_BASE = 3.779527559; // at 100% zoom (96 DPI standard: 1mm = ~3.78px)
 
+// Realistic sample overtime rows to display inside the table area on white paper
+const SAMPLE_TABLE_ROWS = [
+  { date: '10/01', day: 'Thu', reason: 'Core Banking Migration & Reconciliation', approvedBy: 'KMS', startTime: '17:00', endTime: '21:30', totalHours: '04:30', otHoursClaimed: '04:30', specialHoursClaimed: '' },
+  { date: '10/02', day: 'Fri', reason: 'Quarterly Audit Inspection & Ledger Balancing', approvedBy: 'WMP', startTime: '17:00', endTime: '20:00', totalHours: '03:00', otHoursClaimed: '03:00', specialHoursClaimed: '' },
+  { date: '10/05', day: 'Mon', reason: 'Treasury Settlement Processing & Swift Monitoring', approvedBy: 'KMS', startTime: '17:00', endTime: '21:00', totalHours: '04:00', otHoursClaimed: '04:00', specialHoursClaimed: '' },
+  { date: '10/06', day: 'Tue', reason: 'Disaster Recovery Live Server Drill (Gov Branch)', approvedBy: 'AGN', startTime: '08:30', endTime: '16:30', totalHours: '08:00', otHoursClaimed: '', specialHoursClaimed: '08:00' },
+  { date: '10/07', day: 'Wed', reason: 'Loan Documentation Verification & Physical Archiving', approvedBy: 'WMP', startTime: '17:00', endTime: '19:30', totalHours: '02:30', otHoursClaimed: '02:30', specialHoursClaimed: '' },
+  { date: '10/08', day: 'Thu', reason: 'ATM Cash Replenishment & Central Vault Balancing', approvedBy: 'KMS', startTime: '17:00', endTime: '20:30', totalHours: '03:30', otHoursClaimed: '03:30', specialHoursClaimed: '' },
+  { date: '10/09', day: 'Fri', reason: 'System Maintenance & Security Vulnerability Patching', approvedBy: 'AGN', startTime: '17:00', endTime: '21:00', totalHours: '04:00', otHoursClaimed: '04:00', specialHoursClaimed: '' },
+  { date: '10/12', day: 'Mon', reason: 'IT Helpdesk Support & Network Routing Optimization', approvedBy: 'KMS', startTime: '17:00', endTime: '20:00', totalHours: '03:00', otHoursClaimed: '03:00', specialHoursClaimed: '' },
+];
+
+// Metadata for all 9 Table Columns in the official Overtime Sheet
+export const TABLE_COLUMN_INFO: Array<{
+  key: keyof TemplateConfig['tableConfig']['columns'];
+  nameEn: string;
+  nameSi: string;
+  defaultX: number;
+  defaultWidth: number;
+  defaultAlign: TextAlignment;
+}> = [
+  { key: 'date', nameEn: '1. Date', nameSi: 'දිනය', defaultX: 13, defaultWidth: 14, defaultAlign: 'center' },
+  { key: 'day', nameEn: '2. Day of Week', nameSi: 'සතියේ දවස', defaultX: 28, defaultWidth: 16, defaultAlign: 'center' },
+  { key: 'reason', nameEn: '3. Reason / Nature of Duties', nameSi: 'හේතුව', defaultX: 45, defaultWidth: 53, defaultAlign: 'left' },
+  { key: 'approvedBy', nameEn: '4. Approved by Mgr', nameSi: 'අනුමත කළ කළමනාකරු', defaultX: 100, defaultWidth: 12, defaultAlign: 'center' },
+  { key: 'startTime', nameEn: '5. Time Started', nameSi: 'ඇරඹූ වේලාව', defaultX: 126, defaultWidth: 12, defaultAlign: 'center' },
+  { key: 'endTime', nameEn: '6. Time Left', nameSi: 'අවසන් වේලාව', defaultX: 139, defaultWidth: 12, defaultAlign: 'center' },
+  { key: 'totalHours', nameEn: '7. Total Hrs. Worked', nameSi: 'වැඩ කළ පැය ගණන', defaultX: 152, defaultWidth: 14, defaultAlign: 'center' },
+  { key: 'otHoursClaimed', nameEn: '8. Overtime Claimed (A)', nameSi: 'හිමිකම්පාන අතිකාල A', defaultX: 167, defaultWidth: 16, defaultAlign: 'center' },
+  { key: 'specialHoursClaimed', nameEn: '9. Special Assignment (B)', nameSi: 'විශේෂ වැඩ අතිකාල B', defaultX: 184, defaultWidth: 14, defaultAlign: 'center' },
+];
+
 // Standard Overtime Form Dynamic Presets for quick addition
 const FIELD_PRESETS = [
-  { name: 'Employee Name', key: 'employeeName', sample: 'Dasun Ramasingha', type: 'text' as const, w: 60, h: 5 },
-  { name: 'Employee Number', key: 'employeeNumber', sample: 'EMP-4892', type: 'text' as const, w: 35, h: 5 },
-  { name: 'Designation', key: 'designation', sample: 'Systems Engineer', type: 'text' as const, w: 50, h: 5 },
-  { name: 'Department', key: 'department', sample: 'IT Infrastructure', type: 'text' as const, w: 55, h: 5 },
-  { name: 'Branch', key: 'branch', sample: 'Head Office', type: 'text' as const, w: 45, h: 5 },
+  { name: 'Employee Name', key: 'employeeName', sample: 'Dasun Dularaka Ramasingha', type: 'text' as const, w: 60, h: 5 },
+  { name: 'Employee Number', key: 'employeeNumber', sample: '084521', type: 'text' as const, w: 35, h: 5 },
+  { name: 'Designation', key: 'designation', sample: 'Senior Banking Assistant', type: 'text' as const, w: 50, h: 5 },
+  { name: 'Department', key: 'department', sample: 'IT Operations & Infrastructure', type: 'text' as const, w: 55, h: 5 },
+  { name: 'Branch', key: 'branch', sample: 'BOC Colombo Main Branch', type: 'text' as const, w: 45, h: 5 },
   { name: 'Claim Month & Year', key: 'monthYear', sample: 'October 2026', type: 'text' as const, w: 40, h: 5 },
-  { name: 'Claim Date', key: 'claimDate', sample: '2026-10-04', type: 'date' as const, w: 35, h: 5 },
-  { name: 'Total OT Hours', key: 'totalHours', sample: '18:30 Hours', type: 'calculated' as const, w: 40, h: 5 },
+  { name: 'Claim Date', key: 'claimDate', sample: '2026-10-05', type: 'date' as const, w: 35, h: 5 },
+  { name: 'Total OT Hours', key: 'totalHours', sample: '18:30', type: 'calculated' as const, w: 40, h: 5 },
   { name: 'Claim Type', key: 'claimType', sample: 'OT Claim', type: 'text' as const, w: 30, h: 5 },
-  { name: 'Officer Signature', key: 'signature', sample: 'Approved & Verified', type: 'signature' as const, w: 50, h: 8 },
-  { name: 'Custom Dynamic Label', key: 'customField', sample: 'Custom Label Text', type: 'text' as const, w: 40, h: 5 },
+  { name: 'Officer Signature', key: 'signature', sample: 'D. D. Ramasingha', type: 'signature' as const, w: 50, h: 8 },
+  { name: 'Custom Dynamic Label', key: 'customField', sample: 'Custom Sample Text', type: 'text' as const, w: 40, h: 5 },
 ];
 
 export const TemplateDesigner: React.FC = () => {
@@ -84,10 +126,13 @@ export const TemplateDesigner: React.FC = () => {
     template.fields[0]?.id || null
   );
   const [activeTab, setActiveTab] = useState<'fields' | 'pageSize' | 'table' | 'printer'>('fields');
-  const [zoom, setZoom] = useState<number>(0.75); // 75% default for desktop viewport
+  const [zoom, setZoom] = useState<number>(0.75); // zoom factor
+  const [isFixedToScreen, setIsFixedToScreen] = useState<boolean>(true); // Auto-fit to screen size mode
   const [showRulers, setShowRulers] = useState<boolean>(true);
   const [showBoundaries, setShowBoundaries] = useState<boolean>(true);
-  const [gridSnap, setGridSnap] = useState<number>(1); // 1 mm snap (0 = disabled)
+  const [showSampleText, setShowSampleText] = useState<boolean>(true); // Display sample text across fields and table
+  const [isTableSelected, setIsTableSelected] = useState<boolean>(false); // Interactive table area selection
+  const [gridSnap, setGridSnap] = useState<number>(0.5); // 0.5 mm snap
 
   // Cloud Save & Status States
   const [isSaving, setIsSaving] = useState<boolean>(false);
@@ -108,12 +153,22 @@ export const TemplateDesigner: React.FC = () => {
   const [testPdfUrl, setTestPdfUrl] = useState<string | null>(null);
   const [isTestPdfOpen, setIsTestPdfOpen] = useState<boolean>(false);
 
-  // Dragging state
+  // Dragging state for fields and table area
   const [isDragging, setIsDragging] = useState<boolean>(false);
+  const [dragMode, setDragMode] = useState<
+    'none' | 'field' | 'table-move' | 'table-resize-top' | 'table-resize-bottom' | 'table-col-divider'
+  >('none');
   const [dragFieldId, setDragFieldId] = useState<string | null>(null);
+  const [dragColKey, setDragColKey] = useState<string | null>(null);
   const [dragStartMm, setDragStartMm] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [fieldStartMm, setFieldStartMm] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [tableStartMm, setTableStartMm] = useState<{
+    startY: number;
+    rowHeight: number;
+    colWidth: number;
+  }>({ startY: 72.8, rowHeight: 5.45, colWidth: 14 });
 
+  const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const jsonImportRef = useRef<HTMLInputElement>(null);
@@ -144,6 +199,43 @@ export const TemplateDesigner: React.FC = () => {
 
     return () => unsub();
   }, [isAdmin]);
+
+  // Auto-fit A4 white paper template to screen container
+  const fitToScreen = useCallback(() => {
+    if (!containerRef.current) return;
+    const container = containerRef.current;
+    const padX = showRulers ? 64 : 32;
+    const padY = showRulers ? 72 : 40;
+    const availW = Math.max(260, container.clientWidth - padX);
+    const availH = Math.max(380, container.clientHeight - padY);
+
+    const sheetWidthPx = template.widthMm * MM_TO_PX_BASE;
+    const sheetHeightPx = template.heightMm * MM_TO_PX_BASE;
+
+    const scaleW = availW / sheetWidthPx;
+    const scaleH = availH / sheetHeightPx;
+    const bestZoom = Math.min(scaleW, scaleH);
+    const clamped = Math.max(0.35, Math.min(1.5, parseFloat(bestZoom.toFixed(2))));
+    setZoom(clamped);
+  }, [template.widthMm, template.heightMm, showRulers]);
+
+  // Initial fit & dynamic resize if isFixedToScreen
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fitToScreen();
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [fitToScreen]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (isFixedToScreen) {
+        fitToScreen();
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [fitToScreen, isFixedToScreen]);
 
   // Handle switching template from dropdown
   const handleSwitchTemplate = (id: string) => {
@@ -471,6 +563,38 @@ export const TemplateDesigner: React.FC = () => {
     setShowPresetsMenu(false);
   };
 
+  // Add sample text field directly to the white paper template
+  const handleAddSampleText = (customText?: string) => {
+    const newId = 'field_text_' + Date.now();
+    const sampleVal = customText || 'Sample Text Block';
+    const newField: FieldConfig = {
+      id: newId,
+      name: 'Sample Text ' + (template.fields.length + 1),
+      key: 'text_' + Math.random().toString(36).substring(2, 6),
+      type: 'text',
+      x: 35,
+      y: Math.min(270, 42 + (template.fields.length % 10) * 8),
+      width: 55,
+      height: 5.5,
+      fontSize: 9.5,
+      fontFamily: 'Helvetica',
+      isBold: false,
+      alignment: 'left',
+      rotation: 0,
+      isVisible: true,
+      sampleValue: sampleVal,
+      color: '#000000',
+    };
+
+    setTemplate(prev => ({
+      ...prev,
+      fields: [...prev.fields, newField],
+    }));
+    setSelectedFieldId(newId);
+    setIsTableSelected(false);
+    setActiveTab('fields');
+  };
+
   // Duplicate currently selected field
   const handleDuplicateField = () => {
     if (!selectedField) return;
@@ -501,11 +625,74 @@ export const TemplateDesigner: React.FC = () => {
     }
   };
 
+  // Table Column updater
+  const handleUpdateColumn = (
+    colKey: keyof TemplateConfig['tableConfig']['columns'],
+    prop: 'x' | 'width' | 'align',
+    value: any
+  ) => {
+    setTemplate(prev => {
+      const existing = prev.tableConfig.columns[colKey] || { x: 13, width: 14, align: 'center' };
+      return {
+        ...prev,
+        tableConfig: {
+          ...prev.tableConfig,
+          columns: {
+            ...prev.tableConfig.columns,
+            [colKey]: {
+              ...existing,
+              [prop]: value,
+            },
+          },
+        },
+      };
+    });
+  };
+
+  // Pack all 9 columns sequentially from left to right (align without gaps or overlaps)
+  const handlePackColumnsSequentially = () => {
+    setTemplate(prev => {
+      const cols = { ...prev.tableConfig.columns };
+      let currentX = cols.date?.x || 13;
+
+      TABLE_COLUMN_INFO.forEach(info => {
+        const key = info.key;
+        if (cols[key]) {
+          cols[key] = {
+            ...cols[key]!,
+            x: parseFloat(currentX.toFixed(1)),
+          };
+          currentX += cols[key]!.width;
+        }
+      });
+
+      return {
+        ...prev,
+        tableConfig: {
+          ...prev.tableConfig,
+          columns: cols,
+        },
+      };
+    });
+  };
+
+  // Reset table configuration to official baseline
+  const handleResetTableToDefault = () => {
+    setTemplate(prev => ({
+      ...prev,
+      tableConfig: {
+        ...DEFAULT_TEMPLATE.tableConfig,
+      },
+    }));
+  };
+
   // Mouse drag handling for positioning fields on A4 visual canvas
   const handleFieldMouseDown = (e: React.MouseEvent, field: FieldConfig) => {
     e.stopPropagation();
     setSelectedFieldId(field.id);
+    setIsTableSelected(false);
     setIsDragging(true);
+    setDragMode('field');
     setDragFieldId(field.id);
     setFieldStartMm({ x: field.x, y: field.y });
 
@@ -517,8 +704,94 @@ export const TemplateDesigner: React.FC = () => {
     }
   };
 
+  // Mouse drag handling for Table Area repositioning
+  const handleTableMoveMouseDown = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsTableSelected(true);
+    setSelectedFieldId(null);
+    setIsDragging(true);
+    setDragMode('table-move');
+    setTableStartMm({
+      startY: template.tableConfig.startY,
+      rowHeight: template.tableConfig.rowHeight,
+      colWidth: 0,
+    });
+
+    if (canvasRef.current) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      const currentXMm = (e.clientX - rect.left) / (MM_TO_PX_BASE * zoom);
+      const currentYMm = (e.clientY - rect.top) / (MM_TO_PX_BASE * zoom);
+      setDragStartMm({ x: currentXMm, y: currentYMm });
+    }
+  };
+
+  // Mouse drag handling for Table Top Resize (startY)
+  const handleTableTopResizeMouseDown = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsTableSelected(true);
+    setSelectedFieldId(null);
+    setIsDragging(true);
+    setDragMode('table-resize-top');
+    setTableStartMm({
+      startY: template.tableConfig.startY,
+      rowHeight: template.tableConfig.rowHeight,
+      colWidth: 0,
+    });
+
+    if (canvasRef.current) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      const currentXMm = (e.clientX - rect.left) / (MM_TO_PX_BASE * zoom);
+      const currentYMm = (e.clientY - rect.top) / (MM_TO_PX_BASE * zoom);
+      setDragStartMm({ x: currentXMm, y: currentYMm });
+    }
+  };
+
+  // Mouse drag handling for Table Bottom Resize (rowHeight)
+  const handleTableBottomResizeMouseDown = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsTableSelected(true);
+    setSelectedFieldId(null);
+    setIsDragging(true);
+    setDragMode('table-resize-bottom');
+    setTableStartMm({
+      startY: template.tableConfig.startY,
+      rowHeight: template.tableConfig.rowHeight,
+      colWidth: 0,
+    });
+
+    if (canvasRef.current) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      const currentXMm = (e.clientX - rect.left) / (MM_TO_PX_BASE * zoom);
+      const currentYMm = (e.clientY - rect.top) / (MM_TO_PX_BASE * zoom);
+      setDragStartMm({ x: currentXMm, y: currentYMm });
+    }
+  };
+
+  // Mouse drag handling for Column Divider resizing
+  const handleColumnDividerMouseDown = (e: React.MouseEvent, colKey: string) => {
+    e.stopPropagation();
+    setIsTableSelected(true);
+    setSelectedFieldId(null);
+    setIsDragging(true);
+    setDragMode('table-col-divider');
+    setDragColKey(colKey);
+    const existingCol = template.tableConfig.columns[colKey as keyof typeof template.tableConfig.columns];
+    setTableStartMm({
+      startY: template.tableConfig.startY,
+      rowHeight: template.tableConfig.rowHeight,
+      colWidth: existingCol?.width || 14,
+    });
+
+    if (canvasRef.current) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      const currentXMm = (e.clientX - rect.left) / (MM_TO_PX_BASE * zoom);
+      const currentYMm = (e.clientY - rect.top) / (MM_TO_PX_BASE * zoom);
+      setDragStartMm({ x: currentXMm, y: currentYMm });
+    }
+  };
+
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging || !dragFieldId || !canvasRef.current) return;
+    if (!isDragging || !canvasRef.current) return;
 
     const rect = canvasRef.current.getBoundingClientRect();
     const mouseXMm = (e.clientX - rect.left) / (MM_TO_PX_BASE * zoom);
@@ -527,32 +800,86 @@ export const TemplateDesigner: React.FC = () => {
     const deltaX = mouseXMm - dragStartMm.x;
     const deltaY = mouseYMm - dragStartMm.y;
 
-    let nextX = fieldStartMm.x + deltaX;
-    let nextY = fieldStartMm.y + deltaY;
+    if (dragMode === 'field' && dragFieldId) {
+      let nextX = fieldStartMm.x + deltaX;
+      let nextY = fieldStartMm.y + deltaY;
 
-    if (gridSnap > 0) {
-      nextX = Math.round(nextX / gridSnap) * gridSnap;
-      nextY = Math.round(nextY / gridSnap) * gridSnap;
+      if (gridSnap > 0) {
+        nextX = Math.round(nextX / gridSnap) * gridSnap;
+        nextY = Math.round(nextY / gridSnap) * gridSnap;
+      }
+
+      // Keep within A4 sheet boundaries
+      nextX = Math.max(0, Math.min(template.widthMm - 5, parseFloat(nextX.toFixed(1))));
+      nextY = Math.max(0, Math.min(template.heightMm - 5, parseFloat(nextY.toFixed(1))));
+
+      setTemplate(prev => ({
+        ...prev,
+        fields: prev.fields.map(f => {
+          if (f.id === dragFieldId) {
+            return { ...f, x: nextX, y: nextY };
+          }
+          return f;
+        }),
+      }));
+    } else if (dragMode === 'table-move' || dragMode === 'table-resize-top') {
+      let nextY = tableStartMm.startY + deltaY;
+      if (gridSnap > 0) {
+        nextY = Math.round(nextY / gridSnap) * gridSnap;
+      }
+      nextY = Math.max(25, Math.min(240, parseFloat(nextY.toFixed(1))));
+
+      setTemplate(prev => ({
+        ...prev,
+        tableConfig: {
+          ...prev.tableConfig,
+          startY: nextY,
+        },
+      }));
+    } else if (dragMode === 'table-resize-bottom') {
+      const origTableHeight = tableStartMm.rowHeight * (template.tableConfig.maxRows || 31);
+      let nextTableHeight = origTableHeight + deltaY;
+      let nextRowH = nextTableHeight / (template.tableConfig.maxRows || 31);
+      if (gridSnap > 0) {
+        nextRowH = Math.round(nextRowH * 20) / 20; // 0.05 precision
+      }
+      nextRowH = Math.max(3.0, Math.min(12.0, parseFloat(nextRowH.toFixed(2))));
+
+      setTemplate(prev => ({
+        ...prev,
+        tableConfig: {
+          ...prev.tableConfig,
+          rowHeight: nextRowH,
+        },
+      }));
+    } else if (dragMode === 'table-col-divider' && dragColKey) {
+      let nextW = tableStartMm.colWidth + deltaX;
+      if (gridSnap > 0) {
+        nextW = Math.round(nextW / gridSnap) * gridSnap;
+      }
+      nextW = Math.max(5, Math.min(140, parseFloat(nextW.toFixed(1))));
+
+      setTemplate(prev => ({
+        ...prev,
+        tableConfig: {
+          ...prev.tableConfig,
+          columns: {
+            ...prev.tableConfig.columns,
+            [dragColKey]: {
+              ...prev.tableConfig.columns[dragColKey as keyof typeof prev.tableConfig.columns]!,
+              width: nextW,
+            },
+          },
+        },
+      }));
     }
-
-    // Keep within A4 sheet boundaries
-    nextX = Math.max(0, Math.min(template.widthMm - 5, parseFloat(nextX.toFixed(1))));
-    nextY = Math.max(0, Math.min(template.heightMm - 5, parseFloat(nextY.toFixed(1))));
-
-    setTemplate(prev => ({
-      ...prev,
-      fields: prev.fields.map(f => {
-        if (f.id === dragFieldId) {
-          return { ...f, x: nextX, y: nextY };
-        }
-        return f;
-      }),
-    }));
   };
 
   const handleMouseUp = () => {
     setIsDragging(false);
+    setDragMode('none');
     setDragFieldId(null);
+    setDragColKey(null);
   };
 
   // Test Print / PDF generation
@@ -894,12 +1221,16 @@ service cloud.firestore {
         {/* LEFT COLUMN: Visual Live Preview Canvas & Rulers */}
         <div className="lg:col-span-7 xl:col-span-8 flex flex-col items-center">
           {/* Canvas Controls Header */}
+          {/* Canvas Controls Header */}
           <div className="w-full flex flex-wrap items-center justify-between gap-2 p-2.5 mb-2 bg-white rounded-xl border border-slate-200 text-xs text-slate-600 shadow-2xs">
-            {/* Zoom Controls */}
-            <div className="flex items-center gap-1">
-              <span className="text-[11px] font-semibold text-slate-400 mr-1">Zoom:</span>
+            {/* Left: Zoom Controls & Auto-Fit */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-semibold text-slate-400 mr-0.5">Zoom:</span>
               <button
-                onClick={() => setZoom(z => Math.max(0.35, parseFloat((z - 0.15).toFixed(2))))}
+                onClick={() => {
+                  setIsFixedToScreen(false);
+                  setZoom(z => Math.max(0.35, parseFloat((z - 0.15).toFixed(2))));
+                }}
                 className="p-1 rounded hover:bg-slate-100"
                 title="Zoom Out"
               >
@@ -909,22 +1240,76 @@ service cloud.firestore {
                 {Math.round(zoom * 100)}%
               </span>
               <button
-                onClick={() => setZoom(z => Math.min(2.0, parseFloat((z + 0.15).toFixed(2))))}
+                onClick={() => {
+                  setIsFixedToScreen(false);
+                  setZoom(z => Math.min(2.0, parseFloat((z + 0.15).toFixed(2))));
+                }}
                 className="p-1 rounded hover:bg-slate-100"
                 title="Zoom In"
               >
                 <ZoomIn className="w-3.5 h-3.5" />
               </button>
+
+              {/* Fit Screen button */}
               <button
-                onClick={() => setZoom(0.75)}
-                className="px-1.5 py-0.5 text-[10px] text-slate-500 hover:bg-slate-100 rounded"
+                onClick={() => {
+                  setIsFixedToScreen(true);
+                  fitToScreen();
+                }}
+                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
+                  isFixedToScreen
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                }`}
+                title="Fix / Fit template background to screen size in white paper"
               >
-                Fit
+                <Maximize2 className="w-3.5 h-3.5" />
+                <span>Fit Screen</span>
+              </button>
+
+              {/* Quick Add Sample Text Button */}
+              <button
+                onClick={() => handleAddSampleText()}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-semibold transition ml-1"
+                title="Add a sample text field to the white paper"
+              >
+                <Type className="w-3.5 h-3.5 text-emerald-600" />
+                <span>+ Add Sample Text</span>
+              </button>
+
+              {/* Adjust Table Area Button */}
+              <button
+                onClick={() => {
+                  setActiveTab('table');
+                  setIsTableSelected(true);
+                  setSelectedFieldId(null);
+                }}
+                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${
+                  activeTab === 'table' || isTableSelected
+                    ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                    : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-200'
+                }`}
+                title="Adjust table position, row height, and column widths"
+              >
+                <Table className="w-3.5 h-3.5" />
+                <span>Adjust Table Area</span>
               </button>
             </div>
 
-            {/* Visual Toggles */}
-            <div className="flex items-center gap-3">
+            {/* Right: Visual Toggles */}
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Sample Text Preview Toggle */}
+              <label className="flex items-center gap-1.5 cursor-pointer bg-slate-50 px-2 py-1 rounded-lg border border-slate-200">
+                <input
+                  type="checkbox"
+                  checked={showSampleText}
+                  onChange={e => setShowSampleText(e.target.checked)}
+                  className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5"
+                />
+                <span className="text-[11px] font-semibold text-slate-700">Sample Text</span>
+              </label>
+
+              {/* Field Outlines */}
               <label className="flex items-center gap-1.5 cursor-pointer">
                 <input
                   type="checkbox"
@@ -935,6 +1320,7 @@ service cloud.firestore {
                 <span className="text-[11px]">Field Outlines</span>
               </label>
 
+              {/* Rulers (mm) */}
               <label className="flex items-center gap-1.5 cursor-pointer">
                 <input
                   type="checkbox"
@@ -961,14 +1347,17 @@ service cloud.firestore {
               </div>
 
               {/* A4 Sheet Dimensions Chip */}
-              <span className="text-[10px] font-mono text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
-                {template.widthMm} × {template.heightMm} mm
+              <span className="text-[10px] font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                {template.widthMm} × {template.heightMm} mm (A4)
               </span>
             </div>
           </div>
 
-          {/* Canvas Wrapper with Rulers */}
-          <div className="relative overflow-auto p-4 bg-slate-200/60 rounded-2xl border border-slate-300 max-h-[82vh] w-full flex justify-center items-start shadow-inner">
+          {/* Canvas Wrapper with Rulers - Fits Screen Container */}
+          <div
+            ref={containerRef}
+            className="relative overflow-auto p-4 md:p-6 bg-slate-300/80 rounded-2xl border border-slate-300/90 max-h-[82vh] min-h-[580px] w-full flex justify-center items-start shadow-inner"
+          >
             {/* Horizontal Millimeter Ruler */}
             {showRulers && (
               <div
@@ -1005,25 +1394,26 @@ service cloud.firestore {
               </div>
             )}
 
-            {/* A4 Sheet Canvas */}
+            {/* Authentic A4 White Paper Canvas Sheet */}
             <div
               ref={canvasRef}
-              className="relative bg-white shadow-2xl transition-all border border-slate-300 mt-6 ml-6 select-none"
+              className="relative bg-white shadow-2xl transition-transform border border-slate-300/90 ring-1 ring-slate-900/10 mt-6 ml-6 select-none shrink-0"
               style={{
                 width: `${template.widthMm * MM_TO_PX_BASE * zoom}px`,
                 height: `${template.heightMm * MM_TO_PX_BASE * zoom}px`,
                 transformOrigin: 'top center',
               }}
-              onClick={() => setSelectedFieldId(null)}
+              onClick={() => {
+                setSelectedFieldId(null);
+                setIsTableSelected(false);
+              }}
             >
-              {/* Background Layer: Blank Form (from uploaded PDF or default) */}
-              {template.backgroundImageUrl && (
-                <img
-                  src={template.backgroundImageUrl}
-                  alt="A4 Blank Form Template"
-                  className="absolute inset-0 w-full h-full object-contain pointer-events-none select-none opacity-95"
-                />
-              )}
+              {/* Background Layer: Official Blank Form (Image, PDF page, or Vector Form) */}
+              <img
+                src={template.backgroundImageUrl || getDefaultTemplateSvgDataUrl()}
+                alt="A4 Blank Form Template"
+                className="absolute inset-0 w-full h-full object-fill pointer-events-none select-none opacity-95"
+              />
 
               {/* Uploading Spinner Overlay */}
               {isUploadingBackground && (
@@ -1044,7 +1434,12 @@ service cloud.firestore {
                 const topPx = field.y * MM_TO_PX_BASE * zoom;
                 const widthPx = field.width * MM_TO_PX_BASE * zoom;
                 const heightPx = field.height * MM_TO_PX_BASE * zoom;
-                const fontSizePx = (field.fontSize * (96 / 72)) * zoom;
+                const fontSizePx = Math.max(6, (field.fontSize * (96 / 72)) * zoom);
+
+                // Sample text display logic
+                const displayText = showSampleText
+                  ? (field.sampleValue || field.name)
+                  : field.name;
 
                 return (
                   <div
@@ -1053,6 +1448,8 @@ service cloud.firestore {
                     onClick={e => {
                       e.stopPropagation();
                       setSelectedFieldId(field.id);
+                      setIsTableSelected(false);
+                      setActiveTab('fields');
                     }}
                     className={`absolute flex items-center px-1 overflow-hidden transition-colors cursor-move ${
                       isSelected
@@ -1077,7 +1474,7 @@ service cloud.firestore {
                     title={`${field.name} (${field.x.toFixed(1)}mm, ${field.y.toFixed(1)}mm, rot: ${field.rotation || 0}°)`}
                   >
                     <span className="truncate w-full select-none leading-none">
-                      {field.sampleValue || field.name}
+                      {displayText}
                     </span>
 
                     {/* Coordinates chip badge when selected */}
@@ -1090,28 +1487,258 @@ service cloud.firestore {
                 );
               })}
 
-              {/* Table Region Guideline */}
-              {template.tableConfig?.enabled && showBoundaries && (
-                <div
-                  className="absolute pointer-events-none border border-dashed border-amber-400 bg-amber-500/5 z-5"
-                  style={{
-                    left: `${template.tableConfig.columns.date.x * MM_TO_PX_BASE * zoom}px`,
-                    top: `${template.tableConfig.startY * MM_TO_PX_BASE * zoom}px`,
-                    width: `${
-                      (template.tableConfig.columns.reason.x +
-                        template.tableConfig.columns.reason.width -
-                        template.tableConfig.columns.date.x) *
-                      MM_TO_PX_BASE *
-                      zoom
-                    }px`,
-                    height: `${template.tableConfig.rowHeight * template.tableConfig.maxRows * MM_TO_PX_BASE * zoom}px`,
-                  }}
-                >
-                  <span className="absolute -top-4 left-0 text-[8px] font-mono text-amber-700 bg-amber-100 px-1 rounded">
-                    31-Day Table Rows Area ({template.tableConfig.startY.toFixed(1)}mm)
-                  </span>
-                </div>
-              )}
+              {/* Interactive Table Area Overlay & Adjustment Handles */}
+              {template.tableConfig?.enabled && (() => {
+                const tbl = template.tableConfig;
+                const cols = tbl.columns;
+                const colKeysList: (keyof typeof cols)[] = [
+                  'date', 'day', 'reason', 'approvedBy', 'startTime', 'endTime', 'totalHours', 'otHoursClaimed', 'specialHoursClaimed'
+                ];
+                const activeColsList = colKeysList
+                  .map(k => ({ key: k, col: cols[k] }))
+                  .filter((c): c is { key: keyof typeof cols; col: NonNullable<typeof c.col> } => !!c.col);
+
+                const minColX = activeColsList.length > 0 ? Math.min(...activeColsList.map(c => c.col.x)) : 13;
+                const maxColX = activeColsList.length > 0 ? Math.max(...activeColsList.map(c => c.col.x + c.col.width)) : 198;
+                const tblWidthMm = Math.max(20, maxColX - minColX);
+                const tblHeightMm = tbl.rowHeight * (tbl.maxRows || 31);
+
+                const isHighlighting = isTableSelected || activeTab === 'table' || showBoundaries;
+
+                return (
+                  <>
+                    {/* Interactive Table Area Bounding Box */}
+                    {isHighlighting && (
+                      <div
+                        onClick={e => {
+                          e.stopPropagation();
+                          setIsTableSelected(true);
+                          setSelectedFieldId(null);
+                          setActiveTab('table');
+                        }}
+                        className={`absolute z-20 transition-all ${
+                          isTableSelected || activeTab === 'table'
+                            ? 'border-2 border-amber-500 bg-amber-500/10 ring-2 ring-amber-300 shadow-md cursor-pointer'
+                            : 'border border-dashed border-amber-400/80 bg-amber-500/5 hover:border-amber-600 hover:bg-amber-500/15 cursor-pointer'
+                        }`}
+                        style={{
+                          left: `${minColX * MM_TO_PX_BASE * zoom}px`,
+                          top: `${tbl.startY * MM_TO_PX_BASE * zoom}px`,
+                          width: `${tblWidthMm * MM_TO_PX_BASE * zoom}px`,
+                          height: `${tblHeightMm * MM_TO_PX_BASE * zoom}px`,
+                        }}
+                      >
+                        {/* Top Move / Title Bar */}
+                        <div
+                          onMouseDown={handleTableMoveMouseDown}
+                          className="absolute -top-7 left-0 right-0 h-6 bg-amber-500 text-white flex items-center justify-between px-2 rounded-t-md text-[10px] font-bold shadow-xs cursor-move select-none"
+                          title="Click and drag to move table vertically"
+                        >
+                          <div className="flex items-center gap-1">
+                            <Move className="w-3 h-3" />
+                            <span>Table Area ({tbl.startY.toFixed(1)}mm • 31 Rows)</span>
+                          </div>
+                          <span className="font-mono text-[9px] bg-amber-600 px-1 py-0.5 rounded">
+                            Row: {tbl.rowHeight.toFixed(2)}mm
+                          </span>
+                        </div>
+
+                        {/* Top Drag Handle (startY resize) */}
+                        <div
+                          onMouseDown={handleTableTopResizeMouseDown}
+                          className="absolute -top-2 left-1/2 -translate-x-1/2 w-8 h-3.5 bg-amber-600 border border-white text-white rounded-full flex items-center justify-center cursor-ns-resize shadow-md z-30"
+                          title="Drag up or down to adjust Table Start Y position"
+                        >
+                          <span className="text-[8px] font-bold leading-none">↕</span>
+                        </div>
+
+                        {/* Bottom Drag Handle (rowHeight / table height resize) */}
+                        <div
+                          onMouseDown={handleTableBottomResizeMouseDown}
+                          className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-8 h-3.5 bg-amber-600 border border-white text-white rounded-full flex items-center justify-center cursor-ns-resize shadow-md z-30"
+                          title="Drag up or down to adjust Row Height and Table Height"
+                        >
+                          <span className="text-[8px] font-bold leading-none">↕</span>
+                        </div>
+
+                        {/* Column boundary markers & draggable divider handles */}
+                        {activeColsList.map(({ key, col }) => {
+                          const colRightPx = (col.x + col.width - minColX) * MM_TO_PX_BASE * zoom;
+                          return (
+                            <div
+                              key={key}
+                              className="absolute top-0 bottom-0 pointer-events-none border-r border-amber-400/40"
+                              style={{ left: `${colRightPx}px` }}
+                            >
+                              {/* Draggable column divider handle at top */}
+                              <div
+                                onMouseDown={e => handleColumnDividerMouseDown(e, key)}
+                                className="pointer-events-auto absolute -top-3 -right-2 w-4 h-4 bg-white border border-amber-500 rounded-full shadow-xs cursor-ew-resize flex items-center justify-center z-30 hover:bg-amber-100"
+                                title={`Drag to adjust width of column "${key}"`}
+                              >
+                                <span className="text-[7px] text-amber-700 font-bold">↔</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Realistic Sample Table Data Rows inside Columns */}
+                    {showSampleText && (
+                      <div className="absolute inset-0 pointer-events-none select-none z-15 overflow-hidden">
+                        {SAMPLE_TABLE_ROWS.map((row, idx) => {
+                          const rowYMm = tbl.startY + idx * tbl.rowHeight;
+                          const rowTopPx = rowYMm * MM_TO_PX_BASE * zoom;
+                          const rowHeightPx = tbl.rowHeight * MM_TO_PX_BASE * zoom;
+                          const fontSizePx = Math.max(6, (tbl.fontSize * (96 / 72)) * zoom);
+
+                          return (
+                            <div
+                              key={idx}
+                              className="absolute left-0 right-0 flex items-center"
+                              style={{
+                                top: `${rowTopPx}px`,
+                                height: `${rowHeightPx}px`,
+                                fontSize: `${fontSizePx}px`,
+                                fontFamily: tbl.fontFamily || 'Helvetica',
+                                fontWeight: tbl.isBold ? 'bold' : 'normal',
+                                color: '#1e293b',
+                              }}
+                            >
+                              {/* 1. Date */}
+                              {cols.date && (
+                                <span
+                                  className="absolute truncate px-0.5"
+                                  style={{
+                                    left: `${cols.date.x * MM_TO_PX_BASE * zoom}px`,
+                                    width: `${cols.date.width * MM_TO_PX_BASE * zoom}px`,
+                                    textAlign: cols.date.align || 'center',
+                                  }}
+                                >
+                                  {row.date}
+                                </span>
+                              )}
+
+                              {/* 2. Day */}
+                              {cols.day && (
+                                <span
+                                  className="absolute truncate px-0.5"
+                                  style={{
+                                    left: `${cols.day.x * MM_TO_PX_BASE * zoom}px`,
+                                    width: `${cols.day.width * MM_TO_PX_BASE * zoom}px`,
+                                    textAlign: cols.day.align || 'center',
+                                  }}
+                                >
+                                  {row.day}
+                                </span>
+                              )}
+
+                              {/* 3. Reason */}
+                              {cols.reason && (
+                                <span
+                                  className="absolute truncate px-0.5 text-slate-800"
+                                  style={{
+                                    left: `${cols.reason.x * MM_TO_PX_BASE * zoom}px`,
+                                    width: `${cols.reason.width * MM_TO_PX_BASE * zoom}px`,
+                                    textAlign: cols.reason.align || 'left',
+                                  }}
+                                >
+                                  {row.reason}
+                                </span>
+                              )}
+
+                              {/* 4. Approved By */}
+                              {cols.approvedBy && (
+                                <span
+                                  className="absolute truncate px-0.5 font-semibold text-slate-700"
+                                  style={{
+                                    left: `${cols.approvedBy.x * MM_TO_PX_BASE * zoom}px`,
+                                    width: `${cols.approvedBy.width * MM_TO_PX_BASE * zoom}px`,
+                                    textAlign: cols.approvedBy.align || 'center',
+                                  }}
+                                >
+                                  {row.approvedBy}
+                                </span>
+                              )}
+
+                              {/* 5. Start Time */}
+                              {cols.startTime && (
+                                <span
+                                  className="absolute truncate px-0.5"
+                                  style={{
+                                    left: `${cols.startTime.x * MM_TO_PX_BASE * zoom}px`,
+                                    width: `${cols.startTime.width * MM_TO_PX_BASE * zoom}px`,
+                                    textAlign: cols.startTime.align || 'center',
+                                  }}
+                                >
+                                  {row.startTime}
+                                </span>
+                              )}
+
+                              {/* 6. End Time */}
+                              {cols.endTime && (
+                                <span
+                                  className="absolute truncate px-0.5"
+                                  style={{
+                                    left: `${cols.endTime.x * MM_TO_PX_BASE * zoom}px`,
+                                    width: `${cols.endTime.width * MM_TO_PX_BASE * zoom}px`,
+                                    textAlign: cols.endTime.align || 'center',
+                                  }}
+                                >
+                                  {row.endTime}
+                                </span>
+                              )}
+
+                              {/* 7. Total Hours */}
+                              {cols.totalHours && (
+                                <span
+                                  className="absolute truncate px-0.5 font-semibold text-slate-800"
+                                  style={{
+                                    left: `${cols.totalHours.x * MM_TO_PX_BASE * zoom}px`,
+                                    width: `${cols.totalHours.width * MM_TO_PX_BASE * zoom}px`,
+                                    textAlign: cols.totalHours.align || 'center',
+                                  }}
+                                >
+                                  {row.totalHours}
+                                </span>
+                              )}
+
+                              {/* 8. OT Hours Claimed (A) */}
+                              {cols.otHoursClaimed && (
+                                <span
+                                  className="absolute truncate px-0.5 font-bold text-blue-800"
+                                  style={{
+                                    left: `${cols.otHoursClaimed.x * MM_TO_PX_BASE * zoom}px`,
+                                    width: `${cols.otHoursClaimed.width * MM_TO_PX_BASE * zoom}px`,
+                                    textAlign: cols.otHoursClaimed.align || 'center',
+                                  }}
+                                >
+                                  {row.otHoursClaimed}
+                                </span>
+                              )}
+
+                              {/* 9. Special Assignment (B) */}
+                              {cols.specialHoursClaimed && (
+                                <span
+                                  className="absolute truncate px-0.5 font-bold text-indigo-800"
+                                  style={{
+                                    left: `${cols.specialHoursClaimed.x * MM_TO_PX_BASE * zoom}px`,
+                                    width: `${cols.specialHoursClaimed.width * MM_TO_PX_BASE * zoom}px`,
+                                    textAlign: cols.specialHoursClaimed.align || 'center',
+                                  }}
+                                >
+                                  {row.specialHoursClaimed}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -1570,93 +2197,472 @@ service cloud.firestore {
             </div>
           )}
 
-          {/* TAB 3: 31-Day Table Configuration */}
+          {/* TAB 3: 31-Day Table Configuration & Column Adjustments */}
           {activeTab === 'table' && (
-            <div className="rounded-2xl bg-white p-5 shadow-xs border border-slate-200 space-y-4 text-xs">
-              <div>
-                <h3 className="font-bold text-slate-900 text-sm mb-1">Overtime Table Overlay</h3>
-                <p className="text-slate-500 text-xs">
-                  Configure coordinates for the daily entries grid (1st - 31st days of the month).
+            <div className="rounded-2xl bg-white p-5 shadow-xs border border-slate-200 space-y-5 text-xs max-h-[82vh] overflow-y-auto">
+              <div className="border-b border-slate-100 pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Table className="w-4 h-4 text-amber-600" />
+                    <h3 className="font-bold text-slate-900 text-sm">Table Area &amp; Columns</h3>
+                  </div>
+                  <span className="text-[10px] font-mono text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded font-bold">
+                    31 Rows Grid
+                  </span>
+                </div>
+                <p className="text-slate-500 text-xs mt-1">
+                  Adjust table vertical position (Start Y), row height, and fine-tune each of the 9 columns across the A4 white paper.
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-600 font-semibold mb-1">Start Y (mm)</label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={template.tableConfig.startY}
-                    onChange={e =>
+              {/* Quick Layout Presets */}
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                <span className="block font-bold text-slate-700 text-[11px] uppercase tracking-wider">
+                  Quick Actions &amp; Presets
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    onClick={handleResetTableToDefault}
+                    className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 font-semibold text-[11px] transition shadow-2xs"
+                    title="Reset to official Bank of Ceylon Form 10756 coordinates"
+                  >
+                    Reset Form 10756
+                  </button>
+                  <button
+                    onClick={handlePackColumnsSequentially}
+                    className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-semibold text-[11px] transition shadow-2xs"
+                    title="Align and pack columns from left to right without gaps or overlapping"
+                  >
+                    Pack Columns Evenly
+                  </button>
+                  <button
+                    onClick={() =>
                       setTemplate(prev => ({
                         ...prev,
-                        tableConfig: {
-                          ...prev.tableConfig,
-                          startY: parseFloat(e.target.value) || 72.8,
-                        },
+                        tableConfig: { ...prev.tableConfig, rowHeight: 5.0 },
                       }))
                     }
-                    className="w-full rounded-lg border border-slate-300 px-2 py-1.5 font-mono text-center"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-600 font-semibold mb-1">Row Height (mm)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={template.tableConfig.rowHeight}
-                    onChange={e =>
+                    className="px-2 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-medium"
+                  >
+                    Compact (5.0mm)
+                  </button>
+                  <button
+                    onClick={() =>
                       setTemplate(prev => ({
                         ...prev,
-                        tableConfig: {
-                          ...prev.tableConfig,
-                          rowHeight: parseFloat(e.target.value) || 5.4,
-                        },
+                        tableConfig: { ...prev.tableConfig, rowHeight: 5.45 },
                       }))
                     }
-                    className="w-full rounded-lg border border-slate-300 px-2 py-1.5 font-mono text-center"
-                  />
+                    className="px-2 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-medium"
+                  >
+                    Standard (5.45mm)
+                  </button>
+                  <button
+                    onClick={() =>
+                      setTemplate(prev => ({
+                        ...prev,
+                        tableConfig: { ...prev.tableConfig, rowHeight: 6.0 },
+                      }))
+                    }
+                    className="px-2 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-medium"
+                  >
+                    Spacious (6.0mm)
+                  </button>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              {/* Table Geometry Card: Start Y, Row Height, Font */}
+              <div className="space-y-3.5 p-3.5 rounded-xl bg-white border border-slate-200">
+                <span className="block font-bold text-slate-800 text-[11px] uppercase tracking-wider">
+                  Table Position &amp; Row Dimensions
+                </span>
+
+                {/* Start Y with quick step buttons */}
                 <div>
-                  <label className="block text-slate-600 font-semibold mb-1">Font Size (pt)</label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={template.tableConfig.fontSize}
-                    onChange={e =>
-                      setTemplate(prev => ({
-                        ...prev,
-                        tableConfig: {
-                          ...prev.tableConfig,
-                          fontSize: parseFloat(e.target.value) || 8,
-                        },
-                      }))
-                    }
-                    className="w-full rounded-lg border border-slate-300 px-2 py-1.5 font-mono text-center"
-                  />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-slate-700 font-semibold text-xs">Start Y Position (mm)</label>
+                    <span className="text-[10px] font-mono text-slate-400">Distance from top edge</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() =>
+                        setTemplate(prev => ({
+                          ...prev,
+                          tableConfig: {
+                            ...prev.tableConfig,
+                            startY: Math.max(10, parseFloat((prev.tableConfig.startY - 1).toFixed(1))),
+                          },
+                        }))
+                      }
+                      className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-mono font-bold"
+                      title="Move up 1.0 mm"
+                    >
+                      -1.0
+                    </button>
+                    <button
+                      onClick={() =>
+                        setTemplate(prev => ({
+                          ...prev,
+                          tableConfig: {
+                            ...prev.tableConfig,
+                            startY: Math.max(10, parseFloat((prev.tableConfig.startY - 0.5).toFixed(1))),
+                          },
+                        }))
+                      }
+                      className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-mono font-bold"
+                      title="Move up 0.5 mm"
+                    >
+                      -0.5
+                    </button>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={template.tableConfig.startY}
+                      onChange={e =>
+                        setTemplate(prev => ({
+                          ...prev,
+                          tableConfig: {
+                            ...prev.tableConfig,
+                            startY: parseFloat(e.target.value) || 72.8,
+                          },
+                        }))
+                      }
+                      className="flex-1 rounded-lg border border-slate-300 px-2 py-1.5 font-mono text-center font-bold text-slate-900 bg-white"
+                    />
+                    <button
+                      onClick={() =>
+                        setTemplate(prev => ({
+                          ...prev,
+                          tableConfig: {
+                            ...prev.tableConfig,
+                            startY: Math.min(250, parseFloat((prev.tableConfig.startY + 0.5).toFixed(1))),
+                          },
+                        }))
+                      }
+                      className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-mono font-bold"
+                      title="Move down 0.5 mm"
+                    >
+                      +0.5
+                    </button>
+                    <button
+                      onClick={() =>
+                        setTemplate(prev => ({
+                          ...prev,
+                          tableConfig: {
+                            ...prev.tableConfig,
+                            startY: Math.min(250, parseFloat((prev.tableConfig.startY + 1).toFixed(1))),
+                          },
+                        }))
+                      }
+                      className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-mono font-bold"
+                      title="Move down 1.0 mm"
+                    >
+                      +1.0
+                    </button>
+                  </div>
                 </div>
+
+                {/* Row Height with quick step buttons */}
                 <div>
-                  <label className="block text-slate-600 font-semibold mb-1">Font Family</label>
-                  <select
-                    value={template.tableConfig.fontFamily}
-                    onChange={e =>
-                      setTemplate(prev => ({
-                        ...prev,
-                        tableConfig: {
-                          ...prev.tableConfig,
-                          fontFamily: e.target.value as FontFamily,
-                        },
-                      }))
-                    }
-                    className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
-                  >
-                    <option value="Helvetica">Helvetica</option>
-                    <option value="TimesRoman">Times New Roman</option>
-                    <option value="Courier">Courier</option>
-                  </select>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-slate-700 font-semibold text-xs">Row Height (mm)</label>
+                    <span className="text-[10px] font-mono text-slate-400">
+                      Total Height: {((template.tableConfig.rowHeight || 5.45) * 31).toFixed(1)} mm
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() =>
+                        setTemplate(prev => ({
+                          ...prev,
+                          tableConfig: {
+                            ...prev.tableConfig,
+                            rowHeight: Math.max(3.0, parseFloat((prev.tableConfig.rowHeight - 0.2).toFixed(2))),
+                          },
+                        }))
+                      }
+                      className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-mono font-bold"
+                      title="Decrease row height by 0.2 mm"
+                    >
+                      -0.2
+                    </button>
+                    <button
+                      onClick={() =>
+                        setTemplate(prev => ({
+                          ...prev,
+                          tableConfig: {
+                            ...prev.tableConfig,
+                            rowHeight: Math.max(3.0, parseFloat((prev.tableConfig.rowHeight - 0.05).toFixed(2))),
+                          },
+                        }))
+                      }
+                      className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-mono font-bold"
+                      title="Fine decrease by 0.05 mm"
+                    >
+                      -0.05
+                    </button>
+                    <input
+                      type="number"
+                      step="0.05"
+                      value={template.tableConfig.rowHeight}
+                      onChange={e =>
+                        setTemplate(prev => ({
+                          ...prev,
+                          tableConfig: {
+                            ...prev.tableConfig,
+                            rowHeight: parseFloat(e.target.value) || 5.45,
+                          },
+                        }))
+                      }
+                      className="flex-1 rounded-lg border border-slate-300 px-2 py-1.5 font-mono text-center font-bold text-slate-900 bg-white"
+                    />
+                    <button
+                      onClick={() =>
+                        setTemplate(prev => ({
+                          ...prev,
+                          tableConfig: {
+                            ...prev.tableConfig,
+                            rowHeight: Math.min(12.0, parseFloat((prev.tableConfig.rowHeight + 0.05).toFixed(2))),
+                          },
+                        }))
+                      }
+                      className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-mono font-bold"
+                      title="Fine increase by 0.05 mm"
+                    >
+                      +0.05
+                    </button>
+                    <button
+                      onClick={() =>
+                        setTemplate(prev => ({
+                          ...prev,
+                          tableConfig: {
+                            ...prev.tableConfig,
+                            rowHeight: Math.min(12.0, parseFloat((prev.tableConfig.rowHeight + 0.2).toFixed(2))),
+                          },
+                        }))
+                      }
+                      className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-mono font-bold"
+                      title="Increase row height by 0.2 mm"
+                    >
+                      +0.2
+                    </button>
+                  </div>
+                </div>
+
+                {/* Typography: Font Size & Font Family */}
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <label className="block text-slate-600 font-semibold mb-1 text-[11px]">
+                      Table Font Size (pt)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="5"
+                      max="14"
+                      value={template.tableConfig.fontSize}
+                      onChange={e =>
+                        setTemplate(prev => ({
+                          ...prev,
+                          tableConfig: {
+                            ...prev.tableConfig,
+                            fontSize: parseFloat(e.target.value) || 8,
+                          },
+                        }))
+                      }
+                      className="w-full rounded-lg border border-slate-300 px-2 py-1.5 font-mono text-center font-bold bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-600 font-semibold mb-1 text-[11px]">
+                      Table Font Family
+                    </label>
+                    <select
+                      value={template.tableConfig.fontFamily}
+                      onChange={e =>
+                        setTemplate(prev => ({
+                          ...prev,
+                          tableConfig: {
+                            ...prev.tableConfig,
+                            fontFamily: e.target.value as FontFamily,
+                          },
+                        }))
+                      }
+                      className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs bg-white"
+                    >
+                      <option value="Helvetica">Helvetica / Arial</option>
+                      <option value="TimesRoman">Times New Roman</option>
+                      <option value="Courier">Courier Monospace</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="pt-1 flex items-center justify-between">
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={template.tableConfig.isBold}
+                      onChange={e =>
+                        setTemplate(prev => ({
+                          ...prev,
+                          tableConfig: {
+                            ...prev.tableConfig,
+                            isBold: e.target.checked,
+                          },
+                        }))
+                      }
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5"
+                    />
+                    <span className="text-[11px] font-semibold text-slate-700">Bold Table Text</span>
+                  </label>
+
+                  <span className="text-[10px] font-mono text-slate-400">
+                    Max Rows: {template.tableConfig.maxRows || 31}
+                  </span>
+                </div>
+              </div>
+
+              {/* All 9 Columns Position & Width Adjuster */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="block font-bold text-slate-800 text-[11px] uppercase tracking-wider">
+                    Adjust All 9 Columns
+                  </span>
+                  <span className="text-[10px] text-slate-400">Position &amp; Width</span>
+                </div>
+
+                <div className="space-y-2.5">
+                  {TABLE_COLUMN_INFO.map(colInfo => {
+                    const col = template.tableConfig.columns[colInfo.key] || {
+                      x: colInfo.defaultX,
+                      width: colInfo.defaultWidth,
+                      align: colInfo.defaultAlign,
+                    };
+
+                    const endX = parseFloat((col.x + col.width).toFixed(1));
+
+                    return (
+                      <div
+                        key={colInfo.key}
+                        className="p-3 rounded-xl bg-slate-50 border border-slate-200 hover:border-indigo-300 transition"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div>
+                            <span className="font-bold text-slate-900 text-xs">{colInfo.nameEn}</span>
+                            <span className="text-[10px] text-indigo-600 ml-1.5 font-medium font-sans">
+                              ({colInfo.nameSi})
+                            </span>
+                          </div>
+                          <span className="font-mono text-[10px] font-semibold text-slate-500 bg-white px-1.5 py-0.5 rounded border border-slate-200">
+                            {col.x.toFixed(1)} → {endX.toFixed(1)} mm
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 text-[11px]">
+                          {/* Column X */}
+                          <div>
+                            <label className="block text-slate-500 text-[10px] mb-0.5">Start X (mm)</label>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() =>
+                                  handleUpdateColumn(
+                                    colInfo.key,
+                                    'x',
+                                    Math.max(0, parseFloat((col.x - 0.5).toFixed(1)))
+                                  )
+                                }
+                                className="px-1.5 py-1 bg-white hover:bg-slate-200 text-slate-700 rounded border border-slate-200 font-mono text-[10px]"
+                              >
+                                -
+                              </button>
+                              <input
+                                type="number"
+                                step="0.5"
+                                value={col.x}
+                                onChange={e =>
+                                  handleUpdateColumn(colInfo.key, 'x', parseFloat(e.target.value) || 0)
+                                }
+                                className="w-full rounded border border-slate-300 px-1 py-1 font-mono text-center text-xs bg-white"
+                              />
+                              <button
+                                onClick={() =>
+                                  handleUpdateColumn(
+                                    colInfo.key,
+                                    'x',
+                                    Math.min(210, parseFloat((col.x + 0.5).toFixed(1)))
+                                  )
+                                }
+                                className="px-1.5 py-1 bg-white hover:bg-slate-200 text-slate-700 rounded border border-slate-200 font-mono text-[10px]"
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Column Width */}
+                          <div>
+                            <label className="block text-slate-500 text-[10px] mb-0.5">Width (mm)</label>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() =>
+                                  handleUpdateColumn(
+                                    colInfo.key,
+                                    'width',
+                                    Math.max(3, parseFloat((col.width - 0.5).toFixed(1)))
+                                  )
+                                }
+                                className="px-1.5 py-1 bg-white hover:bg-slate-200 text-slate-700 rounded border border-slate-200 font-mono text-[10px]"
+                              >
+                                -
+                              </button>
+                              <input
+                                type="number"
+                                step="0.5"
+                                value={col.width}
+                                onChange={e =>
+                                  handleUpdateColumn(colInfo.key, 'width', parseFloat(e.target.value) || 10)
+                                }
+                                className="w-full rounded border border-slate-300 px-1 py-1 font-mono text-center text-xs bg-white"
+                              />
+                              <button
+                                onClick={() =>
+                                  handleUpdateColumn(
+                                    colInfo.key,
+                                    'width',
+                                    Math.min(150, parseFloat((col.width + 0.5).toFixed(1)))
+                                  )
+                                }
+                                className="px-1.5 py-1 bg-white hover:bg-slate-200 text-slate-700 rounded border border-slate-200 font-mono text-[10px]"
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Column Text Alignment */}
+                        <div className="mt-2 flex items-center justify-between pt-1 border-t border-slate-200/60">
+                          <span className="text-[10px] text-slate-500">Text Align:</span>
+                          <div className="flex items-center gap-1">
+                            {(['left', 'center', 'right'] as TextAlignment[]).map(al => (
+                              <button
+                                key={al}
+                                onClick={() => handleUpdateColumn(colInfo.key, 'align', al)}
+                                className={`px-2 py-0.5 rounded text-[10px] font-semibold capitalize border ${
+                                  col.align === al
+                                    ? 'bg-indigo-600 text-white border-indigo-600'
+                                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                                }`}
+                              >
+                                {al}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>
