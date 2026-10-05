@@ -12,7 +12,7 @@ import { db } from '../firebase/config';
 import { handleFirestoreError, OperationType } from '../firebase/errors';
 import { TemplateConfig } from '../types';
 import { DEFAULT_TEMPLATE } from '../utils/defaultTemplate';
-import { saveTemplate as saveTemplateToLocal, getTemplates as getLocalTemplates, saveSettings, getSettings } from '../utils/storage';
+import { saveTemplate as saveTemplateToLocal, getTemplates as getLocalTemplates, deleteTemplate as deleteTemplateFromLocal, saveSettings, getSettings } from '../utils/storage';
 
 const TEMPLATES_COLLECTION = 'templates';
 
@@ -61,13 +61,16 @@ export function sanitizeTemplate(template: TemplateConfig): TemplateConfig {
       fontFamily: template.tableConfig?.fontFamily || 'Helvetica',
       isBold: !!template.tableConfig?.isBold,
       columns: {
-        date: { ...template.tableConfig?.columns?.date },
-        day: { ...template.tableConfig?.columns?.day },
-        startTime: { ...template.tableConfig?.columns?.startTime },
-        endTime: { ...template.tableConfig?.columns?.endTime },
-        breakMinutes: { ...template.tableConfig?.columns?.breakMinutes },
-        totalHours: { ...template.tableConfig?.columns?.totalHours },
-        reason: { ...template.tableConfig?.columns?.reason },
+        date: template.tableConfig?.columns?.date || DEFAULT_TEMPLATE.tableConfig.columns.date,
+        day: template.tableConfig?.columns?.day || DEFAULT_TEMPLATE.tableConfig.columns.day,
+        reason: template.tableConfig?.columns?.reason || DEFAULT_TEMPLATE.tableConfig.columns.reason,
+        startTime: template.tableConfig?.columns?.startTime || DEFAULT_TEMPLATE.tableConfig.columns.startTime,
+        endTime: template.tableConfig?.columns?.endTime || DEFAULT_TEMPLATE.tableConfig.columns.endTime,
+        totalHours: template.tableConfig?.columns?.totalHours || DEFAULT_TEMPLATE.tableConfig.columns.totalHours,
+        ...(template.tableConfig?.columns?.approvedBy ? { approvedBy: template.tableConfig.columns.approvedBy } : {}),
+        ...(template.tableConfig?.columns?.breakMinutes ? { breakMinutes: template.tableConfig.columns.breakMinutes } : {}),
+        ...(template.tableConfig?.columns?.otHoursClaimed ? { otHoursClaimed: template.tableConfig.columns.otHoursClaimed } : {}),
+        ...(template.tableConfig?.columns?.specialHoursClaimed ? { specialHoursClaimed: template.tableConfig.columns.specialHoursClaimed } : {}),
       },
     },
   };
@@ -209,12 +212,9 @@ export async function setDefaultTemplateInFirestore(templateId: string): Promise
  * Delete a custom template from Cloud Firestore
  */
 export async function deleteTemplateFromFirestore(templateId: string): Promise<void> {
-  if (templateId === DEFAULT_TEMPLATE.id) {
-    throw new Error('The system standard official template cannot be deleted.');
-  }
-
   try {
     await deleteDoc(doc(db, TEMPLATES_COLLECTION, templateId));
+    deleteTemplateFromLocal(templateId);
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, `${TEMPLATES_COLLECTION}/${templateId}`);
     throw err;

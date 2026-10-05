@@ -274,25 +274,33 @@ export const TemplateDesigner: React.FC = () => {
     }
   };
 
-  // Delete current custom template
+  // Delete current template (Admin can delete any template)
   const handleDeleteTemplate = async () => {
-    if (template.id === DEFAULT_TEMPLATE.id) {
-      alert('The system standard official template cannot be deleted.');
+    if (!isAdmin) {
+      alert('Only administrators can delete templates.');
       return;
     }
 
-    if (!window.confirm(`Are you sure you want to delete the template "${template.name}"?`)) {
-      return;
+    if (templateList.length <= 1) {
+      if (!window.confirm(`"${template.name}" is the only template in the system. Deleting it will restore the official default template. Continue?`)) {
+        return;
+      }
+    } else {
+      if (!window.confirm(`Are you sure you want to delete the template "${template.name}"?`)) {
+        return;
+      }
     }
 
     setIsSaving(true);
     try {
       await deleteTemplateFromFirestore(template.id);
-      const fallback = templateList.find(t => t.id !== template.id) || DEFAULT_TEMPLATE;
+      const remaining = templateList.filter(t => t.id !== template.id);
+      const fallback = remaining.length > 0 ? remaining[0] : DEFAULT_TEMPLATE;
       setTemplate(fallback);
       setCurrentTemplateId(fallback.id);
       setSelectedFieldId(fallback.fields[0]?.id || null);
-      setSaveSuccessMsg(`Template removed successfully.`);
+      setTemplateList(remaining.length > 0 ? remaining : [DEFAULT_TEMPLATE]);
+      setSaveSuccessMsg(`Template "${template.name}" deleted successfully.`);
       setTimeout(() => setSaveSuccessMsg(null), 3000);
     } catch (err: any) {
       setSaveErrorMsg('Notice: Template deleted locally: ' + err.message);
@@ -659,6 +667,14 @@ service cloud.firestore {
     >
       {/* Top Banner & Template Selector Bar */}
       <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs mb-6">
+        {!isAdmin && (
+          <div className="mb-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center gap-2">
+            <Lock className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>
+              <strong>Read-Only Preview:</strong> Only Administrators can add, edit, and delete templates. Contact an administrator to modify official form templates or assign them to your account.
+            </span>
+          </div>
+        )}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           {/* Title & Template Selector */}
           <div className="flex flex-wrap items-center gap-3">
@@ -676,8 +692,8 @@ service cloud.firestore {
               </p>
             </div>
 
-            {/* Template Dropdown Selector */}
-            <div className="flex items-center gap-2 ml-0 sm:ml-4">
+            {/* Template Dropdown Selector & Direct Name Editor */}
+            <div className="flex flex-wrap items-center gap-2 ml-0 sm:ml-4">
               <select
                 value={currentTemplateId}
                 onChange={e => handleSwitchTemplate(e.target.value)}
@@ -690,20 +706,35 @@ service cloud.firestore {
                 ))}
               </select>
 
-              <button
-                onClick={() => {
-                  setNewTemplateName('');
-                  setNewTemplateDesc('');
-                  setIsNewModalOpen(true);
-                }}
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-semibold transition"
-                title="Create a new template"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>New</span>
-              </button>
+              {/* Direct Template Name Edit */}
+              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-1">
+                <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap">Name:</span>
+                <input
+                  type="text"
+                  value={template.name}
+                  onChange={e => setTemplate(prev => ({ ...prev, name: e.target.value }))}
+                  disabled={!isAdmin}
+                  placeholder="e.g. Overtime Sheet"
+                  className="bg-transparent text-xs font-bold text-slate-900 focus:outline-hidden min-w-[140px] max-w-[200px]"
+                />
+              </div>
 
-              {!template.isDefault && (
+              {isAdmin && (
+                <button
+                  onClick={() => {
+                    setNewTemplateName('');
+                    setNewTemplateDesc('');
+                    setIsNewModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-semibold transition"
+                  title="Create a new template"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>New</span>
+                </button>
+              )}
+
+              {isAdmin && !template.isDefault && (
                 <button
                   onClick={handleSetAsDefault}
                   disabled={isSaving}
@@ -715,7 +746,7 @@ service cloud.firestore {
                 </button>
               )}
 
-              {template.id !== DEFAULT_TEMPLATE.id && (
+              {isAdmin && (
                 <button
                   onClick={handleDeleteTemplate}
                   disabled={isSaving}

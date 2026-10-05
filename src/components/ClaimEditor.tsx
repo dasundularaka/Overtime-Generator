@@ -17,6 +17,7 @@ import {
   ShieldAlert,
   Info,
   FileText,
+  Lock,
 } from 'lucide-react';
 import {
   collection,
@@ -87,14 +88,37 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     return () => unsub();
   }, []);
 
+  // Determine templates the user is allowed to use based on admin assignment
+  const userAllowedTemplates = useMemo(() => {
+    // If admin, all templates are accessible
+    if (isAdmin) return availableTemplates;
+
+    // If regular user has assigned templates configured by admin, strictly restrict to those
+    if (userProfile?.assignedTemplateIds && userProfile.assignedTemplateIds.length > 0) {
+      const allowed = availableTemplates.filter(t => userProfile.assignedTemplateIds!.includes(t.id));
+      if (allowed.length > 0) return allowed;
+    }
+
+    return availableTemplates;
+  }, [availableTemplates, isAdmin, userProfile?.assignedTemplateIds]);
+
+  // Ensure selected template is within permitted list
+  useEffect(() => {
+    if (userAllowedTemplates.length > 0) {
+      if (!selectedTemplateId || !userAllowedTemplates.some(t => t.id === selectedTemplateId)) {
+        setSelectedTemplateId(userAllowedTemplates[0].id);
+      }
+    }
+  }, [userAllowedTemplates, selectedTemplateId]);
+
   const activeTemplate = useMemo(() => {
     return (
-      availableTemplates.find(t => t.id === selectedTemplateId) ||
-      availableTemplates.find(t => t.isDefault) ||
-      availableTemplates[0] ||
+      userAllowedTemplates.find(t => t.id === selectedTemplateId) ||
+      userAllowedTemplates.find(t => t.isDefault) ||
+      userAllowedTemplates[0] ||
       getActiveTemplate()
     );
-  }, [availableTemplates, selectedTemplateId]);
+  }, [userAllowedTemplates, selectedTemplateId]);
 
   // For Admin: list of selectable users
   const [allUsers, setAllUsers] = useState<any[]>([]);
@@ -587,17 +611,27 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            <select
-              value={selectedTemplateId}
-              onChange={e => setSelectedTemplateId(e.target.value)}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-2xs focus:ring-2 focus:ring-indigo-500"
-            >
-              {availableTemplates.map(t => (
-                <option key={t.id} value={t.id}>
-                  {t.name} {t.isDefault ? '★ (Default)' : ''}
-                </option>
-              ))}
-            </select>
+            {!isAdmin && userProfile?.assignedTemplateIds && userProfile.assignedTemplateIds.length === 1 ? (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-300 text-xs font-semibold text-slate-700">
+                <Lock className="w-3.5 h-3.5 text-slate-500" />
+                <span>{activeTemplate.name}</span>
+                <span className="text-[10px] text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded font-bold">
+                  Assigned
+                </span>
+              </div>
+            ) : (
+              <select
+                value={selectedTemplateId}
+                onChange={e => setSelectedTemplateId(e.target.value)}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-2xs focus:ring-2 focus:ring-indigo-500"
+              >
+                {userAllowedTemplates.map(t => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} {t.isDefault ? '★ (Default)' : ''}
+                  </option>
+                ))}
+              </select>
+            )}
 
             {isAdmin && onNavigateToDesigner && (
               <button
@@ -683,17 +717,24 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             />
           </div>
 
-          {/* Claim Type (OT / OP) */}
+          {/* Claim Type (OT = Overtime, OP = Out of Pocket) */}
           <div>
-            <label className="block font-bold text-slate-600 mb-1">Claim Type</label>
+            <label className="block font-bold text-slate-700 mb-1">
+              Claim Type <span className="font-semibold text-[10px] text-indigo-600">(OT = Overtime, OP = Out of Pocket)</span>
+            </label>
             <select
               value={claimType}
               onChange={e => setClaimType(e.target.value as ClaimType)}
-              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 font-bold"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 font-bold shadow-2xs focus:ring-2 focus:ring-indigo-500"
             >
-              <option value="OT">OT (Overtime Claim)</option>
-              <option value="OP">OP (Operational/Off-duty Pay)</option>
+              <option value="OT">OT — Overtime Claim</option>
+              <option value="OP">OP — Out of Pocket Expense</option>
             </select>
+            <p className="text-[10px] text-slate-500 mt-1">
+              {claimType === 'OT'
+                ? 'OT (Overtime): Computes time after 4:45 PM in 15-min intervals'
+                : 'OP (Out of Pocket): Company reimbursable expenditure'}
+            </p>
           </div>
 
           {/* Month & Year */}
@@ -826,19 +867,21 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
         {/* Table */}
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[880px]">
+          <table className="w-full text-left border-collapse min-w-[980px]">
             <thead>
               <tr className="bg-slate-100 text-slate-700 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200">
-                <th className="py-2.5 px-3 w-10 text-center">#</th>
-                <th className="py-2.5 px-3 w-36">Date</th>
-                <th className="py-2.5 px-3 w-20 text-center">Day</th>
-                <th className="py-2.5 px-3 w-32">Starting Time</th>
-                <th className="py-2.5 px-3 w-32">Ending Time</th>
-                <th className="py-2.5 px-3 w-28 text-center">Work Duration</th>
-                <th className="py-2.5 px-3 w-24 text-center">Break</th>
-                <th className="py-2.5 px-3 w-32 text-center">Generated OT</th>
-                <th className="py-2.5 px-3">Reason / Nature of Duties</th>
-                <th className="py-2.5 px-3 w-20 text-center">Actions</th>
+                <th className="py-2.5 px-2 w-10 text-center">#</th>
+                <th className="py-2.5 px-2 w-32">Date</th>
+                <th className="py-2.5 px-2 w-16 text-center">Day</th>
+                <th className="py-2.5 px-2 min-w-[180px]">Reason / Duties</th>
+                <th className="py-2.5 px-2 w-28 text-center">Approved by Mgr</th>
+                <th className="py-2.5 px-2 w-24 text-center">Time Started</th>
+                <th className="py-2.5 px-2 w-24 text-center">Time Left</th>
+                <th className="py-2.5 px-2 w-20 text-center">Break</th>
+                <th className="py-2.5 px-2 w-24 text-center">Total Worked</th>
+                <th className="py-2.5 px-2 w-28 text-center">Overtime (A)</th>
+                <th className="py-2.5 px-2 w-28 text-center">Special Assgn (B)</th>
+                <th className="py-2.5 px-2 w-16 text-center">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
@@ -851,12 +894,12 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       hasOt ? 'bg-indigo-50/20' : ''
                     }`}
                   >
-                    <td className="py-2.5 px-3 text-center text-slate-400 font-mono text-[11px]">
+                    <td className="py-2.5 px-2 text-center text-slate-400 font-mono text-[11px]">
                       {index + 1}
                     </td>
 
-                    {/* Date */}
-                    <td className="py-2.5 px-3">
+                    {/* 1. Date */}
+                    <td className="py-2.5 px-2">
                       <input
                         type="date"
                         value={row.date}
@@ -865,10 +908,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       />
                     </td>
 
-                    {/* Day & Weekend Indicator */}
-                    <td className="py-2.5 px-3 text-center">
+                    {/* 2. Day & Weekend Indicator */}
+                    <td className="py-2.5 px-2 text-center">
                       <span
-                        className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${
+                        className={`inline-block px-1.5 py-0.5 rounded text-[11px] font-semibold ${
                           row.isWeekend
                             ? 'bg-amber-100 text-amber-800'
                             : 'bg-slate-100 text-slate-700'
@@ -878,41 +921,54 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       </span>
                     </td>
 
-                    {/* Starting Time */}
-                    <td className="py-2.5 px-3">
+                    {/* 3. Reason / Nature of Duties (Position 3 as in Overtime Sheet) */}
+                    <td className="py-2.5 px-2">
+                      <input
+                        type="text"
+                        value={row.reason}
+                        onChange={e => updateRowField(index, 'reason', e.target.value)}
+                        placeholder="Duties performed..."
+                        className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 placeholder:text-slate-300"
+                      />
+                    </td>
+
+                    {/* 4. Approved by Manager (Position 4 as in Overtime Sheet) */}
+                    <td className="py-2.5 px-2">
+                      <input
+                        type="text"
+                        value={row.approvedBy || ''}
+                        onChange={e => updateRowField(index, 'approvedBy', e.target.value)}
+                        placeholder="Mgr Initials"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-center text-slate-800 placeholder:text-slate-300 font-medium"
+                      />
+                    </td>
+
+                    {/* 5. Starting Time */}
+                    <td className="py-2.5 px-2">
                       <input
                         type="time"
                         value={row.startTime}
                         onChange={e => updateRowField(index, 'startTime', e.target.value)}
-                        className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-1.5 py-1.5 text-xs text-slate-800"
                       />
                     </td>
 
-                    {/* Ending Time */}
-                    <td className="py-2.5 px-3">
+                    {/* 6. Ending Time (Left) */}
+                    <td className="py-2.5 px-2">
                       <input
                         type="time"
                         value={row.endTime}
                         onChange={e => updateRowField(index, 'endTime', e.target.value)}
-                        className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-1.5 py-1.5 text-xs text-slate-800"
                       />
                     </td>
 
-                    {/* Working Time Difference (start to end) */}
-                    <td className="py-2.5 px-3 text-center font-mono text-slate-600">
-                      {row.totalWorkMinutes > 0 ? (
-                        <span>{formatMinutesToTime(row.totalWorkMinutes, 'hhmm')}</span>
-                      ) : (
-                        <span className="text-slate-300">-</span>
-                      )}
-                    </td>
-
-                    {/* Break */}
-                    <td className="py-2.5 px-3 text-center">
+                    {/* 7. Break */}
+                    <td className="py-2.5 px-2 text-center">
                       <select
                         value={row.breakMinutes || 0}
                         onChange={e => updateRowField(index, 'breakMinutes', parseInt(e.target.value, 10))}
-                        className="w-16 rounded-lg border border-slate-200 bg-white px-1.5 py-1 text-xs text-center"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-1 py-1 text-xs text-center"
                       >
                         <option value="0">0m</option>
                         <option value="15">15m</option>
@@ -922,8 +978,17 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       </select>
                     </td>
 
-                    {/* Generated Overtime (15-min blocks + Capped indicator) */}
-                    <td className="py-2.5 px-3 text-center">
+                    {/* 8. Total Working Time (Difference start to end) */}
+                    <td className="py-2.5 px-2 text-center font-mono text-slate-600">
+                      {row.totalWorkMinutes > 0 ? (
+                        <span>{formatMinutesToTime(row.totalWorkMinutes, 'hhmm')}</span>
+                      ) : (
+                        <span className="text-slate-300">-</span>
+                      )}
+                    </td>
+
+                    {/* 9. Generated Overtime (A) (15-min blocks + Capped indicator) */}
+                    <td className="py-2.5 px-2 text-center">
                       <div className="flex flex-col items-center">
                         <span
                           className={`font-mono text-xs font-bold ${
@@ -943,19 +1008,19 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       </div>
                     </td>
 
-                    {/* Reason */}
-                    <td className="py-2.5 px-3">
+                    {/* 10. Special Assignment Hours (B) */}
+                    <td className="py-2.5 px-2">
                       <input
                         type="text"
-                        value={row.reason}
-                        onChange={e => updateRowField(index, 'reason', e.target.value)}
-                        placeholder="e.g. Scheduled server migration past 4:45 PM"
-                        className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 placeholder:text-slate-300"
+                        value={row.specialAssignmentHours || ''}
+                        onChange={e => updateRowField(index, 'specialAssignmentHours', e.target.value)}
+                        placeholder="e.g. 01:30"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-1.5 py-1.5 text-xs font-mono text-center text-slate-800 placeholder:text-slate-300"
                       />
                     </td>
 
-                    {/* Actions */}
-                    <td className="py-2.5 px-3 text-center">
+                    {/* 11. Actions */}
+                    <td className="py-2.5 px-2 text-center">
                       <div className="flex items-center justify-center gap-1">
                         <button
                           onClick={() => handleDuplicateRow(index)}

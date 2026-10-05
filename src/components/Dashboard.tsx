@@ -300,8 +300,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <span className="text-base font-bold text-slate-900 capitalize">
                 {userProfile?.role || 'User'}
               </span>
-              <span className="text-xs font-bold font-mono px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
-                {userProfile?.claimType || 'OT'}
+              <span className="text-xs font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                {userProfile?.claimType === 'OP' ? 'OP (Out of Pocket)' : 'OT (Overtime)'}
               </span>
             </div>
             <p className="text-[11px] text-slate-400 mt-1 truncate">
@@ -380,8 +380,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     </td>
 
                     <td className="py-3.5 px-4 text-center">
-                      <span className="inline-block px-2 py-0.5 rounded font-mono font-bold text-[10px] bg-blue-50 text-blue-700 border border-blue-200">
-                        {claim.claimType || 'OT'}
+                      <span
+                        className={`inline-block px-2 py-0.5 rounded font-bold text-[10px] ${
+                          claim.claimType === 'OP'
+                            ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                            : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                        }`}
+                        title={claim.claimType === 'OP' ? 'Out of Pocket' : 'Overtime'}
+                      >
+                        {claim.claimType === 'OP' ? 'OP (Out of Pocket)' : 'OT (Overtime)'}
                       </span>
                     </td>
 

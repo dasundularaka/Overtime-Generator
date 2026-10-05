@@ -308,8 +308,15 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                     </td>
 
                     <td className="py-3.5 px-4 text-center">
-                      <span className="inline-block px-2 py-0.5 rounded font-mono font-bold text-[10px] bg-blue-50 text-blue-700 border border-blue-200">
-                        {claim.claimType || 'OT'}
+                      <span
+                        className={`inline-block px-2 py-0.5 rounded font-bold text-[10px] ${
+                          claim.claimType === 'OP'
+                            ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                            : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                        }`}
+                        title={claim.claimType === 'OP' ? 'Out of Pocket' : 'Overtime'}
+                      >
+                        {claim.claimType === 'OP' ? 'OP (Out of Pocket)' : 'OT (Overtime)'}
                       </span>
                     </td>
 
@@ -430,28 +437,32 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px] tracking-wider">
-                    <th className="py-2 px-3">Date</th>
-                    <th className="py-2 px-3 text-center">Day</th>
-                    <th className="py-2 px-3 text-center">Start</th>
-                    <th className="py-2 px-3 text-center">End</th>
-                    <th className="py-2 px-3 text-center">Work Diff</th>
-                    <th className="py-2 px-3 text-center">Break</th>
-                    <th className="py-2 px-3 text-center">Generated OT</th>
-                    <th className="py-2 px-3">Reason</th>
+                    <th className="py-2 px-2.5">Date</th>
+                    <th className="py-2 px-2 text-center">Day</th>
+                    <th className="py-2 px-3">Reason / Duties</th>
+                    <th className="py-2 px-2 text-center">Approved by Mgr</th>
+                    <th className="py-2 px-2 text-center">Start</th>
+                    <th className="py-2 px-2 text-center">Left</th>
+                    <th className="py-2 px-2 text-center">Break</th>
+                    <th className="py-2 px-2 text-center">Total Worked</th>
+                    <th className="py-2 px-2 text-center">Overtime (A)</th>
+                    <th className="py-2 px-2 text-center">Special (B)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {viewingClaim.rows.map((row, i) => (
                     <tr key={i} className="hover:bg-slate-50">
-                      <td className="py-2 px-3 font-medium">{row.date}</td>
-                      <td className="py-2 px-3 text-center font-semibold">{row.dayOfWeek}</td>
-                      <td className="py-2 px-3 text-center font-mono">{row.startTime || '-'}</td>
-                      <td className="py-2 px-3 text-center font-mono">{row.endTime || '-'}</td>
-                      <td className="py-2 px-3 text-center font-mono text-slate-500">
+                      <td className="py-2 px-2.5 font-medium">{row.date}</td>
+                      <td className="py-2 px-2 text-center font-semibold">{row.dayOfWeek}</td>
+                      <td className="py-2 px-3 text-slate-700">{row.reason || '-'}</td>
+                      <td className="py-2 px-2 text-center font-medium text-slate-600">{row.approvedBy || '-'}</td>
+                      <td className="py-2 px-2 text-center font-mono">{row.startTime || '-'}</td>
+                      <td className="py-2 px-2 text-center font-mono">{row.endTime || '-'}</td>
+                      <td className="py-2 px-2 text-center">{row.breakMinutes ? `${row.breakMinutes}m` : '-'}</td>
+                      <td className="py-2 px-2 text-center font-mono text-slate-600">
                         {row.totalWorkMinutes ? `${Math.floor(row.totalWorkMinutes / 60)}h ${row.totalWorkMinutes % 60}m` : '-'}
                       </td>
-                      <td className="py-2 px-3 text-center">{row.breakMinutes ? `${row.breakMinutes}m` : '-'}</td>
-                      <td className="py-2 px-3 text-center font-bold text-indigo-600 font-mono">
+                      <td className="py-2 px-2 text-center font-bold text-indigo-600 font-mono">
                         {row.totalFormatted}
                         {row.isCapped && (
                           <span className="block text-[9px] text-amber-700 font-sans">
@@ -459,7 +470,9 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                           </span>
                         )}
                       </td>
-                      <td className="py-2 px-3 text-slate-600">{row.reason}</td>
+                      <td className="py-2 px-2 text-center font-mono text-slate-600">
+                        {row.specialAssignmentHours || '-'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

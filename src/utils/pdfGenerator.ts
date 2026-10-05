@@ -1,5 +1,6 @@
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { ClaimRecord, FontFamily, TemplateConfig } from '../types';
+import { formatMinutesToTime } from './timeCalculations';
 
 export const MM_TO_PT = 72 / 25.4; // ~2.83464567 points per millimeter
 export const A4_WIDTH_PT = 210 * MM_TO_PT; // ~595.28 pt
@@ -240,17 +241,19 @@ export async function generateOvertimePdf(
       const row = claim.rows[i];
       const rowYMm = tbl.startY + i * tbl.rowHeight;
 
-      // Columns mapping: date, day, startTime, endTime, breakMinutes, totalHours, reason
+      // Columns mapping matching Overtime Sheet: date, day, reason, approvedBy, startTime, endTime, totalHours, otHoursClaimed, specialHoursClaimed
       const cols = tbl.columns;
 
       const rowValues = [
         { col: cols.date, val: row.date ? row.date.split('-').slice(1).join('/') : '' },
         { col: cols.day, val: row.dayOfWeek || '' },
+        { col: cols.reason, val: row.reason || '' },
+        { col: cols.approvedBy, val: row.approvedBy || '' },
         { col: cols.startTime, val: row.startTime || '' },
         { col: cols.endTime, val: row.endTime ? `${row.endTime}${row.isOvernight ? '*' : ''}` : '' },
-        { col: cols.breakMinutes, val: row.breakMinutes ? `${row.breakMinutes}m` : '-' },
-        { col: cols.totalHours, val: row.totalFormatted || '' },
-        { col: cols.reason, val: row.reason || '' },
+        { col: cols.totalHours, val: row.totalWorkMinutes > 0 ? formatMinutesToTime(row.totalWorkMinutes, 'hhmm') : '' },
+        { col: cols.otHoursClaimed || (cols.breakMinutes ? undefined : cols.totalHours), val: row.totalFormatted || '' },
+        { col: cols.specialHoursClaimed, val: row.specialAssignmentHours || '' },
       ];
 
       for (const { col, val } of rowValues) {

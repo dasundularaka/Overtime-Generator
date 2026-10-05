@@ -10,12 +10,13 @@ export interface UserProfile {
   email: string;
   name: string;
   role: UserRole;
-  claimType: ClaimType;
+  claimType: ClaimType; // 'OT' = Overtime, 'OP' = Out of Pocket
   employeeNumber: string;
   designation: string;
   branch: string;
   department: string;
   maxOtHoursPerDay?: number; // e.g. 2.0 means 2 hours maximum per day
+  assignedTemplateIds?: string[]; // Templates assigned by admin; user can only access these
   createdAt: string;
   updatedAt: string;
 }
@@ -30,6 +31,7 @@ export interface Employee {
   createdAt: string;
   maxOtHoursPerDay?: number;
   claimType?: ClaimType;
+  assignedTemplateIds?: string[]; // Templates assigned by admin
   email?: string;
 }
 
@@ -49,6 +51,8 @@ export interface OvertimeRow {
   isCapped?: boolean;
   uncappedMinutes?: number;
   reason: string;
+  specialAssignmentHours?: string;
+  approvedBy?: string;
 }
 
 export interface FieldConfig {
@@ -82,11 +86,14 @@ export interface TableConfig {
   columns: {
     date: { x: number; width: number; align: TextAlignment };
     day: { x: number; width: number; align: TextAlignment };
+    reason: { x: number; width: number; align: TextAlignment };
     startTime: { x: number; width: number; align: TextAlignment };
     endTime: { x: number; width: number; align: TextAlignment };
-    breakMinutes: { x: number; width: number; align: TextAlignment };
+    breakMinutes?: { x: number; width: number; align: TextAlignment };
     totalHours: { x: number; width: number; align: TextAlignment };
-    reason: { x: number; width: number; align: TextAlignment };
+    otHoursClaimed?: { x: number; width: number; align: TextAlignment };
+    specialHoursClaimed?: { x: number; width: number; align: TextAlignment };
+    approvedBy?: { x: number; width: number; align: TextAlignment };
   };
 }
 

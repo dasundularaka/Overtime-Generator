@@ -14,12 +14,16 @@ import {
   AlertCircle,
   Sliders,
   Sparkles,
+  FileText,
+  Lock,
 } from 'lucide-react';
 import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { handleFirestoreError, OperationType } from '../firebase/errors';
-import { UserProfile, UserRole, ClaimType } from '../types';
+import { UserProfile, UserRole, ClaimType, TemplateConfig } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { fetchTemplatesFromFirestore, subscribeToTemplates } from '../services/templateService';
+import { DEFAULT_TEMPLATE } from '../utils/defaultTemplate';
 
 export const UserManagement: React.FC = () => {
   const { currentUser, isAdmin } = useAuth();
@@ -27,6 +31,9 @@ export const UserManagement: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'ALL' | 'admin' | 'user'>('ALL');
+
+  // Templates list
+  const [availableTemplates, setAvailableTemplates] = useState<TemplateConfig[]>([DEFAULT_TEMPLATE]);
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -43,9 +50,21 @@ export const UserManagement: React.FC = () => {
   const [branch, setBranch] = useState('Head Office');
   const [department, setDepartment] = useState('IT & Infrastructure Operations');
   const [maxOtHoursPerDay, setMaxOtHoursPerDay] = useState<number>(2.0);
+  const [assignedTemplateIds, setAssignedTemplateIds] = useState<string[]>([]);
 
   const [formError, setFormError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+
+  // Load templates from Cloud Firestore
+  useEffect(() => {
+    fetchTemplatesFromFirestore(true).then(tpls => {
+      if (tpls && tpls.length > 0) setAvailableTemplates(tpls);
+    });
+    const unsub = subscribeToTemplates(tpls => {
+      if (tpls && tpls.length > 0) setAvailableTemplates(tpls);
+    });
+    return () => unsub();
+  }, []);
 
   // Fetch all users from Firestore
   const fetchUsers = async () => {
@@ -80,6 +99,9 @@ export const UserManagement: React.FC = () => {
     setBranch('Head Office');
     setDepartment('IT & Infrastructure Operations');
     setMaxOtHoursPerDay(2.0);
+    // Default to primary template or all available
+    const defTpl = availableTemplates.find(t => t.isDefault) || availableTemplates[0];
+    setAssignedTemplateIds(defTpl ? [defTpl.id] : availableTemplates.map(t => t.id));
     setFormError(null);
     setIsModalOpen(true);
   };
@@ -96,6 +118,7 @@ export const UserManagement: React.FC = () => {
     setBranch(user.branch || 'Head Office');
     setDepartment(user.department || 'IT & Infrastructure Operations');
     setMaxOtHoursPerDay(user.maxOtHoursPerDay !== undefined ? user.maxOtHoursPerDay : 2.0);
+    setAssignedTemplateIds(user.assignedTemplateIds || []);
     setFormError(null);
     setIsModalOpen(true);
   };
@@ -122,6 +145,7 @@ export const UserManagement: React.FC = () => {
           branch: branch.trim(),
           department: department.trim(),
           maxOtHoursPerDay: Number(maxOtHoursPerDay) || 0,
+          assignedTemplateIds,
           updatedAt: new Date().toISOString(),
         };
 
@@ -141,7 +165,7 @@ export const UserManagement: React.FC = () => {
           }
         }
 
-        setActionSuccess(`User ${name} updated successfully! Overtime limit set to ${maxOtHoursPerDay} hrs.`);
+        setActionSuccess(`User ${name} updated successfully! Assigned ${assignedTemplateIds.length} template(s).`);
       } else {
         // Create new user profile in Firestore
         if (!email.trim()) {
@@ -161,6 +185,7 @@ export const UserManagement: React.FC = () => {
           branch: branch.trim(),
           department: department.trim(),
           maxOtHoursPerDay: Number(maxOtHoursPerDay) || 0,
+          assignedTemplateIds,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
@@ -174,7 +199,7 @@ export const UserManagement: React.FC = () => {
           });
         }
 
-        setActionSuccess(`New user ${name} created with ${maxOtHoursPerDay}h daily overtime limit.`);
+        setActionSuccess(`New user ${name} created with ${assignedTemplateIds.length} assigned template(s).`);
       }
 
       setIsModalOpen(false);
@@ -299,6 +324,7 @@ export const UserManagement: React.FC = () => {
                   <th className="py-3 px-4">User</th>
                   <th className="py-3 px-4">Role</th>
                   <th className="py-3 px-4">Claim Type</th>
+                  <th className="py-3 px-4">Assigned Templates</th>
                   <th className="py-3 px-4">Department &amp; Branch</th>
                   <th className="py-3 px-4 text-center">Max OT Limit (Day)</th>
                   <th className="py-3 px-4 text-right">Actions</th>
@@ -345,7 +371,7 @@ export const UserManagement: React.FC = () => {
                         </span>
                       </td>
 
-                      {/* Claim Type */}
+                      {/* Claim Type (OT = Overtime, OP = Out of Pocket) */}
                       <td className="py-3.5 px-4">
                         <span
                           className={`inline-block px-2 py-0.5 rounded font-mono font-bold text-[11px] ${
@@ -354,8 +380,31 @@ export const UserManagement: React.FC = () => {
                               : 'bg-blue-50 text-blue-700 border border-blue-200'
                           }`}
                         >
-                          {u.claimType || 'OT'}
+                          {u.claimType === 'OP' ? 'OP (Out of Pocket)' : 'OT (Overtime)'}
                         </span>
+                      </td>
+
+                      {/* Assigned Templates */}
+                      <td className="py-3.5 px-4">
+                        {u.assignedTemplateIds && u.assignedTemplateIds.length > 0 ? (
+                          <div className="flex flex-wrap gap-1 max-w-[200px]">
+                            {u.assignedTemplateIds.map(tId => {
+                              const tpl = availableTemplates.find(t => t.id === tId);
+                              return (
+                                <span
+                                  key={tId}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 text-[10px] font-semibold"
+                                  title={tpl?.name || tId}
+                                >
+                                  <FileText className="w-2.5 h-2.5" />
+                                  <span className="truncate max-w-[120px]">{tpl?.name || tId}</span>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-slate-400 italic">All Templates</span>
+                        )}
                       </td>
 
                       {/* Department & Branch */}
@@ -480,9 +529,77 @@ export const UserManagement: React.FC = () => {
                     onChange={e => setClaimType(e.target.value as ClaimType)}
                     className="w-full rounded-xl border border-slate-300 py-2 px-2.5 bg-white text-slate-800 font-semibold"
                   >
-                    <option value="OT">OT (Overtime Claim)</option>
-                    <option value="OP">OP (Operational/Off-duty Pay)</option>
+                    <option value="OT">OT - Overtime</option>
+                    <option value="OP">OP - Out of Pocket</option>
                   </select>
+                </div>
+              </div>
+
+              {/* Assigned Overtime Templates (Multi-Select) */}
+              <div className="p-3.5 bg-indigo-50/60 border border-indigo-200 rounded-2xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <FileText className="w-4 h-4 text-indigo-700" />
+                    <span className="font-bold text-indigo-950 text-xs">
+                      Assigned Form Templates ({assignedTemplateIds.length} Selected)
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => setAssignedTemplateIds(availableTemplates.map(t => t.id))}
+                      className="text-indigo-700 hover:text-indigo-900 font-bold underline"
+                    >
+                      Select All
+                    </button>
+                    <span className="text-slate-300">•</span>
+                    <button
+                      type="button"
+                      onClick={() => setAssignedTemplateIds([])}
+                      className="text-slate-500 hover:text-slate-700"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-indigo-900/80">
+                  Select which templates this employee can use (e.g. <strong>Overtime Sheet</strong>). Admins can assign multiple templates to a user. After assigning, this user cannot access or use any other templates.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto p-1.5 bg-white rounded-xl border border-indigo-200">
+                  {availableTemplates.map(tpl => {
+                    const isSelected = assignedTemplateIds.includes(tpl.id);
+                    return (
+                      <label
+                        key={tpl.id}
+                        className={`flex items-start gap-2 p-2 rounded-lg border text-xs cursor-pointer transition select-none ${
+                          isSelected
+                            ? 'bg-indigo-50 border-indigo-300 text-indigo-950 font-semibold shadow-2xs'
+                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={e => {
+                            if (e.target.checked) {
+                              setAssignedTemplateIds(prev => [...prev, tpl.id]);
+                            } else {
+                              setAssignedTemplateIds(prev => prev.filter(id => id !== tpl.id));
+                            }
+                          }}
+                          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 mt-0.5"
+                        />
+                        <div className="flex-1 truncate">
+                          <span className="block truncate font-medium">{tpl.name}</span>
+                          {tpl.isDefault && (
+                            <span className="text-[9px] text-amber-600 font-semibold block">★ Default Form</span>
+                          )}
+                        </div>
+                      </label>
+                    );
+                  })}
                 </div>
               </div>
 

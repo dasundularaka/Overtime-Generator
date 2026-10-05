@@ -134,6 +134,14 @@ export function saveTemplate(template: TemplateConfig): TemplateConfig[] {
   return updated;
 }
 
+export function deleteTemplate(templateId: string): TemplateConfig[] {
+  const templates = getTemplates();
+  const updated = templates.filter(t => t.id !== templateId);
+  const finalTemplates = updated.length > 0 ? updated : [DEFAULT_TEMPLATE];
+  localStorage.setItem(STORAGE_KEYS.TEMPLATES, JSON.stringify(finalTemplates));
+  return finalTemplates;
+}
+
 export function resetTemplateToDefault(): TemplateConfig {
   const templates = getTemplates().filter(t => t.id !== DEFAULT_TEMPLATE.id);
   const updated = [DEFAULT_TEMPLATE, ...templates];
