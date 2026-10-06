@@ -302,29 +302,50 @@ export const EmployeeManager: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Department
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-bold text-slate-700">Department</label>
+                  <span className="text-[10px] text-indigo-600 font-semibold">Custom Text</span>
+                </div>
                 <input
                   type="text"
+                  list="emp-department-suggestions"
                   value={department}
                   onChange={e => setDepartment(e.target.value)}
-                  placeholder="e.g. IT & Infrastructure Operations"
+                  placeholder="e.g. IT Operations & Infrastructure"
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                 />
+                <datalist id="emp-department-suggestions">
+                  <option value="IT Operations & Infrastructure" />
+                  <option value="Corporate Banking Division" />
+                  <option value="Credit & Risk Management" />
+                  <option value="Treasury & Foreign Exchange" />
+                  <option value="Retail Banking & Branches" />
+                  <option value="Finance & Accounts" />
+                  <option value="Human Resources Division" />
+                </datalist>
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Branch / Location
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-bold text-slate-700">Branch / Location</label>
+                  <span className="text-[10px] text-indigo-600 font-semibold">Custom Text</span>
+                </div>
                 <input
                   type="text"
+                  list="emp-branch-suggestions"
                   value={branch}
                   onChange={e => setBranch(e.target.value)}
-                  placeholder="e.g. Headquarters"
+                  placeholder="e.g. BOC Colombo Main Branch"
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                 />
+                <datalist id="emp-branch-suggestions">
+                  <option value="BOC Colombo Main Branch" />
+                  <option value="Corporate Branch" />
+                  <option value="Head Office - Colombo" />
+                  <option value="Kandy Super Grade Branch" />
+                  <option value="Galle Fort Branch" />
+                  <option value="Kurunegala City Branch" />
+                </datalist>
               </div>
 
               <div className="mt-6 pt-4 border-t border-slate-200 flex items-center justify-end gap-2">

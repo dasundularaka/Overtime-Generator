@@ -77,14 +77,18 @@ export function generateDefaultTemplateSvg(): string {
   <text x="162" y="36.5" class="form-lbl">Branch / Office</text>
   <line x1="135" y1="38" x2="197" y2="38" class="inner-line" />
 
-  <!-- Row 3: Designation & Month / Year -->
+  <!-- Row 3: Designation, Month / Year, and Department -->
   <text x="26" y="44" class="sinhala">තනතුර</text>
   <text x="35" y="44" class="form-lbl">Designation</text>
   <line x1="14" y1="46" x2="68" y2="46" class="inner-line" />
 
   <text x="82" y="44" class="sinhala">මාසය සහ වර්ෂය</text>
   <text x="82" y="47" class="form-lbl">Month and Year</text>
-  <line x1="72" y1="48" x2="135" y2="48" class="inner-line" />
+  <line x1="72" y1="48" x2="132" y2="48" class="inner-line" />
+
+  <text x="140" y="44" class="sinhala">දෙපාර්තමේන්තුව</text>
+  <text x="162" y="44" class="form-lbl">Department</text>
+  <line x1="136" y1="48" x2="197" y2="48" class="inner-line" />
 
   <!-- ================= SECTION 2: 31-ROW OVERTIME TABLE ================= -->
   <!-- Table Outer Box -->
@@ -280,7 +284,24 @@ export const DEFAULT_TEMPLATE: TemplateConfig = {
       alignment: 'left',
       rotation: 0,
       isVisible: true,
-      sampleValue: 'Colombo Head Office',
+      sampleValue: 'BOC Colombo Main Branch',
+    },
+    {
+      id: 'f_dept',
+      name: 'Department / Division',
+      key: 'department',
+      type: 'text',
+      x: 136,
+      y: 47,
+      width: 60,
+      height: 4.5,
+      fontSize: 9,
+      fontFamily: 'Helvetica',
+      isBold: false,
+      alignment: 'left',
+      rotation: 0,
+      isVisible: true,
+      sampleValue: 'IT Operations & Infrastructure',
     },
     {
       id: 'f_designation',

@@ -204,7 +204,8 @@ export async function generateOvertimePdf(
   for (const field of template.fields) {
     if (!field.isVisible) continue;
 
-    const value = claimDataMap[field.key] ?? field.sampleValue ?? '';
+    const mappedVal = claimDataMap[field.key];
+    const value = (mappedVal !== undefined && mappedVal.trim() !== '') ? mappedVal : (field.sampleValue ?? '');
     if (!value) continue;
 
     const font = await getFont(field.fontFamily, field.isBold);

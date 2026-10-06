@@ -697,24 +697,80 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             />
           </div>
 
+          {/* Department Custom Text */}
           <div>
-            <label className="block font-bold text-slate-600 mb-1">Department</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block font-bold text-slate-700">Department</label>
+              <span className="text-[10px] text-indigo-600 font-semibold">Custom Text</span>
+            </div>
             <input
               type="text"
+              list="claim-department-suggestions"
               value={department}
               onChange={e => setDepartment(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800"
+              placeholder="e.g. IT Operations & Infrastructure"
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
             />
+            <datalist id="claim-department-suggestions">
+              <option value="IT Operations & Infrastructure" />
+              <option value="Corporate Banking Division" />
+              <option value="Credit & Risk Management" />
+              <option value="Treasury & Foreign Exchange" />
+              <option value="Retail Banking & Branches" />
+              <option value="Finance & Accounts" />
+              <option value="Human Resources Division" />
+            </datalist>
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {['IT Operations', 'Corporate Banking', 'Treasury', 'Finance'].map(dep => (
+                <button
+                  key={dep}
+                  type="button"
+                  onClick={() => setDepartment(dep)}
+                  className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-600 text-[10px] font-medium transition"
+                  title={`Set Department to "${dep}"`}
+                >
+                  +{dep}
+                </button>
+              ))}
+            </div>
           </div>
 
+          {/* Branch Custom Text */}
           <div>
-            <label className="block font-bold text-slate-600 mb-1">Branch</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block font-bold text-slate-700">Branch</label>
+              <span className="text-[10px] text-indigo-600 font-semibold">Custom Text</span>
+            </div>
             <input
               type="text"
+              list="claim-branch-suggestions"
               value={branch}
               onChange={e => setBranch(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800"
+              placeholder="e.g. BOC Colombo Main Branch"
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
             />
+            <datalist id="claim-branch-suggestions">
+              <option value="BOC Colombo Main Branch" />
+              <option value="Corporate Branch" />
+              <option value="Head Office - Colombo" />
+              <option value="Kandy Super Grade Branch" />
+              <option value="Galle Fort Branch" />
+              <option value="Kurunegala City Branch" />
+              <option value="Jaffna Main Branch" />
+            </datalist>
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {['Colombo Main', 'Head Office', 'Corporate', 'Kandy'].map(br => (
+                <button
+                  key={br}
+                  type="button"
+                  onClick={() => setBranch(br)}
+                  className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-600 text-[10px] font-medium transition"
+                  title={`Set Branch to "${br}"`}
+                >
+                  +{br}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Claim Type (OT = Overtime, OP = Out of Pocket) */}

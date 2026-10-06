@@ -649,37 +649,56 @@ export const UserManagement: React.FC = () => {
                 </div>
               </div>
 
-              {/* Department (Head Office Only) & Branch */}
+              {/* Department & Branch Custom Texts */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Department (Head Office Only)
-                  </label>
-                  <select
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-bold text-slate-700">Department</label>
+                    <span className="text-[10px] text-indigo-600 font-semibold">Custom Text</span>
+                  </div>
+                  <input
+                    type="text"
+                    list="user-department-suggestions"
                     value={department}
                     onChange={e => setDepartment(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 py-2 px-2.5 bg-white text-slate-800"
-                  >
-                    <option value="IT & Infrastructure Operations">IT &amp; Infrastructure Operations</option>
-                    <option value="Finance & Accounts">Finance &amp; Accounts</option>
-                    <option value="Human Resources">Human Resources</option>
-                    <option value="Operations & Logistics">Operations &amp; Logistics</option>
-                    <option value="Engineering & Facilities">Engineering &amp; Facilities</option>
-                  </select>
+                    placeholder="e.g. IT Operations & Infrastructure"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 bg-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  />
+                  <datalist id="user-department-suggestions">
+                    <option value="IT Operations & Infrastructure" />
+                    <option value="Corporate Banking Division" />
+                    <option value="Credit & Risk Management" />
+                    <option value="Treasury & Foreign Exchange" />
+                    <option value="Retail Banking & Branches" />
+                    <option value="Finance & Accounts" />
+                    <option value="Human Resources Division" />
+                    <option value="Operations & Logistics" />
+                    <option value="Engineering & Facilities" />
+                  </datalist>
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Branch</label>
-                  <select
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-bold text-slate-700">Branch</label>
+                    <span className="text-[10px] text-indigo-600 font-semibold">Custom Text</span>
+                  </div>
+                  <input
+                    type="text"
+                    list="user-branch-suggestions"
                     value={branch}
                     onChange={e => setBranch(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 py-2 px-2.5 bg-white text-slate-800"
-                  >
-                    <option value="Head Office">Head Office</option>
-                    <option value="Regional Colombo">Regional Colombo</option>
-                    <option value="Logistics Hub">Logistics Hub</option>
-                    <option value="Branch North">Branch North</option>
-                    <option value="Branch South">Branch South</option>
-                  </select>
+                    placeholder="e.g. Head Office - Colombo"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 bg-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  />
+                  <datalist id="user-branch-suggestions">
+                    <option value="Head Office - Colombo" />
+                    <option value="BOC Colombo Main Branch" />
+                    <option value="Corporate Branch" />
+                    <option value="Regional Colombo" />
+                    <option value="Kandy Super Grade Branch" />
+                    <option value="Galle Fort Branch" />
+                    <option value="Kurunegala City Branch" />
+                    <option value="Logistics Hub" />
+                  </datalist>
                 </div>
               </div>
 
