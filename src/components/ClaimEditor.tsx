@@ -18,6 +18,7 @@ import {
   Info,
   FileText,
   Lock,
+  Banknote,
 } from 'lucide-react';
 import {
   collection,
@@ -51,6 +52,7 @@ import {
 } from '../utils/storage';
 import { generateOvertimePdf, printPdfDocument } from '../utils/pdfGenerator';
 import { PDFPreviewModal } from './PDFPreviewModal';
+import { ConfirmationModal } from './ConfirmationModal';
 import { useAuth } from '../context/AuthContext';
 import { subscribeToTemplates } from '../services/templateService';
 import { TemplateConfig } from '../types';
@@ -146,6 +148,21 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     initialClaim?.claimDate || new Date().toISOString().split('T')[0]
   );
 
+  // Rates & Payment State
+  const [totalRemuneration, setTotalRemuneration] = useState<number | ''>(
+    initialClaim?.totalRemuneration !== undefined ? initialClaim.totalRemuneration : ''
+  );
+  const [hourlyRate, setHourlyRate] = useState<number | ''>(
+    initialClaim?.hourlyRate !== undefined ? initialClaim.hourlyRate : ''
+  );
+  const [daysPay, setDaysPay] = useState<number | ''>(
+    initialClaim?.daysPay !== undefined ? initialClaim.daysPay : ''
+  );
+  const [otPaymentDueB, setOtPaymentDueB] = useState<number | ''>(
+    initialClaim?.otPaymentDueB !== undefined ? initialClaim.otPaymentDueB : ''
+  );
+  const [isConfirmResetOpen, setIsConfirmResetOpen] = useState(false);
+
   // Rows State
   const [rows, setRows] = useState<OvertimeRow[]>([]);
   const [otDisplayFormat, setOtDisplayFormat] = useState<'hhmm' | 'decimal'>('hhmm');
@@ -187,6 +204,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       setClaimYear(initialClaim.year);
       setClaimDate(initialClaim.claimDate);
       setRows(initialClaim.rows || []);
+      setTotalRemuneration(initialClaim.totalRemuneration !== undefined ? initialClaim.totalRemuneration : '');
+      setHourlyRate(initialClaim.hourlyRate !== undefined ? initialClaim.hourlyRate : '');
+      setDaysPay(initialClaim.daysPay !== undefined ? initialClaim.daysPay : '');
+      setOtPaymentDueB(initialClaim.otPaymentDueB !== undefined ? initialClaim.otPaymentDueB : '');
       return;
     }
 
@@ -204,6 +225,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       setMaxOtLimitHours(
         targetProfile.maxOtHoursPerDay !== undefined ? targetProfile.maxOtHoursPerDay : 2.0
       );
+      setHourlyRate(targetProfile.hourlyRate !== undefined ? targetProfile.hourlyRate : '');
+      setDaysPay(targetProfile.daysPay !== undefined ? targetProfile.daysPay : '');
+      setTotalRemuneration(targetProfile.totalRemuneration !== undefined ? targetProfile.totalRemuneration : '');
     }
 
     // Initialize 3 default shift rows
@@ -385,6 +409,34 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     };
   }, [rows]);
 
+  const handleRemunerationChange = (val: string) => {
+    if (val === '') {
+      setTotalRemuneration('');
+      return;
+    }
+    const num = parseFloat(val);
+    setTotalRemuneration(isNaN(num) ? '' : num);
+    if (!isNaN(num) && num > 0) {
+      // Standard Banking / Commercial Form 10756 Overtime Formula:
+      // Day's Pay = Remuneration / 22 working days
+      // Hourly OT Rate = Day's Pay / 8 hours
+      const calculatedDayPay = Math.round((num / 22) * 100) / 100;
+      const calculatedHourlyRate = Math.round((calculatedDayPay / 8) * 100) / 100;
+      if (daysPay === '') setDaysPay(calculatedDayPay);
+      if (hourlyRate === '') setHourlyRate(calculatedHourlyRate);
+    }
+  };
+
+  const otPaymentDueA = useMemo(() => {
+    if (hourlyRate === '' || isNaN(Number(hourlyRate))) return 0;
+    return Math.round(summary.totalDecimalHours * Number(hourlyRate) * 100) / 100;
+  }, [summary.totalDecimalHours, hourlyRate]);
+
+  const totalOtPayment = useMemo(() => {
+    const b = otPaymentDueB !== '' ? Number(otPaymentDueB) : 0;
+    return Math.round((otPaymentDueA + (isNaN(b) ? 0 : b)) * 100) / 100;
+  }, [otPaymentDueA, otPaymentDueB]);
+
   const validateForm = (): boolean => {
     setValidationError(null);
 
@@ -435,6 +487,12 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       totalHoursFormatted: summary.totalHoursFormatted,
       totalDecimalHours: summary.totalDecimalHours,
       otDaysCount: summary.otDaysCount,
+      totalRemuneration: totalRemuneration !== '' ? Number(totalRemuneration) : undefined,
+      hourlyRate: hourlyRate !== '' ? Number(hourlyRate) : undefined,
+      daysPay: daysPay !== '' ? Number(daysPay) : undefined,
+      otPaymentDueA,
+      otPaymentDueB: otPaymentDueB !== '' ? Number(otPaymentDueB) : 0,
+      totalOtPayment,
       status: 'submitted',
       templateId: activeTemplate.id,
       createdAt: initialClaim?.createdAt || new Date().toISOString(),
@@ -611,12 +669,12 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {!isAdmin && userProfile?.assignedTemplateIds && userProfile.assignedTemplateIds.length === 1 ? (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-300 text-xs font-semibold text-slate-700">
+            {!isAdmin ? (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-300 text-xs font-semibold text-slate-700 shadow-2xs">
                 <Lock className="w-3.5 h-3.5 text-slate-500" />
                 <span>{activeTemplate.name}</span>
                 <span className="text-[10px] text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded font-bold">
-                  Assigned
+                  Assigned (Locked)
                 </span>
               </div>
             ) : (
@@ -900,6 +958,128 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         </div>
       </div>
 
+      {/* Hourly OT Rate & Days Payment of OT Section (Official Form 10756 Remuneration & Pay) */}
+      <div className="rounded-2xl bg-white p-5 shadow-xs border border-slate-200">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3 mb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100">
+              <Banknote className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-slate-900 tracking-tight">
+                  Hourly OT Rate &amp; Days Payment of OT
+                </h3>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200">
+                  Form 10756 Remuneration
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Calculates and prints onto the bottom summary box: Hourly Rate, Day&apos;s Pay, and Overtime Payments Due &apos;A&apos; and &apos;B&apos;.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-3.5 py-1.5 rounded-xl">
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+              Total Overtime Payment Due:
+            </span>
+            <span className="text-base font-black font-mono text-indigo-700">
+              Rs. {totalOtPayment.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 text-xs">
+          {/* Total Remuneration */}
+          <div>
+            <label className="block font-bold text-slate-700 mb-1">
+              Total Remuneration (Rs.)
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              value={totalRemuneration}
+              onChange={e => handleRemunerationChange(e.target.value)}
+              placeholder="e.g. 85000.00"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+            />
+            <span className="text-[10px] text-slate-400 mt-1 block">
+              Salary Book (Excl. interim allowance)
+            </span>
+          </div>
+
+          {/* Hourly OT Rate */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block font-bold text-slate-700">Hourly OT Rate (Rs.)</label>
+              <span className="text-[10px] text-indigo-600 font-semibold">Form 10756</span>
+            </div>
+            <input
+              type="number"
+              step="0.01"
+              value={hourlyRate}
+              onChange={e => setHourlyRate(e.target.value === '' ? '' : parseFloat(e.target.value))}
+              placeholder="e.g. 482.95"
+              className="w-full rounded-xl border border-indigo-300 bg-indigo-50/20 px-3 py-2 text-slate-900 font-mono font-bold focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+            />
+            <span className="text-[10px] text-slate-400 mt-1 block">
+              Hourly Rate Rs. (Printed on form)
+            </span>
+          </div>
+
+          {/* Days Payment of OT */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block font-bold text-slate-700">Days Payment of OT (Rs.)</label>
+              <span className="text-[10px] text-indigo-600 font-semibold">Day&apos;s Pay</span>
+            </div>
+            <input
+              type="number"
+              step="0.01"
+              value={daysPay}
+              onChange={e => setDaysPay(e.target.value === '' ? '' : parseFloat(e.target.value))}
+              placeholder="e.g. 3863.64"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+            />
+            <span className="text-[10px] text-slate-400 mt-1 block">
+              Day&apos;s Pay Rs. (Printed on form)
+            </span>
+          </div>
+
+          {/* Overtime Payment Due 'A' */}
+          <div className="bg-emerald-50/60 p-3 rounded-xl border border-emerald-200">
+            <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">
+              Payment Due &apos;A&apos; (Hours × Rate)
+            </span>
+            <div className="text-base font-extrabold font-mono text-emerald-800 mt-1">
+              Rs. {otPaymentDueA.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <span className="text-[10px] text-emerald-700/80 mt-0.5 block">
+              {summary.totalDecimalHours}h worked @ {hourlyRate !== '' ? Number(hourlyRate).toFixed(2) : '0.00'}/h
+            </span>
+          </div>
+
+          {/* Special Assignment Payment 'B' */}
+          <div>
+            <label className="block font-bold text-slate-700 mb-1">
+              Special Assignment &apos;B&apos; (Rs.)
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              value={otPaymentDueB}
+              onChange={e => setOtPaymentDueB(e.target.value === '' ? '' : parseFloat(e.target.value))}
+              placeholder="0.00"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+            />
+            <span className="text-[10px] text-slate-400 mt-1 block">
+              Payment Due &apos;B&apos; Rs.
+            </span>
+          </div>
+        </div>
+      </div>
+
       {/* Timesheet Daily Entries Table */}
       <div className="rounded-2xl bg-white shadow-xs border border-slate-200 overflow-hidden">
         <div className="px-5 py-4 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
@@ -912,13 +1092,26 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             </span>
           </div>
 
-          <button
-            onClick={handleAddRow}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add Row</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsConfirmResetOpen(true)}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs font-semibold transition"
+              title="Clear all rows and reset timesheet"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reset Entries</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleAddRow}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Row</span>
+            </button>
+          </div>
         </div>
 
         {/* Table */}
@@ -1135,6 +1328,21 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         filename={previewFilename}
         onSaveClaim={handleSaveClaim}
         isSaved={claimSavedSuccess}
+      />
+
+      {/* Reset Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={isConfirmResetOpen}
+        title="Reset Timesheet Entries?"
+        message="This will clear all daily overtime entries on this timesheet and start fresh with blank rows. Any unsaved hours will be discarded."
+        confirmText="Yes, Reset"
+        cancelText="Keep My Entries"
+        variant="warning"
+        onConfirm={() => {
+          setRows([createBlankRow()]);
+          setIsConfirmResetOpen(false);
+        }}
+        onClose={() => setIsConfirmResetOpen(false)}
       />
     </div>
   );

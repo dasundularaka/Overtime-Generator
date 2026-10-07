@@ -11,6 +11,7 @@ import { TemplateDesigner } from './components/TemplateDesigner';
 import { SettingsPage } from './components/SettingsPage';
 import { OnboardingModal } from './components/OnboardingModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { LoadingScreen } from './components/LoadingScreen';
 import { ClaimRecord } from './types';
 import { getSettings, saveSettings } from './utils/storage';
 
@@ -28,13 +29,15 @@ function AppContent() {
     }
   }, []);
 
+  // Safeguard: non-admins cannot stay on designer or user admin tabs
+  useEffect(() => {
+    if (!loading && !isAdmin && (activeTab === 'designer' || activeTab === 'users')) {
+      setActiveTab('dashboard');
+    }
+  }, [loading, isAdmin, activeTab]);
+
   if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white">
-        <div className="h-10 w-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-xs text-slate-400">Initializing Overtime Claim Manager...</p>
-      </div>
-    );
+    return <LoadingScreen message="Loading Overtime Claim Engine..." subMessage="Authenticating session & verifying roles..." />;
   }
 
   // If not logged in, show Auth screen
@@ -61,6 +64,10 @@ function AppContent() {
           if (tab === 'new-claim' && activeTab === 'new-claim') {
             setEditingClaim(null);
           }
+          if (tab === 'designer' && !isAdmin) {
+            setActiveTab('dashboard');
+            return;
+          }
           setActiveTab(tab);
         }}
         onOpenHelp={() => setShowHelpModal(true)}
@@ -72,6 +79,7 @@ function AppContent() {
           <Dashboard
             onNavigate={(tab) => {
               if (tab === 'new-claim') handleStartFreshClaim();
+              else if (tab === 'designer' && !isAdmin) setActiveTab('dashboard');
               else setActiveTab(tab);
             }}
             onEditClaim={handleEditClaim}
@@ -85,7 +93,7 @@ function AppContent() {
             onClaimSaved={() => {
               setActiveTab('history');
             }}
-            onNavigateToDesigner={() => setActiveTab('designer')}
+            onNavigateToDesigner={isAdmin ? () => setActiveTab('designer') : undefined}
           />
         )}
 
@@ -100,7 +108,7 @@ function AppContent() {
           />
         )}
 
-        {activeTab === 'designer' && <TemplateDesigner />}
+        {activeTab === 'designer' && isAdmin && <TemplateDesigner />}
 
         {activeTab === 'settings' && <SettingsPage />}
       </main>
@@ -128,9 +136,10 @@ function AppContent() {
       <OnboardingModal
         isOpen={showHelpModal}
         onClose={() => setShowHelpModal(false)}
+        isAdmin={isAdmin}
         onGoToDesigner={() => {
           setShowHelpModal(false);
-          setActiveTab('designer');
+          if (isAdmin) setActiveTab('designer');
         }}
         onGoToNewClaim={() => {
           setShowHelpModal(false);

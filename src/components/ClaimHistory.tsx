@@ -28,9 +28,11 @@ import { ClaimRecord, TemplateConfig } from '../types';
 import { getActiveTemplate } from '../utils/storage';
 import { generateOvertimePdf, printPdfDocument } from '../utils/pdfGenerator';
 import { PDFPreviewModal } from './PDFPreviewModal';
+import { ConfirmationModal } from './ConfirmationModal';
 import { MONTH_NAMES } from '../utils/timeCalculations';
 import { useAuth } from '../context/AuthContext';
 import { subscribeToTemplates } from '../services/templateService';
+import { Banknote, CheckCircle2 } from 'lucide-react';
 
 interface ClaimHistoryProps {
   onEditClaim: (claim: ClaimRecord) => void;
@@ -73,6 +75,11 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
   const [previewFilename, setPreviewFilename] = useState<string>('');
   const [viewingClaim, setViewingClaim] = useState<ClaimRecord | null>(null);
 
+  // Confirmation Modal & Action Feedback
+  const [claimToDelete, setClaimToDelete] = useState<ClaimRecord | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
   // Fetch claims from Firestore (Admins see all; Users see only their own)
   const fetchClaims = async () => {
     if (!currentUser) return;
@@ -112,7 +119,8 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
       setPreviewFilename(filename);
       setIsPreviewOpen(true);
     } catch (err: any) {
-      alert('Failed to generate preview PDF: ' + err.message);
+      setToastMessage('Failed to generate preview PDF: ' + err.message);
+      setTimeout(() => setToastMessage(null), 4000);
     }
   };
 
@@ -127,7 +135,8 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
       a.click();
       document.body.removeChild(a);
     } catch (err: any) {
-      alert('Failed to download PDF: ' + err.message);
+      setToastMessage('Failed to download PDF: ' + err.message);
+      setTimeout(() => setToastMessage(null), 4000);
     }
   };
 
@@ -137,7 +146,8 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
       const { url } = await generateOvertimePdf(claim, templateToUse);
       printPdfDocument(url);
     } catch (err: any) {
-      alert('Failed to print document: ' + err.message);
+      setToastMessage('Failed to print document: ' + err.message);
+      setTimeout(() => setToastMessage(null), 4000);
     }
   };
 
@@ -155,23 +165,29 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
     try {
       await setDoc(doc(db, 'claims', newId), duplicated);
       fetchClaims();
-      alert('Claim duplicated successfully!');
+      setToastMessage('Claim duplicated successfully!');
+      setTimeout(() => setToastMessage(null), 3000);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `claims/${newId}`);
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm('Delete this overtime claim permanently?')) {
-      try {
-        await deleteDoc(doc(db, 'claims', id));
-        fetchClaims();
-        if (viewingClaim?.id === id) {
-          setViewingClaim(null);
-        }
-      } catch (err) {
-        handleFirestoreError(err, OperationType.DELETE, `claims/${id}`);
+  const confirmDeleteClaim = async () => {
+    if (!claimToDelete) return;
+    setIsDeleting(true);
+    try {
+      await deleteDoc(doc(db, 'claims', claimToDelete.id));
+      fetchClaims();
+      if (viewingClaim?.id === claimToDelete.id) {
+        setViewingClaim(null);
       }
+      setToastMessage(`Claim #${claimToDelete.claimNumber} deleted successfully.`);
+      setClaimToDelete(null);
+      setTimeout(() => setToastMessage(null), 3000);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `claims/${claimToDelete.id}`);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -283,6 +299,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                   <th className="py-3 px-4 text-center">Type</th>
                   <th className="py-3 px-4 text-center">Days</th>
                   <th className="py-3 px-4 text-center">Total OT Hours</th>
+                  <th className="py-3 px-4 text-right">Payment Due</th>
                   <th className="py-3 px-4">Date</th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
@@ -335,6 +352,15 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                       </span>
                     </td>
 
+                    <td className="py-3.5 px-4 text-right">
+                      <div className="font-bold font-mono text-emerald-700">
+                        Rs. {(claim.totalOtPayment || (claim.hourlyRate && claim.totalDecimalHours ? claim.hourlyRate * claim.totalDecimalHours : 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                      <div className="text-[10px] text-slate-400 font-mono">
+                        {claim.hourlyRate ? `@ Rs. ${Number(claim.hourlyRate).toFixed(2)}/h` : ''}
+                      </div>
+                    </td>
+
                     <td className="py-3.5 px-4 text-slate-500 text-[11px]">
                       {claim.claimDate}
                     </td>
@@ -384,7 +410,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                           <Copy className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => handleDelete(claim.id)}
+                          onClick={() => setClaimToDelete(claim)}
                           className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
                           title="Delete Claim"
                         >
@@ -403,7 +429,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
       {/* Claim Breakdown Modal */}
       {viewingClaim && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-          <div className="relative w-full max-w-3xl rounded-2xl bg-white p-6 shadow-2xl border border-slate-200 max-h-[90vh] flex flex-col">
+          <div className="relative w-full max-w-4xl rounded-2xl bg-white p-6 shadow-2xl border border-slate-200 max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between pb-4 border-b border-slate-200">
               <div>
                 <span className="font-mono text-xs font-bold text-slate-400 uppercase">
@@ -433,7 +459,43 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
               </div>
             </div>
 
-            <div className="mt-4 flex-1 overflow-y-auto pr-1">
+            {/* Overtime Rates & Payment Due Summary Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-3">
+              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                  Hourly OT Rate
+                </span>
+                <span className="text-sm font-bold font-mono text-slate-800">
+                  {viewingClaim.hourlyRate ? `Rs. ${Number(viewingClaim.hourlyRate).toFixed(2)}` : 'N/A'}
+                </span>
+              </div>
+              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                  Day&apos;s Pay
+                </span>
+                <span className="text-sm font-bold font-mono text-slate-800">
+                  {viewingClaim.daysPay ? `Rs. ${Number(viewingClaim.daysPay).toFixed(2)}` : 'N/A'}
+                </span>
+              </div>
+              <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
+                <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">
+                  Payment Due &apos;A&apos;
+                </span>
+                <span className="text-sm font-bold font-mono text-emerald-800">
+                  Rs. {(viewingClaim.otPaymentDueA || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="bg-indigo-50 p-2.5 rounded-xl border border-indigo-200">
+                <span className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider block">
+                  Total Payment Due
+                </span>
+                <span className="text-sm font-black font-mono text-indigo-700">
+                  Rs. {(viewingClaim.totalOtPayment || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto pr-1">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px] tracking-wider">
@@ -498,6 +560,33 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
         pdfUrl={previewPdfUrl}
         filename={previewFilename}
       />
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={!!claimToDelete}
+        onClose={() => setClaimToDelete(null)}
+        onConfirm={confirmDeleteClaim}
+        title="Delete Overtime Timesheet"
+        message={`Are you sure you want to permanently delete claim #${claimToDelete?.claimNumber}? All overtime calculations will be lost.`}
+        confirmText="Delete Claim"
+        cancelText="Keep Claim"
+        variant="danger"
+        isLoading={isDeleting}
+        details={claimToDelete ? [
+          { label: 'Claimant', value: claimToDelete.employeeName },
+          { label: 'Month/Year', value: `${claimToDelete.month} ${claimToDelete.year}` },
+          { label: 'Total Hours', value: claimToDelete.totalHoursFormatted },
+          { label: 'Total Payment', value: `Rs. ${(claimToDelete.totalOtPayment || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
+        ] : []}
+      />
+
+      {/* Action Toast Feedback */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 rounded-2xl bg-slate-900 text-white px-4 py-3 shadow-2xl border border-slate-800 flex items-center gap-2.5 text-xs animate-scale-in">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
     </div>
   );
 };

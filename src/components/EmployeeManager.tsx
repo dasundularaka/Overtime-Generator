@@ -11,6 +11,7 @@ import {
   Briefcase,
   Hash,
   Star,
+  Banknote,
 } from 'lucide-react';
 import { Employee } from '../types';
 import {
@@ -20,6 +21,7 @@ import {
   getSettings,
   saveSettings,
 } from '../utils/storage';
+import { ConfirmationModal } from './ConfirmationModal';
 
 export const EmployeeManager: React.FC = () => {
   const [employees, setEmployees] = useState<Employee[]>(getEmployees());
@@ -36,6 +38,12 @@ export const EmployeeManager: React.FC = () => {
   const [designation, setDesignation] = useState('');
   const [branch, setBranch] = useState(settings.defaultBranch || 'Headquarters');
   const [department, setDepartment] = useState(settings.defaultDepartment || 'IT & Infrastructure');
+  const [hourlyRate, setHourlyRate] = useState<number | ''>('');
+  const [daysPay, setDaysPay] = useState<number | ''>('');
+  const [totalRemuneration, setTotalRemuneration] = useState<number | ''>('');
+
+  // Delete Confirmation State
+  const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
 
   const openCreateModal = () => {
     setEditingEmployee(null);
@@ -44,6 +52,9 @@ export const EmployeeManager: React.FC = () => {
     setDesignation('');
     setBranch(settings.defaultBranch || 'Headquarters');
     setDepartment(settings.defaultDepartment || 'IT & Infrastructure');
+    setHourlyRate('');
+    setDaysPay('');
+    setTotalRemuneration('');
     setIsModalOpen(true);
   };
 
@@ -54,13 +65,15 @@ export const EmployeeManager: React.FC = () => {
     setDesignation(emp.designation);
     setBranch(emp.branch);
     setDepartment(emp.department);
+    setHourlyRate(emp.hourlyRate !== undefined ? emp.hourlyRate : '');
+    setDaysPay(emp.daysPay !== undefined ? emp.daysPay : '');
+    setTotalRemuneration(emp.totalRemuneration !== undefined ? emp.totalRemuneration : '');
     setIsModalOpen(true);
   };
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      alert('Please enter employee name.');
       return;
     }
 
@@ -71,6 +84,9 @@ export const EmployeeManager: React.FC = () => {
       designation: designation.trim(),
       branch: branch.trim(),
       department: department.trim(),
+      hourlyRate: hourlyRate !== '' ? Number(hourlyRate) : undefined,
+      daysPay: daysPay !== '' ? Number(daysPay) : undefined,
+      totalRemuneration: totalRemuneration !== '' ? Number(totalRemuneration) : undefined,
       createdAt: editingEmployee?.createdAt || new Date().toISOString(),
     };
 
@@ -79,16 +95,16 @@ export const EmployeeManager: React.FC = () => {
     setIsModalOpen(false);
   };
 
-  const handleDelete = (id: string) => {
-    if (window.confirm('Are you sure you want to delete this employee profile?')) {
-      const updated = deleteEmployee(id);
-      setEmployees(updated);
-      if (settings.defaultEmployeeId === id) {
-        const newSettings = { ...settings, defaultEmployeeId: undefined };
-        saveSettings(newSettings);
-        setSettings(newSettings);
-      }
+  const confirmDeleteEmployee = () => {
+    if (!employeeToDelete) return;
+    const updated = deleteEmployee(employeeToDelete.id);
+    setEmployees(updated);
+    if (settings.defaultEmployeeId === employeeToDelete.id) {
+      const newSettings = { ...settings, defaultEmployeeId: undefined };
+      saveSettings(newSettings);
+      setSettings(newSettings);
     }
+    setEmployeeToDelete(null);
   };
 
   const handleSetDefault = (id: string) => {
@@ -192,6 +208,12 @@ export const EmployeeManager: React.FC = () => {
                 <div className="text-[11px] text-slate-400">
                   Branch: <span className="text-slate-600">{emp.branch}</span>
                 </div>
+                {(emp.hourlyRate || emp.daysPay) && (
+                  <div className="pt-1.5 flex items-center justify-between text-[11px] font-mono text-indigo-700 bg-indigo-50/50 px-2 py-1 rounded-lg">
+                    <span>{emp.hourlyRate ? `Rate: Rs. ${Number(emp.hourlyRate).toFixed(2)}/h` : ''}</span>
+                    <span>{emp.daysPay ? `Day: Rs. ${Number(emp.daysPay).toFixed(2)}` : ''}</span>
+                  </div>
+                )}
               </div>
 
               {/* Card Actions */}
@@ -219,7 +241,7 @@ export const EmployeeManager: React.FC = () => {
                     <Edit2 className="w-3.5 h-3.5" />
                   </button>
                   <button
-                    onClick={() => handleDelete(emp.id)}
+                    onClick={() => setEmployeeToDelete(emp)}
                     className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
                     title="Delete profile"
                   >
@@ -348,6 +370,62 @@ export const EmployeeManager: React.FC = () => {
                 </datalist>
               </div>
 
+              {/* Overtime Rates Form 10756 Remuneration */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+                <div className="flex items-center gap-1.5 font-bold text-slate-800 text-[11px]">
+                  <Banknote className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Default Overtime Rates (Form 10756 Remuneration)</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block font-semibold text-slate-600 text-[10px] mb-1">
+                      Remuneration (Rs.)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={totalRemuneration}
+                      onChange={e => {
+                        const val = e.target.value === '' ? '' : parseFloat(e.target.value);
+                        setTotalRemuneration(val);
+                        if (typeof val === 'number' && val > 0) {
+                          setHourlyRate(parseFloat((val / 176).toFixed(2)));
+                          setDaysPay(parseFloat((val / 22).toFixed(2)));
+                        }
+                      }}
+                      placeholder="85000.00"
+                      className="w-full rounded-lg border border-slate-300 px-2 py-1.5 font-mono text-xs bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-600 text-[10px] mb-1">
+                      Hourly Rate (Rs.)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={hourlyRate}
+                      onChange={e => setHourlyRate(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                      placeholder="482.95"
+                      className="w-full rounded-lg border border-indigo-300 bg-indigo-50/30 px-2 py-1.5 font-mono font-bold text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-600 text-[10px] mb-1">
+                      Day&apos;s Pay (Rs.)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={daysPay}
+                      onChange={e => setDaysPay(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                      placeholder="3863.64"
+                      className="w-full rounded-lg border border-slate-300 px-2 py-1.5 font-mono text-xs bg-white"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div className="mt-6 pt-4 border-t border-slate-200 flex items-center justify-end gap-2">
                 <button
                   type="button"
@@ -367,6 +445,23 @@ export const EmployeeManager: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Confirmation Modal for Employee Deletion */}
+      <ConfirmationModal
+        isOpen={!!employeeToDelete}
+        onClose={() => setEmployeeToDelete(null)}
+        onConfirm={confirmDeleteEmployee}
+        title="Delete Employee Profile"
+        message={`Are you sure you want to permanently delete the profile for "${employeeToDelete?.name}"?`}
+        confirmText="Delete Profile"
+        cancelText="Keep Profile"
+        variant="danger"
+        details={employeeToDelete ? [
+          { label: 'Name', value: employeeToDelete.name },
+          { label: 'Employee ID', value: employeeToDelete.employeeNumber },
+          { label: 'Designation', value: employeeToDelete.designation || '-' },
+        ] : []}
+      />
     </div>
   );
 };

@@ -56,6 +56,7 @@ import {
 import { DEFAULT_TEMPLATE, getDefaultTemplateSvgDataUrl } from '../utils/defaultTemplate';
 import { generateOvertimePdf } from '../utils/pdfGenerator';
 import { PDFPreviewModal } from './PDFPreviewModal';
+import { ConfirmationModal } from './ConfirmationModal';
 import { useAuth } from '../context/AuthContext';
 import {
   fetchTemplatesFromFirestore,
@@ -111,6 +112,11 @@ const FIELD_PRESETS = [
   { name: 'Claim Month & Year', key: 'monthYear', sample: 'October 2026', type: 'text' as const, w: 40, h: 5 },
   { name: 'Claim Date', key: 'claimDate', sample: '2026-10-05', type: 'date' as const, w: 35, h: 5 },
   { name: 'Total OT Hours', key: 'totalHours', sample: '18:30', type: 'calculated' as const, w: 40, h: 5 },
+  { name: 'Hourly OT Rate', key: 'hourlyRate', sample: '482.95', type: 'number' as const, w: 36, h: 4.5 },
+  { name: 'Days Payment of OT', key: 'daysPay', sample: '3,863.64', type: 'number' as const, w: 27, h: 4.5 },
+  { name: 'Total Remuneration', key: 'totalRemuneration', sample: '85,000.00', type: 'number' as const, w: 25, h: 4.5 },
+  { name: "Overtime Payment Due 'A'", key: 'otPaymentDueA', sample: '8,934.58', type: 'calculated' as const, w: 40, h: 4.5 },
+  { name: "Special Assignment Payment 'B'", key: 'otPaymentDueB', sample: '0.00', type: 'calculated' as const, w: 44, h: 4.5 },
   { name: 'Claim Type', key: 'claimType', sample: 'OT Claim', type: 'text' as const, w: 30, h: 5 },
   { name: 'Officer Signature', key: 'signature', sample: 'D. D. Ramasingha', type: 'signature' as const, w: 50, h: 8 },
   { name: 'Custom Dynamic Label', key: 'customField', sample: 'Custom Sample Text', type: 'text' as const, w: 40, h: 5 },
@@ -150,6 +156,9 @@ export const TemplateDesigner: React.FC = () => {
   const [showRulesModal, setShowRulesModal] = useState<boolean>(false);
   const [showPresetsMenu, setShowPresetsMenu] = useState<boolean>(false);
   const [copiedRules, setCopiedRules] = useState<boolean>(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState<boolean>(false);
+  const [isResetModalOpen, setIsResetModalOpen] = useState<boolean>(false);
+  const [fieldToDeleteId, setFieldToDeleteId] = useState<string | null>(null);
 
   // Test PDF State
   const [testPdfUrl, setTestPdfUrl] = useState<string | null>(null);
@@ -369,22 +378,16 @@ export const TemplateDesigner: React.FC = () => {
   };
 
   // Delete current template (Admin can delete any template)
-  const handleDeleteTemplate = async () => {
+  const handleDeleteTemplate = () => {
     if (!isAdmin) {
-      alert('Only administrators can delete templates.');
+      setSaveErrorMsg('Only administrators can delete templates.');
       return;
     }
+    setIsDeleteModalOpen(true);
+  };
 
-    if (templateList.length <= 1) {
-      if (!window.confirm(`"${template.name}" is the only template in the system. Deleting it will restore the official default template. Continue?`)) {
-        return;
-      }
-    } else {
-      if (!window.confirm(`Are you sure you want to delete the template "${template.name}"?`)) {
-        return;
-      }
-    }
-
+  const confirmDeleteTemplate = async () => {
+    setIsDeleteModalOpen(false);
     setIsSaving(true);
     try {
       await deleteTemplateFromFirestore(template.id);
@@ -405,19 +408,24 @@ export const TemplateDesigner: React.FC = () => {
 
   // Reset to standard official overtime template
   const handleResetToStandard = () => {
-    if (window.confirm('Reset this template layout to the standard official overtime form? Any unsaved custom coordinates will be discarded.')) {
-      setTemplate(prev => ({
-        ...DEFAULT_TEMPLATE,
-        id: prev.id,
-        name: prev.name,
-        isDefault: prev.isDefault,
-        pageSize: 'A4',
-        widthMm: 210,
-        heightMm: 297,
-        updatedAt: new Date().toISOString(),
-      }));
-      setSelectedFieldId(DEFAULT_TEMPLATE.fields[0]?.id || null);
-    }
+    setIsResetModalOpen(true);
+  };
+
+  const confirmResetToStandard = () => {
+    setIsResetModalOpen(false);
+    setTemplate(prev => ({
+      ...DEFAULT_TEMPLATE,
+      id: prev.id,
+      name: prev.name,
+      isDefault: prev.isDefault,
+      pageSize: 'A4',
+      widthMm: 210,
+      heightMm: 297,
+      updatedAt: new Date().toISOString(),
+    }));
+    setSelectedFieldId(DEFAULT_TEMPLATE.fields[0]?.id || null);
+    setSaveSuccessMsg('Template reset to standard official form.');
+    setTimeout(() => setSaveSuccessMsg(null), 3000);
   };
 
   // Upload custom template file (PDF or Image) with automatic conversion & compression
@@ -462,7 +470,7 @@ export const TemplateDesigner: React.FC = () => {
           : 'Background image loaded! Click "Save to Cloud" to persist.'
       );
     } catch (err: any) {
-      alert('Could not process template file: ' + err.message);
+      setSaveErrorMsg('Could not process template file: ' + err.message);
     } finally {
       setIsUploadingBackground(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -508,10 +516,10 @@ export const TemplateDesigner: React.FC = () => {
           setSelectedFieldId(imported.fields[0]?.id || null);
           setSaveSuccessMsg(`Configuration successfully imported (${imported.fields.length} dynamic fields loaded). Click "Save to Cloud" to save.`);
         } else {
-          alert('Invalid template JSON file format. Missing "fields" array.');
+          setSaveErrorMsg('Invalid template JSON file format. Missing "fields" array.');
         }
       } catch {
-        alert('Could not parse JSON template file.');
+        setSaveErrorMsg('Could not parse JSON template file.');
       } finally {
         if (jsonImportRef.current) jsonImportRef.current.value = '';
       }
@@ -694,13 +702,18 @@ export const TemplateDesigner: React.FC = () => {
 
   // Remove field
   const handleRemoveField = (id: string) => {
-    if (window.confirm('Remove this field from the template?')) {
-      setTemplate(prev => ({
-        ...prev,
-        fields: prev.fields.filter(f => f.id !== id),
-      }));
-      setSelectedFieldId(template.fields.find(f => f.id !== id)?.id || null);
-    }
+    setFieldToDeleteId(id);
+  };
+
+  const confirmRemoveField = () => {
+    if (!fieldToDeleteId) return;
+    const id = fieldToDeleteId;
+    setTemplate(prev => ({
+      ...prev,
+      fields: prev.fields.filter(f => f.id !== id),
+    }));
+    setSelectedFieldId(template.fields.find(f => f.id !== id)?.id || null);
+    setFieldToDeleteId(null);
   };
 
   // Table Column updater
@@ -1019,7 +1032,7 @@ export const TemplateDesigner: React.FC = () => {
       setTestPdfUrl(result.url);
       setIsTestPdfOpen(true);
     } catch (err: any) {
-      alert('Could not render test PDF: ' + err.message);
+      setSaveErrorMsg('Could not render test PDF: ' + err.message);
     }
   };
 
@@ -1063,6 +1076,20 @@ service cloud.firestore {
     setCopiedRules(true);
     setTimeout(() => setCopiedRules(false), 3000);
   };
+
+  if (!isAdmin) {
+    return (
+      <div className="max-w-xl mx-auto my-12 p-8 bg-white rounded-3xl border border-slate-200 shadow-xl text-center space-y-4 animate-scale-in">
+        <div className="w-16 h-16 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center mx-auto shadow-inner">
+          <Lock className="w-8 h-8" />
+        </div>
+        <h2 className="text-xl font-bold text-slate-900">Administrator Access Required</h2>
+        <p className="text-xs text-slate-500 leading-relaxed max-w-md mx-auto">
+          The Template Designer is exclusively available to system administrators. Standard users cannot add, edit, or delete claim form templates, or alter their assigned template layout.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -3111,6 +3138,50 @@ service cloud.firestore {
           }}
         />
       )}
+
+      {/* Delete Template Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        onConfirm={confirmDeleteTemplate}
+        title="Delete Form Template"
+        message={templateList.length <= 1
+          ? `"${template.name}" is the only template in the system. Deleting it will restore the official default template. Continue?`
+          : `Are you sure you want to permanently delete the template "${template.name}"? This action cannot be undone.`
+        }
+        confirmText="Delete Template"
+        cancelText="Keep Template"
+        variant="danger"
+        details={[
+          { label: 'Template Name', value: template.name },
+          { label: 'Total Fields', value: `${template.fields.length} dynamic fields` },
+          { label: 'Page Size', value: `${template.pageSize} (${template.widthMm} x ${template.heightMm} mm)` },
+        ]}
+      />
+
+      {/* Reset Layout Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={isResetModalOpen}
+        onClose={() => setIsResetModalOpen(false)}
+        onConfirm={confirmResetToStandard}
+        title="Reset Template Layout"
+        message="Reset this template layout to the standard official overtime form? Any unsaved custom field positions and table coordinates will be reverted to factory defaults."
+        confirmText="Reset to Standard"
+        cancelText="Cancel"
+        variant="warning"
+      />
+
+      {/* Remove Field Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={!!fieldToDeleteId}
+        onClose={() => setFieldToDeleteId(null)}
+        onConfirm={confirmRemoveField}
+        title="Remove Field"
+        message={`Are you sure you want to remove the field "${template.fields.find(f => f.id === fieldToDeleteId)?.name || 'this field'}" from this template?`}
+        confirmText="Remove Field"
+        cancelText="Keep Field"
+        variant="danger"
+      />
     </div>
   );
 };

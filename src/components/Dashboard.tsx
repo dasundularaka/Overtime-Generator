@@ -17,6 +17,7 @@ import {
   Shield,
   UserCheck,
   AlertTriangle,
+  Banknote,
 } from 'lucide-react';
 import { collection, getDocs, query, where, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase/config';
@@ -25,6 +26,7 @@ import { ClaimRecord, TemplateConfig } from '../types';
 import { getActiveTemplate } from '../utils/storage';
 import { generateOvertimePdf, printPdfDocument } from '../utils/pdfGenerator';
 import { PDFPreviewModal } from './PDFPreviewModal';
+import { ConfirmationModal } from './ConfirmationModal';
 import { NavigationTab } from './Navbar';
 import { useAuth } from '../context/AuthContext';
 import { subscribeToTemplates } from '../services/templateService';
@@ -66,6 +68,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
   const [previewFilename, setPreviewFilename] = useState<string>('');
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [claimToDeleteRecord, setClaimToDeleteRecord] = useState<ClaimRecord | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Fetch claims from Firestore based on role (Users cannot see others details)
   const fetchClaims = async () => {
@@ -97,8 +101,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // Overall Statistics
   const stats = useMemo(() => {
     let totalMinutes = 0;
+    let totalEarnings = 0;
     for (const c of claims) {
       totalMinutes += c.totalMinutes || 0;
+      if (c.totalOtPayment) totalEarnings += c.totalOtPayment;
     }
 
     const totalHours = Math.floor(totalMinutes / 60);
@@ -110,6 +116,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       totalClaimsCount: claims.length,
       totalHoursFormatted,
       totalDecimalHours,
+      totalEarnings,
     };
   }, [claims]);
 
@@ -123,8 +130,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-    } catch (err) {
-      alert('Failed to generate PDF');
+    } catch {
+      // PDF download failed silently or retry
     }
   };
 
@@ -135,8 +142,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
       setPreviewPdfUrl(url);
       setPreviewFilename(filename);
       setIsPreviewOpen(true);
-    } catch (err) {
-      alert('Failed to generate preview');
+    } catch {
+      // preview error
     }
   };
 
@@ -145,19 +152,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
       const templateToUse = resolveTemplate(claim);
       const { url } = await generateOvertimePdf(claim, templateToUse);
       printPdfDocument(url);
-    } catch (err) {
-      alert('Failed to print document');
+    } catch {
+      // print error
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this claim record?')) {
-      try {
-        await deleteDoc(doc(db, 'claims', id));
-        fetchClaims();
-      } catch (err) {
-        handleFirestoreError(err, OperationType.DELETE, `claims/${id}`);
-      }
+  const confirmDeleteClaim = async () => {
+    if (!claimToDeleteRecord) return;
+    setIsDeleting(true);
+    try {
+      await deleteDoc(doc(db, 'claims', claimToDeleteRecord.id));
+      setClaimToDeleteRecord(null);
+      fetchClaims();
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `claims/${claimToDeleteRecord.id}`);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -220,7 +230,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       </div>
 
       {/* Metric KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* Total Overtime Hours */}
         <div className="rounded-2xl bg-white p-5 shadow-xs border border-slate-200">
           <div className="flex items-center justify-between">
@@ -241,6 +251,26 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
           <p className="mt-1 text-xs text-slate-400">
             Calculated after 4:45 PM in 15m steps
+          </p>
+        </div>
+
+        {/* Total OT Payment / Earnings */}
+        <div className="rounded-2xl bg-white p-5 shadow-xs border border-slate-200">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              {isAdmin ? 'Total OT Payment' : 'My Total OT Pay'}
+            </span>
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+              <Banknote className="w-5 h-5" />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline gap-1.5">
+            <span className="text-2xl font-black text-emerald-700 tracking-tight">
+              Rs. {stats.totalEarnings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-slate-400">
+            Form 10756 Remuneration Due
           </p>
         </div>
 
@@ -359,6 +389,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <th className="py-3 px-4 text-center">Type</th>
                   <th className="py-3 px-4 text-center">Days</th>
                   <th className="py-3 px-4 text-center">Total Hours</th>
+                  <th className="py-3 px-4 text-right">Payment Due</th>
                   <th className="py-3 px-4">Date</th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
@@ -407,6 +438,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       </span>
                     </td>
 
+                    <td className="py-3.5 px-4 text-right">
+                      <div className="font-bold font-mono text-emerald-700">
+                        Rs. {(claim.totalOtPayment || (claim.hourlyRate && claim.totalDecimalHours ? claim.hourlyRate * claim.totalDecimalHours : 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                      <div className="text-[10px] text-slate-400 font-mono">
+                        {claim.hourlyRate ? `@ Rs. ${Number(claim.hourlyRate).toFixed(2)}/h` : ''}
+                      </div>
+                    </td>
+
                     <td className="py-3.5 px-4 text-slate-500 text-[11px]">
                       {claim.claimDate || claim.createdAt?.split('T')[0]}
                     </td>
@@ -442,7 +482,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                           <ExternalLink className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => handleDelete(claim.id)}
+                          onClick={() => setClaimToDeleteRecord(claim)}
                           className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
                           title="Delete Claim"
                         >
@@ -464,6 +504,25 @@ export const Dashboard: React.FC<DashboardProps> = ({
         onClose={() => setIsPreviewOpen(false)}
         pdfUrl={previewPdfUrl}
         filename={previewFilename}
+      />
+
+      {/* Confirmation Modal for Claim Deletion */}
+      <ConfirmationModal
+        isOpen={!!claimToDeleteRecord}
+        onClose={() => setClaimToDeleteRecord(null)}
+        onConfirm={confirmDeleteClaim}
+        title="Delete Overtime Claim"
+        message={`Are you sure you want to permanently delete claim #${claimToDeleteRecord?.claimNumber}? All overtime calculation records for this claim will be removed.`}
+        confirmText="Delete Claim"
+        cancelText="Keep Claim"
+        variant="danger"
+        isLoading={isDeleting}
+        details={claimToDeleteRecord ? [
+          { label: 'Claimant Name', value: claimToDeleteRecord.employeeName },
+          { label: 'Month & Year', value: `${claimToDeleteRecord.month} ${claimToDeleteRecord.year}` },
+          { label: 'Total OT Hours', value: claimToDeleteRecord.totalHoursFormatted },
+          { label: 'Overtime Payment', value: `Rs. ${(claimToDeleteRecord.totalOtPayment || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
+        ] : []}
       />
     </div>
   );

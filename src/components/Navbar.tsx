@@ -43,12 +43,16 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'new-claim' as NavigationTab, label: 'New Claim', icon: FileText },
     ...(isAdmin ? [{ id: 'users' as NavigationTab, label: 'User Admin', icon: UserCheck, badge: 'Limits' }] : []),
     { id: 'history' as NavigationTab, label: 'Claim History', icon: History },
-    {
-      id: 'designer' as NavigationTab,
-      label: 'Template Designer',
-      icon: Sliders,
-      badge: isAdmin ? 'Admin' : undefined,
-    },
+    ...(isAdmin
+      ? [
+          {
+            id: 'designer' as NavigationTab,
+            label: 'Template Designer',
+            icon: Sliders,
+            badge: 'Admin',
+          },
+        ]
+      : []),
     { id: 'settings' as NavigationTab, label: 'Settings', icon: Settings },
   ];
 

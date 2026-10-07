@@ -16,6 +16,9 @@ export interface UserProfile {
   branch: string;
   department: string;
   maxOtHoursPerDay?: number; // e.g. 2.0 means 2 hours maximum per day
+  hourlyRate?: number; // Default hourly OT rate in Rs.
+  daysPay?: number; // Default day's pay in Rs.
+  totalRemuneration?: number; // Default salary/remuneration in Rs.
   assignedTemplateIds?: string[]; // Templates assigned by admin; user can only access these
   createdAt: string;
   updatedAt: string;
@@ -30,6 +33,9 @@ export interface Employee {
   department: string;
   createdAt: string;
   maxOtHoursPerDay?: number;
+  hourlyRate?: number;
+  daysPay?: number;
+  totalRemuneration?: number;
   claimType?: ClaimType;
   assignedTemplateIds?: string[]; // Templates assigned by admin
   email?: string;
@@ -135,6 +141,12 @@ export interface ClaimRecord {
   totalHoursFormatted: string;
   totalDecimalHours: number;
   otDaysCount: number;
+  totalRemuneration?: number; // Total basic remuneration / salary (Rs.)
+  hourlyRate?: number; // Hourly OT Rate (Rs.)
+  daysPay?: number; // Days Payment of OT / Day's Pay (Rs.)
+  otPaymentDueA?: number; // Overtime Payment Due 'A' (Rs.)
+  otPaymentDueB?: number; // Special Assignment Payment 'B' (Rs.)
+  totalOtPayment?: number; // Total Payment Due (A + B) (Rs.)
   status: 'draft' | 'submitted' | 'approved' | 'rejected' | 'completed';
   templateId?: string;
   createdAt: string;

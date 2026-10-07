@@ -198,6 +198,12 @@ export async function generateOvertimePdf(
     totalHoursFormatted: `${claim.totalHoursFormatted} (${claim.totalDecimalHours.toFixed(2)}h)`,
     claimantSign: claim.employeeName || '',
     claimNumber: claim.claimNumber || '',
+    hourlyRate: claim.hourlyRate !== undefined ? Number(claim.hourlyRate).toFixed(2) : '',
+    daysPay: claim.daysPay !== undefined ? Number(claim.daysPay).toFixed(2) : '',
+    totalRemuneration: claim.totalRemuneration !== undefined ? Number(claim.totalRemuneration).toFixed(2) : '',
+    otPaymentDueA: claim.otPaymentDueA !== undefined ? Number(claim.otPaymentDueA).toFixed(2) : '',
+    otPaymentDueB: claim.otPaymentDueB !== undefined ? Number(claim.otPaymentDueB).toFixed(2) : '',
+    totalOtPayment: claim.totalOtPayment !== undefined ? Number(claim.totalOtPayment).toFixed(2) : '',
   };
 
   // 1. Overlay configured single fields (header particulars, totals, signatures, etc.)

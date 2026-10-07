@@ -16,6 +16,8 @@ import {
   Sparkles,
   FileText,
   Lock,
+  Banknote,
+  Calculator,
 } from 'lucide-react';
 import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
@@ -24,6 +26,7 @@ import { UserProfile, UserRole, ClaimType, TemplateConfig } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { fetchTemplatesFromFirestore, subscribeToTemplates } from '../services/templateService';
 import { DEFAULT_TEMPLATE } from '../utils/defaultTemplate';
+import { ConfirmationModal } from './ConfirmationModal';
 
 export const UserManagement: React.FC = () => {
   const { currentUser, isAdmin } = useAuth();
@@ -51,6 +54,13 @@ export const UserManagement: React.FC = () => {
   const [department, setDepartment] = useState('IT & Infrastructure Operations');
   const [maxOtHoursPerDay, setMaxOtHoursPerDay] = useState<number>(2.0);
   const [assignedTemplateIds, setAssignedTemplateIds] = useState<string[]>([]);
+  const [hourlyRate, setHourlyRate] = useState<number | ''>('');
+  const [daysPay, setDaysPay] = useState<number | ''>('');
+  const [totalRemuneration, setTotalRemuneration] = useState<number | ''>('');
+
+  // Confirmation Modal State
+  const [userToDelete, setUserToDelete] = useState<UserProfile | null>(null);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
 
   const [formError, setFormError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
@@ -99,6 +109,9 @@ export const UserManagement: React.FC = () => {
     setBranch('Head Office');
     setDepartment('IT & Infrastructure Operations');
     setMaxOtHoursPerDay(2.0);
+    setHourlyRate('');
+    setDaysPay('');
+    setTotalRemuneration('');
     // Default to primary template or all available
     const defTpl = availableTemplates.find(t => t.isDefault) || availableTemplates[0];
     setAssignedTemplateIds(defTpl ? [defTpl.id] : availableTemplates.map(t => t.id));
@@ -119,6 +132,9 @@ export const UserManagement: React.FC = () => {
     setDepartment(user.department || 'IT & Infrastructure Operations');
     setMaxOtHoursPerDay(user.maxOtHoursPerDay !== undefined ? user.maxOtHoursPerDay : 2.0);
     setAssignedTemplateIds(user.assignedTemplateIds || []);
+    setHourlyRate(user.hourlyRate !== undefined ? user.hourlyRate : '');
+    setDaysPay(user.daysPay !== undefined ? user.daysPay : '');
+    setTotalRemuneration(user.totalRemuneration !== undefined ? user.totalRemuneration : '');
     setFormError(null);
     setIsModalOpen(true);
   };
@@ -146,6 +162,9 @@ export const UserManagement: React.FC = () => {
           department: department.trim(),
           maxOtHoursPerDay: Number(maxOtHoursPerDay) || 0,
           assignedTemplateIds,
+          hourlyRate: hourlyRate !== '' ? Number(hourlyRate) : undefined,
+          daysPay: daysPay !== '' ? Number(daysPay) : undefined,
+          totalRemuneration: totalRemuneration !== '' ? Number(totalRemuneration) : undefined,
           updatedAt: new Date().toISOString(),
         };
 
@@ -165,7 +184,7 @@ export const UserManagement: React.FC = () => {
           }
         }
 
-        setActionSuccess(`User ${name} updated successfully! Assigned ${assignedTemplateIds.length} template(s).`);
+        setActionSuccess(`User ${name} updated successfully!`);
       } else {
         // Create new user profile in Firestore
         if (!email.trim()) {
@@ -186,6 +205,9 @@ export const UserManagement: React.FC = () => {
           department: department.trim(),
           maxOtHoursPerDay: Number(maxOtHoursPerDay) || 0,
           assignedTemplateIds,
+          hourlyRate: hourlyRate !== '' ? Number(hourlyRate) : undefined,
+          daysPay: daysPay !== '' ? Number(daysPay) : undefined,
+          totalRemuneration: totalRemuneration !== '' ? Number(totalRemuneration) : undefined,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
@@ -199,7 +221,7 @@ export const UserManagement: React.FC = () => {
           });
         }
 
-        setActionSuccess(`New user ${name} created with ${assignedTemplateIds.length} assigned template(s).`);
+        setActionSuccess(`New user ${name} created successfully!`);
       }
 
       setIsModalOpen(false);
@@ -211,24 +233,22 @@ export const UserManagement: React.FC = () => {
     }
   };
 
-  const handleDeleteUser = async (id: string, userName: string) => {
-    if (id === currentUser?.uid) {
-      alert('You cannot delete your own account while logged in.');
-      return;
-    }
-
-    if (window.confirm(`Are you sure you want to delete user "${userName}"?`)) {
+  const confirmDeleteUser = async () => {
+    if (!userToDelete) return;
+    setIsDeletingUser(true);
+    try {
+      await deleteDoc(doc(db, 'users', userToDelete.id));
       try {
-        await deleteDoc(doc(db, 'users', id));
-        try {
-          await deleteDoc(doc(db, 'admins', id));
-        } catch {}
-        setActionSuccess(`User ${userName} deleted successfully.`);
-        fetchUsers();
-        setTimeout(() => setActionSuccess(null), 3000);
-      } catch (err: any) {
-        alert('Failed to delete user: ' + err.message);
-      }
+        await deleteDoc(doc(db, 'admins', userToDelete.id));
+      } catch {}
+      setActionSuccess(`User "${userToDelete.name}" deleted successfully.`);
+      setUserToDelete(null);
+      fetchUsers();
+      setTimeout(() => setActionSuccess(null), 3000);
+    } catch (err: any) {
+      setFormError('Failed to delete user: ' + (err.message || 'Unknown error'));
+    } finally {
+      setIsDeletingUser(false);
     }
   };
 
@@ -326,6 +346,7 @@ export const UserManagement: React.FC = () => {
                   <th className="py-3 px-4">Claim Type</th>
                   <th className="py-3 px-4">Assigned Templates</th>
                   <th className="py-3 px-4">Department &amp; Branch</th>
+                  <th className="py-3 px-4">Hourly Rate &amp; Day's Pay</th>
                   <th className="py-3 px-4 text-center">Max OT Limit (Day)</th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
@@ -413,6 +434,16 @@ export const UserManagement: React.FC = () => {
                         <div className="text-[11px] text-slate-400">{u.branch}</div>
                       </td>
 
+                      {/* Hourly Rate & Day's Pay */}
+                      <td className="py-3.5 px-4">
+                        <div className="font-bold text-slate-900 font-mono">
+                          {u.hourlyRate ? `Rs. ${u.hourlyRate.toFixed(2)}/h` : <span className="text-slate-400 font-normal italic">Default rate</span>}
+                        </div>
+                        <div className="text-[11px] text-slate-500 font-mono">
+                          {u.daysPay ? `Day: Rs. ${u.daysPay.toFixed(2)}` : ''}
+                        </div>
+                      </td>
+
                       {/* OT Limit */}
                       <td className="py-3.5 px-4 text-center">
                         <div className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-xl font-bold font-mono text-xs">
@@ -432,7 +463,7 @@ export const UserManagement: React.FC = () => {
                             <Edit2 className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => handleDeleteUser(u.id, u.name)}
+                            onClick={() => setUserToDelete(u)}
                             disabled={isCurrent}
                             className={`p-1.5 rounded-lg transition ${
                               isCurrent
@@ -726,6 +757,86 @@ export const UserManagement: React.FC = () => {
                 </div>
               </div>
 
+              {/* Hourly OT Rate & Days Payment of OT Section */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Banknote className="w-4 h-4 text-indigo-600" />
+                    <span className="font-bold text-slate-900 text-xs">
+                      Default Overtime Rates (Form 10756 Remuneration)
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full font-bold">
+                    Auto-Applied on Claims
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1 text-[11px]">
+                      Total Remuneration (Rs.)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={totalRemuneration}
+                      onChange={e => {
+                        const val = e.target.value === '' ? '' : parseFloat(e.target.value);
+                        setTotalRemuneration(val);
+                        if (typeof val === 'number' && val > 0) {
+                          // Standard bank salary calculation formula (22 days * 8 hours = 176 work hours per month)
+                          const calculatedRate = parseFloat((val / 176).toFixed(2));
+                          const calculatedDaysPay = parseFloat((val / 22).toFixed(2));
+                          setHourlyRate(calculatedRate);
+                          setDaysPay(calculatedDaysPay);
+                        }
+                      }}
+                      placeholder="e.g. 85000.00"
+                      className="w-full rounded-xl border border-slate-300 px-3 py-1.5 text-slate-800 font-mono text-xs bg-white"
+                    />
+                    <span className="text-[10px] text-slate-400 mt-0.5 block">
+                      Basic Salary Book
+                    </span>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block font-bold text-slate-700 text-[11px]">
+                        Hourly OT Rate (Rs.)
+                      </label>
+                    </div>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={hourlyRate}
+                      onChange={e => setHourlyRate(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                      placeholder="e.g. 482.95"
+                      className="w-full rounded-xl border border-indigo-300 bg-indigo-50/30 px-3 py-1.5 text-slate-900 font-mono font-bold text-xs"
+                    />
+                    <span className="text-[10px] text-slate-400 mt-0.5 block">
+                      Printed on Form 10756
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1 text-[11px]">
+                      Days Payment of OT (Rs.)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={daysPay}
+                      onChange={e => setDaysPay(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                      placeholder="e.g. 3863.64"
+                      className="w-full rounded-xl border border-slate-300 px-3 py-1.5 text-slate-800 font-mono text-xs bg-white"
+                    />
+                    <span className="text-[10px] text-slate-400 mt-0.5 block">
+                      Day's Pay rate
+                    </span>
+                  </div>
+                </div>
+              </div>
+
               {/* Modal Footer */}
               <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2">
                 <button
@@ -746,6 +857,25 @@ export const UserManagement: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Modern Confirmation Modal for Delete User */}
+      <ConfirmationModal
+        isOpen={!!userToDelete}
+        onClose={() => setUserToDelete(null)}
+        onConfirm={confirmDeleteUser}
+        title="Delete User Account"
+        message={`Are you sure you want to permanently delete the user account for "${userToDelete?.name}"? All assigned template preferences and limits will be removed.`}
+        confirmText="Delete User"
+        cancelText="Keep Account"
+        variant="danger"
+        isLoading={isDeletingUser}
+        details={userToDelete ? [
+          { label: 'Employee Name', value: userToDelete.name },
+          { label: 'Email Address', value: userToDelete.email },
+          { label: 'Employee ID', value: userToDelete.employeeNumber || '-' },
+          { label: 'Daily OT Cap', value: `${userToDelete.maxOtHoursPerDay || 2.0} hrs` },
+        ] : []}
+      />
     </div>
   );
 };
