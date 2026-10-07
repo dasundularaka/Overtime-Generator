@@ -78,6 +78,8 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
   // Confirmation Modal & Action Feedback
   const [claimToDelete, setClaimToDelete] = useState<ClaimRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [claimToDuplicate, setClaimToDuplicate] = useState<ClaimRecord | null>(null);
+  const [isDuplicating, setIsDuplicating] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Fetch claims from Firestore (Admins see all; Users see only their own)
@@ -151,10 +153,16 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
     }
   };
 
-  const handleDuplicate = async (claim: ClaimRecord) => {
+  const handleDuplicate = (claim: ClaimRecord) => {
+    setClaimToDuplicate(claim);
+  };
+
+  const confirmCommitDuplicate = async () => {
+    if (!claimToDuplicate) return;
+    setIsDuplicating(true);
     const newId = 'clm_' + Date.now();
     const duplicated: ClaimRecord = {
-      ...claim,
+      ...claimToDuplicate,
       id: newId,
       claimNumber: `CLM-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${Math.floor(100 + Math.random() * 900)}`,
       claimDate: new Date().toISOString().split('T')[0],
@@ -166,9 +174,12 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
       await setDoc(doc(db, 'claims', newId), duplicated);
       fetchClaims();
       setToastMessage('Claim duplicated successfully!');
+      setClaimToDuplicate(null);
       setTimeout(() => setToastMessage(null), 3000);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `claims/${newId}`);
+    } finally {
+      setIsDuplicating(false);
     }
   };
 
@@ -577,6 +588,24 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
           { label: 'Month/Year', value: `${claimToDelete.month} ${claimToDelete.year}` },
           { label: 'Total Hours', value: claimToDelete.totalHoursFormatted },
           { label: 'Total Payment', value: `Rs. ${(claimToDelete.totalOtPayment || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
+        ] : []}
+      />
+
+      {/* Duplicate Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={!!claimToDuplicate}
+        onClose={() => setClaimToDuplicate(null)}
+        onConfirm={confirmCommitDuplicate}
+        title="Duplicate Overtime Claim"
+        message={`Are you sure you want to duplicate claim #${claimToDuplicate?.claimNumber}? A copy with today's date will be created.`}
+        confirmText="Duplicate Claim"
+        cancelText="Cancel"
+        variant="info"
+        isLoading={isDuplicating}
+        details={claimToDuplicate ? [
+          { label: 'Claimant', value: claimToDuplicate.employeeName },
+          { label: 'Period', value: `${claimToDuplicate.month} ${claimToDuplicate.year}` },
+          { label: 'Total Hours', value: claimToDuplicate.totalHoursFormatted },
         ] : []}
       />
 

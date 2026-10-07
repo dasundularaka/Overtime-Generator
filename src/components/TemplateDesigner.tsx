@@ -159,6 +159,8 @@ export const TemplateDesigner: React.FC = () => {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState<boolean>(false);
   const [isResetModalOpen, setIsResetModalOpen] = useState<boolean>(false);
   const [fieldToDeleteId, setFieldToDeleteId] = useState<string | null>(null);
+  const [isConfirmSaveTemplateOpen, setIsConfirmSaveTemplateOpen] = useState<boolean>(false);
+  const [isConfirmSetDefaultOpen, setIsConfirmSetDefaultOpen] = useState<boolean>(false);
 
   // Test PDF State
   const [testPdfUrl, setTestPdfUrl] = useState<string | null>(null);
@@ -1168,7 +1170,7 @@ service cloud.firestore {
 
               {isAdmin && !template.isDefault && (
                 <button
-                  onClick={handleSetAsDefault}
+                  onClick={() => setIsConfirmSetDefaultOpen(true)}
                   disabled={isSaving}
                   className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-xs font-semibold transition"
                   title="Make this template the default for all employee claim forms"
@@ -1275,9 +1277,9 @@ service cloud.firestore {
 
             {/* Primary Save Button */}
             <button
-              onClick={() => handleSaveToCloud()}
+              onClick={() => setIsConfirmSaveTemplateOpen(true)}
               disabled={isSaving}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold shadow-xs hover:shadow-md transition disabled:opacity-50"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold shadow-xs hover:shadow-md transition disabled:opacity-50 cursor-pointer"
             >
               {isSaving ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -3181,6 +3183,44 @@ service cloud.firestore {
         confirmText="Remove Field"
         cancelText="Keep Field"
         variant="danger"
+      />
+
+      {/* Save Template Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={isConfirmSaveTemplateOpen}
+        onClose={() => setIsConfirmSaveTemplateOpen(false)}
+        onConfirm={async () => {
+          setIsConfirmSaveTemplateOpen(false);
+          await handleSaveToCloud();
+        }}
+        title="Save Template to Cloud"
+        message={`Are you sure you want to deploy and save template "${template.name}"? This layout configuration will be synced to Cloud Firestore.`}
+        confirmText="Save Template"
+        cancelText="Cancel"
+        variant="info"
+        isLoading={isSaving}
+        details={[
+          { label: 'Template Name', value: template.name },
+          { label: 'Fields Count', value: `${template.fields.length} dynamic fields` },
+          { label: 'Dimensions', value: `${template.widthMm} x ${template.heightMm} mm (A4)` },
+          { label: 'Table Columns', value: '10 Overtime Columns' },
+        ]}
+      />
+
+      {/* Set Default Template Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={isConfirmSetDefaultOpen}
+        onClose={() => setIsConfirmSetDefaultOpen(false)}
+        onConfirm={async () => {
+          setIsConfirmSetDefaultOpen(false);
+          await handleSetAsDefault();
+        }}
+        title="Set as Default Template"
+        message={`Are you sure you want to make "${template.name}" the default overtime form template for the entire organization?`}
+        confirmText="Set as Default"
+        cancelText="Cancel"
+        variant="info"
+        isLoading={isSaving}
       />
     </div>
   );

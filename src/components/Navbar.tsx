@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   FileText,
   Clock,
@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { useAuth } from '../context/AuthContext';
+import { ConfirmationModal } from './ConfirmationModal';
 
 export type NavigationTab =
   | 'dashboard'
@@ -37,6 +38,18 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenHelp,
 }) => {
   const { userProfile, isAdmin, logout, currentUser } = useAuth();
+  const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const handleConfirmLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await logout();
+      setIsLogoutConfirmOpen(false);
+    } finally {
+      setIsLoggingOut(false);
+    }
+  };
 
   const navItems = [
     { id: 'dashboard' as NavigationTab, label: 'Dashboard', icon: Clock },
@@ -154,7 +167,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Logout Button */}
             <button
-              onClick={logout}
+              onClick={() => setIsLogoutConfirmOpen(true)}
               className="p-2 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition"
               title="Sign Out"
             >
@@ -196,6 +209,23 @@ export const Navbar: React.FC<NavbarProps> = ({
           })}
         </div>
       </div>
+
+      {/* Logout Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={isLogoutConfirmOpen}
+        onClose={() => setIsLogoutConfirmOpen(false)}
+        onConfirm={handleConfirmLogout}
+        title="Sign Out of Account"
+        message={`Are you sure you want to log out, ${userProfile?.name || 'User'}? You will need to sign in again to create or view overtime claims.`}
+        confirmText="Yes, Sign Out"
+        cancelText="Stay Signed In"
+        variant="warning"
+        isLoading={isLoggingOut}
+        details={[
+          { label: 'Logged-in Account', value: userProfile?.email || currentUser?.email || 'Current User' },
+          { label: 'Role', value: isAdmin ? 'Administrator' : 'Standard User' },
+        ]}
+      />
     </header>
   );
 };

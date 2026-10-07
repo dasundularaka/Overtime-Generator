@@ -46,11 +46,10 @@ service cloud.firestore {
 
     // User profiles & limits
     match /users/{userId} {
-      allow get: if isOwner(userId) || isAdmin();
-      allow list: if isAdmin();
-      allow create: if isOwner(userId) || isAdmin();
-      allow update: if isOwner(userId) || isAdmin();
-      allow delete: if isAdmin();
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isOwner(userId) || isAdmin() || (isSignedIn() && resource.data.email == request.auth.token.email);
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.email == request.auth.token.email);
     }
 
     // Overtime claims

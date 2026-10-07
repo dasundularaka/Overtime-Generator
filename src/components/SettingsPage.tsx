@@ -35,6 +35,7 @@ export const SettingsPage: React.FC = () => {
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
   const [templates, setTemplates] = useState<TemplateConfig[]>([getActiveTemplate()]);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+  const [isConfirmSaveSettingsOpen, setIsConfirmSaveSettingsOpen] = useState(false);
 
   useEffect(() => {
     const unsub = subscribeToTemplates(list => {
@@ -47,8 +48,13 @@ export const SettingsPage: React.FC = () => {
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
+    setIsConfirmSaveSettingsOpen(true);
+  };
+
+  const confirmCommitSaveSettings = () => {
     saveSettings(settings);
     setSaveSuccess(true);
+    setIsConfirmSaveSettingsOpen(false);
     setTimeout(() => setSaveSuccess(false), 2500);
   };
 
@@ -430,6 +436,24 @@ export const SettingsPage: React.FC = () => {
         confirmText="Confirm Reset"
         cancelText="Cancel"
         variant="danger"
+      />
+
+      {/* Confirmation Modal for Save Settings */}
+      <ConfirmationModal
+        isOpen={isConfirmSaveSettingsOpen}
+        onClose={() => setIsConfirmSaveSettingsOpen(false)}
+        onConfirm={confirmCommitSaveSettings}
+        title="Save Application Settings"
+        message="Are you sure you want to save these updated system preferences and printer offsets?"
+        confirmText="Save Settings"
+        cancelText="Cancel"
+        variant="info"
+        details={[
+          { label: 'Default Branch', value: settings.defaultBranch || 'Headquarters' },
+          { label: 'Time Format', value: settings.timeFormat },
+          { label: 'Printer X Offset', value: `${settings.globalPrinterOffsetX} mm` },
+          { label: 'Printer Y Offset', value: `${settings.globalPrinterOffsetY} mm` },
+        ]}
       />
     </div>
   );

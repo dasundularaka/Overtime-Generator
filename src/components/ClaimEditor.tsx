@@ -162,6 +162,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     initialClaim?.otPaymentDueB !== undefined ? initialClaim.otPaymentDueB : ''
   );
   const [isConfirmResetOpen, setIsConfirmResetOpen] = useState(false);
+  const [isConfirmSaveClaimOpen, setIsConfirmSaveClaimOpen] = useState(false);
+  const [isSavingClaim, setIsSavingClaim] = useState(false);
 
   // Rows State
   const [rows, setRows] = useState<OvertimeRow[]>([]);
@@ -500,19 +502,29 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     };
   };
 
-  // Save to Firestore
-  const handleSaveClaim = async () => {
+  // Trigger confirmation dialog for Save / Submit Claim
+  const handleSaveClaim = () => {
     if (!validateForm()) return;
+    setIsConfirmSaveClaimOpen(true);
+  };
+
+  // Commit Save Claim to Firestore after user confirmation
+  const confirmCommitSaveClaim = async () => {
+    setIsSavingClaim(true);
     const claim = buildClaimRecord();
 
     try {
       saveClaim(claim);
       await setDoc(doc(db, 'claims', claim.id), claim);
       setClaimSavedSuccess(true);
+      setIsConfirmSaveClaimOpen(false);
       if (onClaimSaved) onClaimSaved(claim);
       setTimeout(() => setClaimSavedSuccess(false), 3000);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `claims/${claim.id}`);
+      setIsConfirmSaveClaimOpen(false);
+    } finally {
+      setIsSavingClaim(false);
     }
   };
 
@@ -1343,6 +1355,33 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           setIsConfirmResetOpen(false);
         }}
         onClose={() => setIsConfirmResetOpen(false)}
+      />
+
+      {/* Save / Submit Claim Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={isConfirmSaveClaimOpen}
+        onClose={() => setIsConfirmSaveClaimOpen(false)}
+        onConfirm={confirmCommitSaveClaim}
+        title={initialClaim ? 'Update Overtime Claim' : 'Submit Overtime Claim'}
+        message={
+          initialClaim
+            ? `Are you sure you want to save updates to claim #${initialClaim.claimNumber}?`
+            : `Are you sure you want to finalize and save this overtime claim for ${claimMonth} ${claimYear}?`
+        }
+        confirmText={initialClaim ? 'Save Changes' : 'Submit Claim'}
+        cancelText="Review Timesheet"
+        variant="info"
+        isLoading={isSavingClaim}
+        details={[
+          { label: 'Claimant Name', value: employeeName },
+          { label: 'Claim Period', value: `${claimMonth} ${claimYear}` },
+          { label: 'Total OT Hours', value: `${summary.totalHoursFormatted} (${summary.totalDecimalHours}h)` },
+          { label: 'Claim Days', value: `${summary.otDaysCount} Days` },
+          {
+            label: 'Total Payment Due',
+            value: `Rs. ${totalOtPayment.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          },
+        ]}
       />
     </div>
   );

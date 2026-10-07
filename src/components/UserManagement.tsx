@@ -61,6 +61,8 @@ export const UserManagement: React.FC = () => {
   // Confirmation Modal State
   const [userToDelete, setUserToDelete] = useState<UserProfile | null>(null);
   const [isDeletingUser, setIsDeletingUser] = useState(false);
+  const [isConfirmSaveModalOpen, setIsConfirmSaveModalOpen] = useState(false);
+  const [isSavingUser, setIsSavingUser] = useState(false);
 
   const [formError, setFormError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
@@ -139,7 +141,7 @@ export const UserManagement: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleSave = async (e: React.FormEvent) => {
+  const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
 
@@ -147,6 +149,19 @@ export const UserManagement: React.FC = () => {
       setFormError('Please enter user name.');
       return;
     }
+
+    if (!editingUser && !email.trim()) {
+      setFormError('Please enter email address.');
+      return;
+    }
+
+    // Open confirmation dialog before saving
+    setIsConfirmSaveModalOpen(true);
+  };
+
+  const confirmCommitSaveUser = async () => {
+    setIsSavingUser(true);
+    setFormError(null);
 
     try {
       if (editingUser) {
@@ -187,11 +202,6 @@ export const UserManagement: React.FC = () => {
         setActionSuccess(`User ${name} updated successfully!`);
       } else {
         // Create new user profile in Firestore
-        if (!email.trim()) {
-          setFormError('Please enter email address.');
-          return;
-        }
-
         const newUid = 'usr_' + Date.now();
         const newProfile: UserProfile = {
           id: newUid,
@@ -224,12 +234,16 @@ export const UserManagement: React.FC = () => {
         setActionSuccess(`New user ${name} created successfully!`);
       }
 
+      setIsConfirmSaveModalOpen(false);
       setIsModalOpen(false);
       fetchUsers();
       setTimeout(() => setActionSuccess(null), 3000);
     } catch (err: any) {
       console.error('Error saving user', err);
       setFormError(err.message || 'Failed to save user.');
+      setIsConfirmSaveModalOpen(false);
+    } finally {
+      setIsSavingUser(false);
     }
   };
 
@@ -875,6 +889,32 @@ export const UserManagement: React.FC = () => {
           { label: 'Employee ID', value: userToDelete.employeeNumber || '-' },
           { label: 'Daily OT Cap', value: `${userToDelete.maxOtHoursPerDay || 2.0} hrs` },
         ] : []}
+      />
+
+      {/* Confirmation Modal for Add / Edit User */}
+      <ConfirmationModal
+        isOpen={isConfirmSaveModalOpen}
+        onClose={() => setIsConfirmSaveModalOpen(false)}
+        onConfirm={confirmCommitSaveUser}
+        title={editingUser ? 'Save User Profile Changes' : 'Confirm New User Creation'}
+        message={
+          editingUser
+            ? `Are you sure you want to save modifications to the profile of "${name}"?`
+            : `Are you sure you want to register and provision this new user account for "${name}" (${email})?`
+        }
+        confirmText={editingUser ? 'Save Changes' : 'Create User'}
+        cancelText="Review Form"
+        variant="info"
+        isLoading={isSavingUser}
+        details={[
+          { label: 'Full Name', value: name },
+          { label: 'Account Email', value: email },
+          { label: 'Role', value: role === 'admin' ? 'Administrator' : 'Standard User' },
+          { label: 'Department', value: department },
+          { label: 'Branch', value: branch },
+          { label: 'Daily OT Cap', value: `${maxOtHoursPerDay} hrs/day` },
+          { label: 'Claim Type', value: claimType },
+        ]}
       />
     </div>
   );

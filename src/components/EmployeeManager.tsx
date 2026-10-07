@@ -44,6 +44,7 @@ export const EmployeeManager: React.FC = () => {
 
   // Delete Confirmation State
   const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
+  const [isConfirmSaveModalOpen, setIsConfirmSaveModalOpen] = useState(false);
 
   const openCreateModal = () => {
     setEditingEmployee(null);
@@ -76,7 +77,10 @@ export const EmployeeManager: React.FC = () => {
     if (!name.trim()) {
       return;
     }
+    setIsConfirmSaveModalOpen(true);
+  };
 
+  const confirmCommitSaveEmployee = () => {
     const payload: Employee = {
       id: editingEmployee?.id || 'emp_' + Date.now(),
       name: name.trim(),
@@ -92,6 +96,7 @@ export const EmployeeManager: React.FC = () => {
 
     const updated = saveEmployee(payload);
     setEmployees(updated);
+    setIsConfirmSaveModalOpen(false);
     setIsModalOpen(false);
   };
 
@@ -461,6 +466,29 @@ export const EmployeeManager: React.FC = () => {
           { label: 'Employee ID', value: employeeToDelete.employeeNumber },
           { label: 'Designation', value: employeeToDelete.designation || '-' },
         ] : []}
+      />
+
+      {/* Confirmation Modal for Employee Add / Edit */}
+      <ConfirmationModal
+        isOpen={isConfirmSaveModalOpen}
+        onClose={() => setIsConfirmSaveModalOpen(false)}
+        onConfirm={confirmCommitSaveEmployee}
+        title={editingEmployee ? 'Save Employee Profile Changes' : 'Create New Employee Profile'}
+        message={
+          editingEmployee
+            ? `Are you sure you want to save changes to the profile for "${name}"?`
+            : `Are you sure you want to create a new profile for "${name}"?`
+        }
+        confirmText={editingEmployee ? 'Save Changes' : 'Create Profile'}
+        cancelText="Review Particulars"
+        variant="info"
+        details={[
+          { label: 'Employee Name', value: name },
+          { label: 'Designation', value: designation || 'Not specified' },
+          { label: 'Department', value: department },
+          { label: 'Branch', value: branch },
+          ...(hourlyRate !== '' ? [{ label: 'Hourly OT Rate', value: `Rs. ${hourlyRate}` }] : []),
+        ]}
       />
     </div>
   );

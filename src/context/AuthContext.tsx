@@ -4,13 +4,20 @@ import {
   onAuthStateChanged,
   signInWithPopup,
   signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
   signOut as fbSignOut,
-  updateProfile,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import {
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  collection,
+  query,
+  where,
+  getDocs,
+} from 'firebase/firestore';
 import { auth, db, googleProvider } from '../firebase/config';
-import { handleFirestoreError, OperationType } from '../firebase/errors';
 import { UserProfile, UserRole, ClaimType } from '../types';
 
 interface AuthContextType {
@@ -18,18 +25,10 @@ interface AuthContextType {
   userProfile: UserProfile | null;
   isAdmin: boolean;
   loading: boolean;
+  authError: string | null;
+  clearAuthError: () => void;
   loginWithGoogle: () => Promise<void>;
   loginWithEmail: (email: string, pass: string) => Promise<void>;
-  registerWithEmail: (
-    email: string,
-    pass: string,
-    name: string,
-    role?: UserRole,
-    claimType?: ClaimType,
-    dept?: string,
-    branch?: string,
-    maxOtHours?: number
-  ) => Promise<void>;
   logout: () => Promise<void>;
   refreshUserProfile: () => Promise<void>;
 }
@@ -42,86 +41,135 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
 
-  // Sync profile from Firestore
+  const clearAuthError = () => setAuthError(null);
+
+  // Sync profile from Firestore with strict registration verification and real name preservation
   const fetchProfile = async (user: FirebaseUser): Promise<UserProfile> => {
     const userDocRef = doc(db, 'users', user.uid);
-    try {
-      const snap = await getDoc(userDocRef);
-      const isBootstrapAdmin = (user.email || '').toLowerCase() === BOOTSTRAP_ADMIN_EMAIL.toLowerCase();
+    const userEmail = (user.email || '').toLowerCase().trim();
+    const isBootstrapAdmin = userEmail === BOOTSTRAP_ADMIN_EMAIL.toLowerCase();
 
-      if (snap.exists()) {
-        const data = snap.data() as UserProfile;
-        // Ensure bootstrap admin always has admin role
-        if (isBootstrapAdmin && data.role !== 'admin') {
-          await updateDoc(userDocRef, { role: 'admin' });
-          data.role = 'admin';
-        }
-        return data;
-      } else {
-        // Create initial profile
-        const newProfile: UserProfile = {
-          id: user.uid,
-          email: user.email || '',
-          name: user.displayName || user.email?.split('@')[0] || 'User',
-          role: isBootstrapAdmin ? 'admin' : 'user',
-          claimType: 'OT',
-          employeeNumber: 'EMP-' + Math.floor(1000 + Math.random() * 9000),
-          designation: isBootstrapAdmin ? 'Administrator' : 'Staff Member',
-          branch: 'Head Office',
-          department: 'IT & Infrastructure Operations',
-          maxOtHoursPerDay: 2.0, // default 2 hours limit
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-
-        await setDoc(userDocRef, newProfile);
-
-        // Also add to admins collection if bootstrap admin
-        if (isBootstrapAdmin) {
-          try {
-            await setDoc(doc(db, 'admins', user.uid), {
-              email: user.email,
-              assignedAt: new Date().toISOString(),
-            });
-          } catch (e) {
-            console.warn('Could not set admin marker doc', e);
-          }
-        }
-
-        return newProfile;
+    // 1. Direct document check by UID
+    const snap = await getDoc(userDocRef);
+    if (snap.exists()) {
+      const data = snap.data() as UserProfile;
+      // Ensure bootstrap admin always has admin role
+      if (isBootstrapAdmin && data.role !== 'admin') {
+        await updateDoc(userDocRef, { role: 'admin' });
+        data.role = 'admin';
       }
-    } catch (err) {
-      console.warn('Could not load Firestore profile, using fallback profile for authenticated user', err);
-      const isBootstrapAdmin = (user.email || '').toLowerCase() === BOOTSTRAP_ADMIN_EMAIL.toLowerCase();
-      return {
+      // CRITICAL: NEVER overwrite data.name with Google displayName!
+      // The name saved in the database by admin is the real name.
+      return data;
+    }
+
+    // 2. If no direct UID document, search for pre-registered user created by an Admin by email
+    if (userEmail) {
+      try {
+        const q = query(collection(db, 'users'), where('email', '==', userEmail));
+        const querySnap = await getDocs(q);
+
+        if (!querySnap.empty) {
+          // Found an existing account pre-registered by an Admin!
+          const preDoc = querySnap.docs[0];
+          const preData = preDoc.data() as UserProfile;
+          const oldDocId = preDoc.id;
+
+          // CRITICAL: Preserve the real name set by admin! Do NOT overwrite with user.displayName
+          const realName = preData.name || 'User';
+
+          const linkedProfile: UserProfile = {
+            ...preData,
+            id: user.uid,
+            name: realName, // Preserves real name from admin, never Google displayName!
+            email: userEmail,
+            updatedAt: new Date().toISOString(),
+          };
+
+          // Link the pre-registered profile to this authenticated UID
+          await setDoc(userDocRef, linkedProfile);
+
+          // Clean up temporary placeholder doc if different ID
+          if (oldDocId !== user.uid) {
+            try {
+              await deleteDoc(doc(db, 'users', oldDocId));
+            } catch (delErr) {
+              console.warn('Could not remove temporary pre-registration doc', delErr);
+            }
+          }
+
+          if (linkedProfile.role === 'admin' || isBootstrapAdmin) {
+            try {
+              await setDoc(doc(db, 'admins', user.uid), {
+                email: userEmail,
+                assignedAt: new Date().toISOString(),
+              });
+            } catch (e) {
+              console.warn('Could not set admin marker doc', e);
+            }
+          }
+
+          return linkedProfile;
+        }
+      } catch (err) {
+        console.warn('Error querying pre-registered users', err);
+      }
+    }
+
+    // 3. Special case: Designated Bootstrap Admin first-time sign in
+    if (isBootstrapAdmin) {
+      const bootstrapProfile: UserProfile = {
         id: user.uid,
-        email: user.email || '',
-        name: user.displayName || user.email?.split('@')[0] || 'User',
-        role: isBootstrapAdmin ? 'admin' : 'user',
+        email: userEmail,
+        name: 'Administrator', // Real name for bootstrap admin
+        role: 'admin',
         claimType: 'OT',
-        employeeNumber: 'EMP-' + Math.floor(1000 + Math.random() * 9000),
-        designation: isBootstrapAdmin ? 'Administrator' : 'Staff Member',
+        employeeNumber: 'EMP-0001',
+        designation: 'System Administrator',
         branch: 'Head Office',
         department: 'IT & Infrastructure Operations',
         maxOtHoursPerDay: 2.0,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
+      await setDoc(userDocRef, bootstrapProfile);
+      try {
+        await setDoc(doc(db, 'admins', user.uid), {
+          email: userEmail,
+          assignedAt: new Date().toISOString(),
+        });
+      } catch (e) {
+        console.warn('Could not set bootstrap admin marker doc', e);
+      }
+      return bootstrapProfile;
     }
+
+    // 4. USER IS NOT REGISTERED IN THE SYSTEM!
+    // Reject login immediately and sign out!
+    await fbSignOut(auth);
+    throw new Error(
+      `Access Denied: The email "${user.email || 'provided'}" is not registered in the system. Only administrators can create new user accounts. Please contact your system administrator.`
+    );
   };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setCurrentUser(user);
       if (user) {
         try {
           const profile = await fetchProfile(user);
+          setCurrentUser(user);
           setUserProfile(profile);
-        } catch (e) {
-          console.error('Error fetching user profile', e);
+          setAuthError(null);
+        } catch (e: any) {
+          console.warn('Authentication rejected:', e.message);
+          setCurrentUser(null);
+          setUserProfile(null);
+          setAuthError(e.message || 'Access Denied: Your email is not registered in the system.');
         }
       } else {
+        setCurrentUser(null);
         setUserProfile(null);
       }
       setLoading(false);
@@ -139,8 +187,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loginWithGoogle = async () => {
     setLoading(true);
+    setAuthError(null);
     try {
-      await signInWithPopup(auth, googleProvider);
+      const cred = await signInWithPopup(auth, googleProvider);
+      const profile = await fetchProfile(cred.user);
+      setCurrentUser(cred.user);
+      setUserProfile(profile);
+    } catch (err: any) {
+      await fbSignOut(auth);
+      setCurrentUser(null);
+      setUserProfile(null);
+      const msg = err.message || 'Google sign-in failed.';
+      setAuthError(msg);
+      throw err;
     } finally {
       setLoading(false);
     }
@@ -148,51 +207,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loginWithEmail = async (email: string, pass: string) => {
     setLoading(true);
+    setAuthError(null);
     try {
-      await signInWithEmailAndPassword(auth, email, pass);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const registerWithEmail = async (
-    email: string,
-    pass: string,
-    name: string,
-    role: UserRole = 'user',
-    claimType: ClaimType = 'OT',
-    dept: string = 'IT & Infrastructure Operations',
-    branch: string = 'Head Office',
-    maxOtHours: number = 2.0
-  ) => {
-    setLoading(true);
-    try {
-      const cred = await createUserWithEmailAndPassword(auth, email, pass);
-      await updateProfile(cred.user, { displayName: name });
-
-      const newProfile: UserProfile = {
-        id: cred.user.uid,
-        email: cred.user.email || email,
-        name,
-        role,
-        claimType,
-        employeeNumber: 'EMP-' + Math.floor(1000 + Math.random() * 9000),
-        designation: role === 'admin' ? 'System Administrator' : 'Staff Member',
-        branch,
-        department: dept,
-        maxOtHoursPerDay: maxOtHours,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-
-      await setDoc(doc(db, 'users', cred.user.uid), newProfile);
-      if (role === 'admin') {
-        await setDoc(doc(db, 'admins', cred.user.uid), {
-          email,
-          assignedAt: new Date().toISOString(),
-        });
-      }
-      setUserProfile(newProfile);
+      const cred = await signInWithEmailAndPassword(auth, email.trim(), pass);
+      const profile = await fetchProfile(cred.user);
+      setCurrentUser(cred.user);
+      setUserProfile(profile);
+    } catch (err: any) {
+      await fbSignOut(auth);
+      setCurrentUser(null);
+      setUserProfile(null);
+      const msg = err.message || 'Authentication failed.';
+      setAuthError(msg);
+      throw err;
     } finally {
       setLoading(false);
     }
@@ -200,7 +227,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     await fbSignOut(auth);
+    setCurrentUser(null);
     setUserProfile(null);
+    setAuthError(null);
   };
 
   const isBootstrapAdmin =
@@ -214,9 +243,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         userProfile,
         isAdmin,
         loading,
+        authError,
+        clearAuthError,
         loginWithGoogle,
         loginWithEmail,
-        registerWithEmail,
         logout,
         refreshUserProfile,
       }}
