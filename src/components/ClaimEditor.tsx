@@ -30,6 +30,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { handleFirestoreError, OperationType } from '../firebase/errors';
+import { sanitizeFirestoreData } from '../utils/firestoreUtils';
 import {
   ClaimRecord,
   OvertimeRow,
@@ -515,7 +516,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
     try {
       saveClaim(claim);
-      await setDoc(doc(db, 'claims', claim.id), claim);
+      await setDoc(doc(db, 'claims', claim.id), sanitizeFirestoreData(claim));
       setClaimSavedSuccess(true);
       setIsConfirmSaveClaimOpen(false);
       if (onClaimSaved) onClaimSaved(claim);
@@ -574,7 +575,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       document.body.removeChild(a);
 
       // Also save to Firestore database
-      await setDoc(doc(db, 'claims', claim.id), claim);
+      await setDoc(doc(db, 'claims', claim.id), sanitizeFirestoreData(claim));
       setClaimSavedSuccess(true);
     } catch (err) {
       setValidationError('Failed to generate PDF download.');

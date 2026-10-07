@@ -19,7 +19,7 @@ import {
   Banknote,
   Calculator,
 } from 'lucide-react';
-import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc, deleteField } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { handleFirestoreError, OperationType } from '../firebase/errors';
 import { UserProfile, UserRole, ClaimType, TemplateConfig } from '../types';
@@ -27,9 +27,10 @@ import { useAuth } from '../context/AuthContext';
 import { fetchTemplatesFromFirestore, subscribeToTemplates } from '../services/templateService';
 import { DEFAULT_TEMPLATE } from '../utils/defaultTemplate';
 import { ConfirmationModal } from './ConfirmationModal';
+import { sanitizeFirestoreData } from '../utils/firestoreUtils';
 
 export const UserManagement: React.FC = () => {
-  const { currentUser, isAdmin } = useAuth();
+  const { currentUser, isAdmin, refreshUserProfile } = useAuth();
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -85,7 +86,8 @@ export const UserManagement: React.FC = () => {
       const snap = await getDocs(collection(db, 'users'));
       const list: UserProfile[] = [];
       snap.forEach(d => {
-        list.push(d.data() as UserProfile);
+        const u = d.data() as UserProfile;
+        list.push({ ...u, id: u.id || d.id });
       });
       setUsers(list);
     } catch (err) {
@@ -167,7 +169,7 @@ export const UserManagement: React.FC = () => {
       if (editingUser) {
         // Update existing user profile in Firestore
         const userRef = doc(db, 'users', editingUser.id);
-        const updatedData: Partial<UserProfile> = {
+        const updatedData: Record<string, any> = {
           name: name.trim(),
           role,
           claimType,
@@ -176,14 +178,31 @@ export const UserManagement: React.FC = () => {
           branch: branch.trim(),
           department: department.trim(),
           maxOtHoursPerDay: Number(maxOtHoursPerDay) || 0,
-          assignedTemplateIds,
-          hourlyRate: hourlyRate !== '' ? Number(hourlyRate) : undefined,
-          daysPay: daysPay !== '' ? Number(daysPay) : undefined,
-          totalRemuneration: totalRemuneration !== '' ? Number(totalRemuneration) : undefined,
+          assignedTemplateIds: assignedTemplateIds || [],
           updatedAt: new Date().toISOString(),
         };
 
-        await updateDoc(userRef, updatedData);
+        // Use deleteField() if empty, or number if provided
+        if (hourlyRate !== '' && !isNaN(Number(hourlyRate))) {
+          updatedData.hourlyRate = Number(hourlyRate);
+        } else {
+          updatedData.hourlyRate = deleteField();
+        }
+
+        if (daysPay !== '' && !isNaN(Number(daysPay))) {
+          updatedData.daysPay = Number(daysPay);
+        } else {
+          updatedData.daysPay = deleteField();
+        }
+
+        if (totalRemuneration !== '' && !isNaN(Number(totalRemuneration))) {
+          updatedData.totalRemuneration = Number(totalRemuneration);
+        } else {
+          updatedData.totalRemuneration = deleteField();
+        }
+
+        const cleanUpdated = sanitizeFirestoreData(updatedData);
+        await updateDoc(userRef, cleanUpdated);
 
         // Update admin marker collection
         if (role === 'admin') {
@@ -199,11 +218,19 @@ export const UserManagement: React.FC = () => {
           }
         }
 
+        if (currentUser && currentUser.uid === editingUser.id && refreshUserProfile) {
+          try {
+            await refreshUserProfile();
+          } catch (profileErr) {
+            console.warn('Could not refresh auth profile', profileErr);
+          }
+        }
+
         setActionSuccess(`User ${name} updated successfully!`);
       } else {
         // Create new user profile in Firestore
         const newUid = 'usr_' + Date.now();
-        const newProfile: UserProfile = {
+        const newProfile: Record<string, any> = {
           id: newUid,
           name: name.trim(),
           email: email.trim().toLowerCase(),
@@ -214,19 +241,27 @@ export const UserManagement: React.FC = () => {
           branch: branch.trim(),
           department: department.trim(),
           maxOtHoursPerDay: Number(maxOtHoursPerDay) || 0,
-          assignedTemplateIds,
-          hourlyRate: hourlyRate !== '' ? Number(hourlyRate) : undefined,
-          daysPay: daysPay !== '' ? Number(daysPay) : undefined,
-          totalRemuneration: totalRemuneration !== '' ? Number(totalRemuneration) : undefined,
+          assignedTemplateIds: assignedTemplateIds || [],
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
 
-        await setDoc(doc(db, 'users', newUid), newProfile);
+        if (hourlyRate !== '' && !isNaN(Number(hourlyRate))) {
+          newProfile.hourlyRate = Number(hourlyRate);
+        }
+        if (daysPay !== '' && !isNaN(Number(daysPay))) {
+          newProfile.daysPay = Number(daysPay);
+        }
+        if (totalRemuneration !== '' && !isNaN(Number(totalRemuneration))) {
+          newProfile.totalRemuneration = Number(totalRemuneration);
+        }
+
+        const cleanNewProfile = sanitizeFirestoreData(newProfile);
+        await setDoc(doc(db, 'users', newUid), cleanNewProfile);
 
         if (role === 'admin') {
           await setDoc(doc(db, 'admins', newUid), {
-            email: newProfile.email,
+            email: cleanNewProfile.email,
             assignedAt: new Date().toISOString(),
           });
         }

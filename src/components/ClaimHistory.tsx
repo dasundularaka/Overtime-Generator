@@ -24,6 +24,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { handleFirestoreError, OperationType } from '../firebase/errors';
+import { sanitizeFirestoreData } from '../utils/firestoreUtils';
 import { ClaimRecord, TemplateConfig } from '../types';
 import { getActiveTemplate } from '../utils/storage';
 import { generateOvertimePdf, printPdfDocument } from '../utils/pdfGenerator';
@@ -171,7 +172,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
     };
 
     try {
-      await setDoc(doc(db, 'claims', newId), duplicated);
+      await setDoc(doc(db, 'claims', newId), sanitizeFirestoreData(duplicated));
       fetchClaims();
       setToastMessage('Claim duplicated successfully!');
       setClaimToDuplicate(null);

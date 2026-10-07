@@ -19,6 +19,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db, googleProvider } from '../firebase/config';
 import { UserProfile, UserRole, ClaimType } from '../types';
+import { sanitizeFirestoreData } from '../utils/firestoreUtils';
 
 interface AuthContextType {
   currentUser: FirebaseUser | null;
@@ -89,7 +90,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           };
 
           // Link the pre-registered profile to this authenticated UID
-          await setDoc(userDocRef, linkedProfile);
+          await setDoc(userDocRef, sanitizeFirestoreData(linkedProfile));
 
           // Clean up temporary placeholder doc if different ID
           if (oldDocId !== user.uid) {
@@ -134,7 +135,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
-      await setDoc(userDocRef, bootstrapProfile);
+      await setDoc(userDocRef, sanitizeFirestoreData(bootstrapProfile));
       try {
         await setDoc(doc(db, 'admins', user.uid), {
           email: userEmail,
