@@ -90,24 +90,15 @@ export const AuthScreen: React.FC = () => {
         <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
           Overtime Claim Manager
         </h1>
-        <p className="text-xs sm:text-sm text-slate-400 mt-1 max-w-sm">
-          General Shift (8:00 AM – 4:45 PM) &bull; 15-Min Overtime Engine &bull; Official A4 Overlay
-        </p>
       </div>
 
       {/* Card Container */}
       <div className="w-full max-w-md bg-white rounded-3xl p-6 sm:p-8 shadow-2xl border border-slate-100 relative">
-        {/* Header Title & Admin Provisioning Notice */}
+        {/* Header Title */}
         <div className="mb-6">
-          <div className="flex items-center justify-between mb-1.5">
-            <h2 className="text-lg font-bold text-slate-900">Sign In to Your Account</h2>
-            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
-              <LockKeyhole className="w-3 h-3" />
-              <span>Admin Provisioned</span>
-            </span>
-          </div>
+          <h2 className="text-lg font-bold text-slate-900 mb-1">Sign In to Your Account</h2>
           <p className="text-xs text-slate-500 leading-relaxed">
-            Sign in using your <strong>Company Email</strong> or <strong>Employee Number</strong>.
+            Enter your <strong>PF Number</strong> and password to sign in.
           </p>
         </div>
 
@@ -150,7 +141,7 @@ export const AuthScreen: React.FC = () => {
         <div className="relative flex items-center justify-center mb-5">
           <div className="border-t border-slate-200 w-full" />
           <span className="bg-white px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400 absolute">
-            Or with email / employee number
+            Or with PF Number
           </span>
         </div>
 
@@ -158,7 +149,7 @@ export const AuthScreen: React.FC = () => {
         <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
           <div>
             <label className="block font-bold text-slate-700 mb-1">
-              Email or Employee Number
+              PF Number (Username)
             </label>
             <div className="relative">
               <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
@@ -167,13 +158,10 @@ export const AuthScreen: React.FC = () => {
                 required
                 value={identifier}
                 onChange={e => setIdentifier(e.target.value)}
-                placeholder="name@company.com or EMP-1001"
+                placeholder="e.g. PF1001"
                 className="w-full rounded-xl border border-slate-300 py-2 pl-9 pr-3 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-white"
               />
             </div>
-            <span className="text-[10px] text-slate-400 mt-0.5 block">
-              You can enter either your registered email address or assigned employee number.
-            </span>
           </div>
 
           <div>
@@ -214,17 +202,6 @@ export const AuthScreen: React.FC = () => {
             <ArrowRight className="w-4 h-4" />
           </button>
         </form>
-
-        {/* Security & Access Notice */}
-        <div className="mt-6 pt-4 border-t border-slate-100 text-[11px] text-slate-500 space-y-1.5">
-          <div className="flex items-center gap-1.5 text-slate-700 font-semibold">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Strict Administrator Control</span>
-          </div>
-          <p className="text-[10px] text-slate-400">
-            Public user registration is disabled. Accounts are created and provisioned directly by administrators.
-          </p>
-        </div>
       </div>
 
       {/* Forgot Password Modal */}

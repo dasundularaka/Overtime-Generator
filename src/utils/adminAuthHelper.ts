@@ -86,3 +86,41 @@ export async function adminSendUserPasswordResetEmail(userEmail: string): Promis
   await sendPasswordResetEmail(secAuth, userEmail.toLowerCase().trim());
   await signOut(secAuth);
 }
+
+/**
+ * Creates a new user in Firebase Auth with default password (e.g. PF number)
+ * without signing out the current admin.
+ */
+export async function adminCreateUserInAuth(
+  email: string,
+  initialPassword: string
+): Promise<{ success: boolean; uid?: string; message: string }> {
+  const secAuth = getSecondaryAuth();
+  const cleanEmail = email.toLowerCase().trim();
+
+  try {
+    const cred = await createUserWithEmailAndPassword(secAuth, cleanEmail, initialPassword);
+    const uid = cred.user.uid;
+    await signOut(secAuth);
+    return {
+      success: true,
+      uid,
+      message: `User created in Firebase Auth.`,
+    };
+  } catch (err: any) {
+    try {
+      await signOut(secAuth);
+    } catch {}
+    if (err.code === 'auth/email-already-in-use') {
+      return {
+        success: true,
+        message: 'Account already registered in Auth system.',
+      };
+    }
+    console.warn('adminCreateUserInAuth note:', err.message);
+    return {
+      success: false,
+      message: err.message || 'Could not create auth account',
+    };
+  }
+}

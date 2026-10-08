@@ -5,6 +5,7 @@ import {
   signInWithPopup,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  updatePassword,
   sendPasswordResetEmail,
   signOut as fbSignOut,
 } from 'firebase/auth';
@@ -34,6 +35,7 @@ interface AuthContextType {
   loginWithEmail: (email: string, pass: string) => Promise<void>;
   loginWithIdentifier: (identifier: string, pass: string) => Promise<void>;
   sendPasswordReset: (identifierOrEmail: string) => Promise<string>;
+  updateUserPassword: (newPass: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUserProfile: () => Promise<void>;
 }
@@ -236,7 +238,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const cleanId = identifier.trim();
       if (!cleanId) {
-        throw new Error('Please enter your email or employee number.');
+        throw new Error('Please enter your PF Number (Username) or email.');
       }
       if (!pass) {
         throw new Error('Please enter your password.');
@@ -245,48 +247,90 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       let targetEmail = cleanId;
 
       if (!cleanId.includes('@')) {
-        // Look up registered user by employeeNumber in Firestore
-        const q = query(collection(db, 'users'), where('employeeNumber', '==', cleanId));
-        let snap = await getDocs(q);
+        let cleanPf = cleanId.toUpperCase();
+        if (!cleanPf.startsWith('PF') && /^[0-9A-Z]+$/.test(cleanPf)) {
+          // If user typed numeric e.g. 1001, also try PF1001
+        }
+        let resolvedEmail: string | null = null;
 
-        if (snap.empty) {
-          // Case-insensitive / upper-case fallback
-          const qUpper = query(collection(db, 'users'), where('employeeNumber', '==', cleanId.toUpperCase()));
-          snap = await getDocs(qUpper);
+        // 1. Direct doc lookup in pfDirectory (publicly readable index)
+        try {
+          const dirDoc = await getDoc(doc(db, 'pfDirectory', cleanPf));
+          if (dirDoc.exists() && dirDoc.data().email) {
+            resolvedEmail = dirDoc.data().email;
+          }
+        } catch (e) {
+          console.warn('pfDirectory lookup check', e);
         }
 
-        if (snap.empty) {
-          throw new Error(
-            `No registered account found with Employee Number "${cleanId}". Please check your employee number or contact your administrator.`
-          );
+        // 1b. If not found and doesn't start with PF, try with PF prefix
+        if (!resolvedEmail && !cleanPf.startsWith('PF')) {
+          try {
+            const dirDocPf = await getDoc(doc(db, 'pfDirectory', `PF${cleanPf}`));
+            if (dirDocPf.exists() && dirDocPf.data().email) {
+              resolvedEmail = dirDocPf.data().email;
+            }
+          } catch {}
         }
 
-        targetEmail = snap.docs[0].data().email;
-      }
+        // 2. Try normalized (without hyphens or spaces)
+        if (!resolvedEmail) {
+          const noHyphen = cleanPf.replace(/[^A-Z0-9]/g, '');
+          try {
+            const dirDoc2 = await getDoc(doc(db, 'pfDirectory', noHyphen));
+            if (dirDoc2.exists() && dirDoc2.data().email) {
+              resolvedEmail = dirDoc2.data().email;
+            }
+          } catch {}
+        }
 
-      if (!targetEmail) {
-        throw new Error('Could not resolve account email for this employee.');
+        // 3. Fallback: Search in users collection by employeeNumber or pfNumber
+        if (!resolvedEmail) {
+          try {
+            const q1 = query(collection(db, 'users'), where('employeeNumber', '==', cleanPf));
+            const snap1 = await getDocs(q1);
+            if (!snap1.empty && snap1.docs[0].data().email) {
+              resolvedEmail = snap1.docs[0].data().email;
+            } else {
+              const pfWithPrefix = cleanPf.startsWith('PF') ? cleanPf : `PF${cleanPf}`;
+              const q2 = query(collection(db, 'users'), where('employeeNumber', '==', pfWithPrefix));
+              const snap2 = await getDocs(q2);
+              if (!snap2.empty && snap2.docs[0].data().email) {
+                resolvedEmail = snap2.docs[0].data().email;
+              }
+            }
+          } catch (userQueryErr) {
+            console.warn('Could not query users collection by employeeNumber', userQueryErr);
+          }
+        }
+
+        if (resolvedEmail) {
+          targetEmail = resolvedEmail;
+          // Cache in pfDirectory for future instant lookups
+          try {
+            await setDoc(doc(db, 'pfDirectory', cleanPf), {
+              pfNumber: cleanPf,
+              email: resolvedEmail,
+              updatedAt: new Date().toISOString(),
+            });
+          } catch {}
+        } else {
+          // Fallback to internal standard email format for this PF Number
+          targetEmail = `${cleanPf.toLowerCase()}@otclaim.internal`;
+        }
       }
 
       let cred;
       try {
         cred = await signInWithEmailAndPassword(auth, targetEmail.toLowerCase().trim(), pass);
       } catch (signInErr: any) {
-        // If user account is registered in Firestore by admin but not yet created in Firebase Auth:
+        // If user account is registered in system but not yet initialized in Firebase Auth:
         if (
-          signInErr.code === 'auth/user-not-found' ||
-          signInErr.code === 'auth/invalid-credential'
+          signInErr.code === 'auth/user-not-found'
         ) {
-          const qUser = query(collection(db, 'users'), where('email', '==', targetEmail.toLowerCase().trim()));
-          const userSnap = await getDocs(qUser);
-          if (!userSnap.empty) {
-            // User exists in system! Try creating Auth record with this password
-            try {
-              cred = await createUserWithEmailAndPassword(auth, targetEmail.toLowerCase().trim(), pass);
-            } catch {
-              throw signInErr;
-            }
-          } else {
+          try {
+            cred = await createUserWithEmailAndPassword(auth, targetEmail.toLowerCase().trim(), pass);
+          } catch {
             throw signInErr;
           }
         } else {
@@ -303,9 +347,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUserProfile(null);
       let msg = err.message || 'Authentication failed.';
       if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
-        msg = 'Invalid password. If you forgot your password or need a reset, use "Forgot Password" or ask your administrator.';
+        msg = 'Invalid PF Number or password. Note: Default first-time password is your PF Number. If you need a password reset, click "Forgot Password" or ask your administrator.';
       } else if (err.code === 'auth/user-not-found') {
-        msg = 'No user account found with this email or employee number.';
+        msg = 'No user account found with this PF Number. Please check the PF Number or contact your administrator.';
       }
       setAuthError(msg);
       throw new Error(msg);
@@ -316,28 +360,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const sendPasswordReset = async (identifierOrEmail: string): Promise<string> => {
     const clean = identifierOrEmail.trim();
-    if (!clean) throw new Error('Please enter your email or employee number.');
+    if (!clean) throw new Error('Please enter your PF Number or email.');
 
     let targetEmail = clean;
     if (!clean.includes('@')) {
-      const q = query(collection(db, 'users'), where('employeeNumber', '==', clean));
-      let snap = await getDocs(q);
-      if (snap.empty) {
-        const qUpper = query(collection(db, 'users'), where('employeeNumber', '==', clean.toUpperCase()));
-        snap = await getDocs(qUpper);
+      const cleanPf = clean.toUpperCase();
+      try {
+        const dirDoc = await getDoc(doc(db, 'pfDirectory', cleanPf));
+        if (dirDoc.exists() && dirDoc.data().email) {
+          targetEmail = dirDoc.data().email;
+        } else {
+          const noHyphen = cleanPf.replace(/[^A-Z0-9]/g, '');
+          const dirDoc2 = await getDoc(doc(db, 'pfDirectory', noHyphen));
+          if (dirDoc2.exists() && dirDoc2.data().email) {
+            targetEmail = dirDoc2.data().email;
+          } else {
+            // Check in users collection
+            const q = query(collection(db, 'users'), where('employeeNumber', '==', cleanPf));
+            const snap = await getDocs(q);
+            if (!snap.empty && snap.docs[0].data().email) {
+              targetEmail = snap.docs[0].data().email;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Directory lookup error for reset', e);
       }
-      if (snap.empty) {
-        throw new Error(`No registered account found with Employee Number "${clean}".`);
-      }
-      targetEmail = snap.docs[0].data().email;
     }
 
-    if (!targetEmail) {
-      throw new Error('No email found for this user.');
+    if (!targetEmail || !targetEmail.includes('@')) {
+      throw new Error(`Could not find an email address associated with PF Number "${clean}". Please contact your administrator.`);
     }
 
     await sendPasswordResetEmail(auth, targetEmail.toLowerCase().trim());
     return targetEmail.toLowerCase().trim();
+  };
+
+  const updateUserPassword = async (newPass: string) => {
+    if (!auth.currentUser) throw new Error('No active authenticated session.');
+    await updatePassword(auth.currentUser, newPass);
+    if (userProfile?.id) {
+      await updateDoc(doc(db, 'users', userProfile.id), {
+        mustChangePassword: false,
+        isFirstLogin: false,
+        updatedAt: new Date().toISOString(),
+      });
+      setUserProfile((prev) => (prev ? { ...prev, mustChangePassword: false, isFirstLogin: false } : null));
+    }
   };
 
   const logout = async () => {
@@ -364,6 +433,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loginWithEmail,
         loginWithIdentifier,
         sendPasswordReset,
+        updateUserPassword,
         logout,
         refreshUserProfile,
       }}

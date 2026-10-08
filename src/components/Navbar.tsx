@@ -12,6 +12,7 @@ import {
   LogOut,
   Shield,
   User,
+  Calendar,
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { useAuth } from '../context/AuthContext';
@@ -20,6 +21,7 @@ import { ConfirmationModal } from './ConfirmationModal';
 export type NavigationTab =
   | 'dashboard'
   | 'new-claim'
+  | 'calendar'
   | 'users'
   | 'employees'
   | 'history'
@@ -54,8 +56,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   const navItems = [
     { id: 'dashboard' as NavigationTab, label: 'Dashboard', icon: Clock },
     { id: 'new-claim' as NavigationTab, label: 'New Claim', icon: FileText },
-    ...(isAdmin ? [{ id: 'users' as NavigationTab, label: 'User Admin', icon: UserCheck, badge: 'Limits' }] : []),
+    { id: 'calendar' as NavigationTab, label: 'Calendar', icon: Calendar },
     { id: 'history' as NavigationTab, label: 'Claim History', icon: History },
+    ...(isAdmin ? [{ id: 'users' as NavigationTab, label: 'User Admin', icon: UserCheck, badge: 'Limits' }] : []),
     ...(isAdmin
       ? [
           {
@@ -86,12 +89,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span className="font-bold text-base sm:text-lg tracking-tight text-white">
                   Overtime Claim Manager
                 </span>
-                <span className="text-[10px] uppercase font-semibold tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                  Shift 8:00–4:45
-                </span>
               </div>
               <p className="text-xs text-slate-400 hidden sm:block">
-                15-Min Overtime Calculation &bull; Official A4 Overlay
+                Official A4 Claim &amp; Overtime Management
               </p>
             </div>
           </div>

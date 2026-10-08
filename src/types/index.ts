@@ -4,6 +4,17 @@ export type TimeFormat = '24h' | '12h';
 export type OTDisplayFormat = 'hhmm' | 'decimal';
 export type UserRole = 'admin' | 'user';
 export type ClaimType = 'OT' | 'OP';
+export type HolidayType = 'public' | 'bank' | 'mercantile' | 'special';
+
+export interface Holiday {
+  id: string; // YYYY-MM-DD or unique id
+  date: string; // YYYY-MM-DD
+  name: string;
+  type: HolidayType;
+  description?: string;
+  isRecurringYearly?: boolean;
+  createdAt: string;
+}
 
 export interface UserProfile {
   id: string; // Firebase Auth UID
@@ -11,7 +22,10 @@ export interface UserProfile {
   name: string;
   role: UserRole;
   claimType: ClaimType; // 'OT' = Overtime, 'OP' = Out of Pocket
-  employeeNumber: string;
+  employeeNumber: string; // PF Number (username)
+  pfNumber?: string; // Standard PF Number (e.g. PF1001)
+  mustChangePassword?: boolean; // When true, prompt user to change password on login
+  isFirstLogin?: boolean;
   designation: string;
   branch: string;
   department: string;
@@ -27,7 +41,8 @@ export interface UserProfile {
 export interface Employee {
   id: string;
   name: string;
-  employeeNumber: string;
+  employeeNumber: string; // PF Number
+  pfNumber?: string;
   designation: string;
   branch: string;
   department: string;
@@ -61,6 +76,8 @@ export interface OvertimeRow {
   lateNote?: string;
   isHoliday?: boolean;
   holidayName?: string;
+  isDaysPayment?: boolean; // true for non-working weekdays, Saturdays, Sundays, Holidays
+  daysPaymentAmount?: number; // amount paid for this day
   reason: string;
   specialAssignmentHours?: string;
   approvedBy?: string;
@@ -150,8 +167,10 @@ export interface ClaimRecord {
   hourlyRate?: number; // Hourly OT Rate (Rs.)
   daysPay?: number; // Days Payment of OT / Day's Pay (Rs.)
   otPaymentDueA?: number; // Overtime Payment Due 'A' (Rs.)
+  daysPayCount?: number; // Number of non-working/weekend/holiday days worked
+  daysPayTotal?: number; // Total Days Payment (Rs.)
   otPaymentDueB?: number; // Special Assignment Payment 'B' (Rs.)
-  totalOtPayment?: number; // Total Payment Due (A + B) (Rs.)
+  totalOtPayment?: number; // Total Payment Due (A + daysPayTotal + B) (Rs.)
   status: 'draft' | 'submitted' | 'approved' | 'rejected' | 'completed';
   templateId?: string;
   createdAt: string;

@@ -72,6 +72,7 @@ export interface ShiftOvertimeResult {
   lateDeductionMinutes: number;
   isLateDisqualified: boolean;
   lateNote: string;
+  isDaysPayment?: boolean;
 }
 
 /**
@@ -90,7 +91,7 @@ export function calculateShiftOvertime(
   endTime: string,
   breakMinutes: number = 0,
   maxOtHoursLimit?: number, // e.g. 2.0 hrs
-  forceWeekendAllDay?: boolean,
+  isOtherDay: boolean = false, // Saturdays, Sundays, or Holidays (not regular weekday working day)
   shiftEndStr: string = GENERAL_SHIFT_END
 ): ShiftOvertimeResult {
   if (!startTime || !endTime) {
@@ -105,6 +106,7 @@ export function calculateShiftOvertime(
       lateDeductionMinutes: 0,
       isLateDisqualified: false,
       lateNote: '',
+      isDaysPayment: false,
     };
   }
 
@@ -126,32 +128,47 @@ export function calculateShiftOvertime(
   // Deduct break from work diff
   const netWorkDuration = Math.max(0, totalWorkDiff - (breakMinutes || 0));
 
-  let rawOtMinutes = 0;
+  // Policy: Other days instead of working days of weekdays (Saturdays, Sundays, Holidays)
+  // - No shift or late arrival conditions apply
+  // - No hourly overtime rate allocated
+  // - Allocated as Day's Payment (Day's Pay)
+  // - Shift and OT hours are not shown on those days
+  if (isOtherDay) {
+    return {
+      totalWorkMinutes: netWorkDuration,
+      rawOtMinutes: 0,
+      totalMinutes: 0,
+      totalFormatted: '00:00',
+      isOvernight,
+      isCapped: false,
+      uncappedMinutes: 0,
+      lateDeductionMinutes: 0,
+      isLateDisqualified: false,
+      lateNote: netWorkDuration > 0 ? "Day's Pay (Non-working day)" : '',
+      isDaysPayment: netWorkDuration > 0,
+    };
+  }
 
-  if (forceWeekendAllDay) {
-    // Weekend / Off-day: all worked hours count toward OT
-    rawOtMinutes = netWorkDuration;
+  let rawOtMinutes = 0;
+  // Normal Shift Day: Only time worked strictly AFTER 4:45 PM (16:45)
+  if (isOvernight) {
+    // Worked from afternoon/evening past midnight
+    // From 16:45 to midnight (1440 - 1005 = 435 mins) + minutes after midnight
+    const eveningAfterShift = Math.max(0, 1440 - Math.max(startMin, shiftEndMin));
+    const nextDayOt = endMin;
+    rawOtMinutes = Math.max(0, eveningAfterShift + nextDayOt - (breakMinutes || 0));
   } else {
-    // Normal Shift Day: Only time worked strictly AFTER 4:45 PM (16:45)
-    if (isOvernight) {
-      // Worked from afternoon/evening past midnight
-      // From 16:45 to midnight (1440 - 1005 = 435 mins) + minutes after midnight
-      const eveningAfterShift = Math.max(0, 1440 - Math.max(startMin, shiftEndMin));
-      const nextDayOt = endMin;
-      rawOtMinutes = Math.max(0, eveningAfterShift + nextDayOt - (breakMinutes || 0));
+    // Same day shift:
+    if (endMin > shiftEndMin) {
+      // Only count minutes past 16:45
+      const effectiveStartForOt = Math.max(startMin, shiftEndMin);
+      rawOtMinutes = Math.max(0, endMin - effectiveStartForOt - (breakMinutes || 0));
     } else {
-      // Same day shift:
-      if (endMin > shiftEndMin) {
-        // Only count minutes past 16:45
-        const effectiveStartForOt = Math.max(startMin, shiftEndMin);
-        rawOtMinutes = Math.max(0, endMin - effectiveStartForOt - (breakMinutes || 0));
-      } else {
-        rawOtMinutes = 0;
-      }
+      rawOtMinutes = 0;
     }
   }
 
-  // Step 1.5: Late attendance deduction policy (between 8:00 AM and 8:30 AM)
+  // Step 1.5: Late attendance deduction policy (between 8:00 AM and 8:30 AM on weekdays)
   // - 8:00 to 8:15 -> deduct 15 mins from OT
   // - 8:16 to 8:30 -> deduct 30 mins from OT
   // - After 8:30   -> 0 OT allowance for that date
@@ -159,24 +176,22 @@ export function calculateShiftOvertime(
   let isLateDisqualified = false;
   let lateNote = '';
 
-  if (!forceWeekendAllDay) {
-    const morningShiftStartMin = 8 * 60; // 08:00 = 480 min
-    if (startMin > morningShiftStartMin + 30) {
-      // Arrived after 08:30 (e.g. 08:31+)
-      isLateDisqualified = true;
-      rawOtMinutes = 0;
-      lateNote = 'Late arrival after 08:30 (No OT allocated)';
-    } else if (startMin > morningShiftStartMin + 15) {
-      // Arrived 08:16 - 08:30
-      lateDeductionMinutes = 30;
-      rawOtMinutes = Math.max(0, rawOtMinutes - 30);
-      lateNote = 'Late arrival (08:16–08:30): -30 min OT';
-    } else if (startMin > morningShiftStartMin) {
-      // Arrived 08:01 - 08:15
-      lateDeductionMinutes = 15;
-      rawOtMinutes = Math.max(0, rawOtMinutes - 15);
-      lateNote = 'Late arrival (08:01–08:15): -15 min OT';
-    }
+  const morningShiftStartMin = 8 * 60; // 08:00 = 480 min
+  if (startMin > morningShiftStartMin + 30) {
+    // Arrived after 08:30 (e.g. 08:31+)
+    isLateDisqualified = true;
+    rawOtMinutes = 0;
+    lateNote = 'Late arrival after 08:30 (No OT allocated)';
+  } else if (startMin > morningShiftStartMin + 15) {
+    // Arrived 08:16 - 08:30
+    lateDeductionMinutes = 30;
+    rawOtMinutes = Math.max(0, rawOtMinutes - 30);
+    lateNote = 'Late arrival (08:16–08:30): -30 min OT';
+  } else if (startMin > morningShiftStartMin) {
+    // Arrived 08:01 - 08:15
+    lateDeductionMinutes = 15;
+    rawOtMinutes = Math.max(0, rawOtMinutes - 15);
+    lateNote = 'Late arrival (08:01–08:15): -15 min OT';
   }
 
   // Step 2: Overtime generation in 15-minute to 15-minute blocks
@@ -217,14 +232,16 @@ export function calculateRowOvertime(
   endTime: string,
   breakMinutes: number = 0,
   forceOvernight?: boolean,
-  maxOtHoursLimit?: number
-): { totalMinutes: number; totalFormatted: string; isOvernight: boolean; isCapped: boolean } {
-  const res = calculateShiftOvertime(startTime, endTime, breakMinutes, maxOtHoursLimit);
+  maxOtHoursLimit?: number,
+  isOtherDay?: boolean
+): { totalMinutes: number; totalFormatted: string; isOvernight: boolean; isCapped: boolean; isDaysPayment?: boolean } {
+  const res = calculateShiftOvertime(startTime, endTime, breakMinutes, maxOtHoursLimit, isOtherDay);
   return {
     totalMinutes: res.totalMinutes,
     totalFormatted: res.totalFormatted,
     isOvernight: res.isOvernight || !!forceOvernight,
     isCapped: res.isCapped,
+    isDaysPayment: res.isDaysPayment,
   };
 }
 
@@ -232,17 +249,32 @@ export function getDaysInMonth(year: number, monthIndex: number): number {
   return new Date(year, monthIndex + 1, 0).getDate();
 }
 
-export function generateMonthDates(year: number, monthIndex: number): { date: string; day: string }[] {
+export function generateMonthDates(
+  year: number,
+  monthIndex: number,
+  holidayDatesSet?: Set<string>,
+  excludeHolidaysAndSundays: boolean = false
+): { date: string; day: string; isHoliday?: boolean }[] {
   const totalDays = getDaysInMonth(year, monthIndex);
-  const result: { date: string; day: string }[] = [];
+  const result: { date: string; day: string; isHoliday?: boolean }[] = [];
 
   for (let d = 1; d <= totalDays; d++) {
     const monthStr = String(monthIndex + 1).padStart(2, '0');
     const dayStr = String(d).padStart(2, '0');
     const date = `${year}-${monthStr}-${dayStr}`;
+    const day = getDayOfWeek(date);
+    const isSun = day === 'Sun';
+    const isHol = isSun || (holidayDatesSet ? holidayDatesSet.has(date) : false);
+
+    if (excludeHolidaysAndSundays && isHol) {
+      // Auto fill month automatically removes holidays and Sundays
+      continue;
+    }
+
     result.push({
       date,
-      day: getDayOfWeek(date),
+      day,
+      isHoliday: isHol,
     });
   }
 

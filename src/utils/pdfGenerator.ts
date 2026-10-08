@@ -200,6 +200,8 @@ export async function generateOvertimePdf(
     claimNumber: claim.claimNumber || '',
     hourlyRate: claim.hourlyRate !== undefined ? Number(claim.hourlyRate).toFixed(2) : '',
     daysPay: claim.daysPay !== undefined ? Number(claim.daysPay).toFixed(2) : '',
+    daysPayCount: String(claim.daysPayCount || 0),
+    daysPayTotal: claim.daysPayTotal !== undefined ? Number(claim.daysPayTotal).toFixed(2) : '',
     totalRemuneration: claim.totalRemuneration !== undefined ? Number(claim.totalRemuneration).toFixed(2) : '',
     otPaymentDueA: claim.otPaymentDueA !== undefined ? Number(claim.otPaymentDueA).toFixed(2) : '',
     otPaymentDueB: claim.otPaymentDueB !== undefined ? Number(claim.otPaymentDueB).toFixed(2) : '',
@@ -251,15 +253,21 @@ export async function generateOvertimePdf(
       // Columns mapping matching Overtime Sheet: date, day, reason, approvedBy, startTime, endTime, totalHours, otHoursClaimed, specialHoursClaimed
       const cols = tbl.columns;
 
+      const isSat = row.dayOfWeek === 'Sat' || row.date && new Date(row.date).getDay() === 6;
+      const isSun = row.dayOfWeek === 'Sun' || row.date && new Date(row.date).getDay() === 0;
+      const isOtherDay = isSat || isSun || !!row.isHoliday || !!row.isDaysPayment;
+
       const rowValues = [
         { col: cols.date, val: row.date ? row.date.split('-').slice(1).join('/') : '' },
         { col: cols.day, val: row.dayOfWeek || '' },
-        { col: cols.reason, val: row.reason || '' },
+        { col: cols.reason, val: row.reason || (isOtherDay ? "Day's Pay Allocation" : '') },
         { col: cols.approvedBy, val: row.approvedBy || '' },
-        { col: cols.startTime, val: row.startTime || '' },
-        { col: cols.endTime, val: row.endTime ? `${row.endTime}${row.isOvernight ? '*' : ''}` : '' },
+        // Do not show shift on other days (Saturdays, non-working days)
+        { col: cols.startTime, val: isOtherDay ? '' : (row.startTime || '') },
+        { col: cols.endTime, val: isOtherDay ? '' : (row.endTime ? `${row.endTime}${row.isOvernight ? '*' : ''}` : '') },
         { col: cols.totalHours, val: row.totalWorkMinutes > 0 ? formatMinutesToTime(row.totalWorkMinutes, 'hhmm') : '' },
-        { col: cols.otHoursClaimed || (cols.breakMinutes ? undefined : cols.totalHours), val: row.totalFormatted || '' },
+        // Do not show OT hours on other days (Saturdays, non-working days)
+        { col: cols.otHoursClaimed || (cols.breakMinutes ? undefined : cols.totalHours), val: isOtherDay ? '' : (row.totalFormatted || '') },
         { col: cols.specialHoursClaimed, val: row.specialAssignmentHours || '' },
       ];
 

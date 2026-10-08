@@ -56,7 +56,8 @@ import { PDFPreviewModal } from './PDFPreviewModal';
 import { ConfirmationModal } from './ConfirmationModal';
 import { useAuth } from '../context/AuthContext';
 import { subscribeToTemplates } from '../services/templateService';
-import { TemplateConfig } from '../types';
+import { subscribeToHolidays } from '../services/holidayService';
+import { TemplateConfig, Holiday } from '../types';
 
 interface ClaimEditorProps {
   initialClaim?: ClaimRecord | null;
@@ -189,6 +190,36 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   const [isNoOtModalOpen, setIsNoOtModalOpen] = useState(false);
   const [noOtRowsDetected, setNoOtRowsDetected] = useState<OvertimeRow[]>([]);
 
+  // Holidays Calendar Sync State
+  const [calendarHolidays, setCalendarHolidays] = useState<Holiday[]>([]);
+
+  useEffect(() => {
+    const unsub = subscribeToHolidays((list) => {
+      setCalendarHolidays(list);
+    });
+    return () => unsub();
+  }, []);
+
+  const holidayMap = useMemo(() => {
+    const map = new Map<string, Holiday>();
+    for (const h of calendarHolidays) {
+      map.set(h.date, h);
+    }
+    return map;
+  }, [calendarHolidays]);
+
+  // Helper: Detect other days (Saturdays, Sundays, and public/bank holidays)
+  const isOtherDayRow = (r: OvertimeRow): boolean => {
+    const dow = r.dayOfWeek || getDayOfWeek(r.date);
+    return dow === 'Sat' || dow === 'Sun' || !!r.isHoliday || holidayMap.has(r.date);
+  };
+
+  // Helper: Detect regular weekday working days (Mon-Fri, non-holiday)
+  const isWeekdayWorkingDay = (r: OvertimeRow): boolean => {
+    const dow = r.dayOfWeek || getDayOfWeek(r.date);
+    return dow !== 'Sat' && dow !== 'Sun' && !r.isHoliday && !holidayMap.has(r.date);
+  };
+
   // Fetch users if admin
   useEffect(() => {
     if (isAdmin) {
@@ -283,27 +314,39 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       if (field === 'date') {
         target.dayOfWeek = getDayOfWeek(value);
         target.isWeekend = isWeekendDay(value);
+        if (holidayMap.has(value)) {
+          target.isHoliday = true;
+          target.holidayName = holidayMap.get(value)?.name;
+          target.startTime = '';
+          target.endTime = '';
+        }
       }
 
+      const isHoliday = !!target.isHoliday || holidayMap.has(target.date);
+      const isOther = target.dayOfWeek === 'Sat' || target.dayOfWeek === 'Sun' || isHoliday;
+
       // Calculate shift overtime according to company rules
+      // For other days (Saturdays, non-working days), isOtherDay is true:
+      // No late conditions apply, no hourly overtime rate allocated, earns Day's Payment!
       const calc = calculateShiftOvertime(
         target.startTime,
         target.endTime,
         Number(target.breakMinutes) || 0,
         maxOtLimitHours,
-        target.isWeekend
+        isOther
       );
 
       target.totalWorkMinutes = calc.totalWorkMinutes;
       target.rawOtMinutes = calc.rawOtMinutes;
       target.totalMinutes = calc.totalMinutes;
-      target.totalFormatted = formatMinutesToTime(calc.totalMinutes, otDisplayFormat);
+      target.totalFormatted = isOther ? '' : formatMinutesToTime(calc.totalMinutes, otDisplayFormat);
       target.isOvernight = calc.isOvernight;
       target.isCapped = calc.isCapped;
       target.uncappedMinutes = calc.uncappedMinutes;
       target.lateDeductionMinutes = calc.lateDeductionMinutes;
       target.isLateDisqualified = calc.isLateDisqualified;
       target.lateNote = calc.lateNote;
+      target.isDaysPayment = isOther && calc.totalWorkMinutes > 0;
 
       updated[index] = target;
       return updated;
@@ -315,56 +358,60 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     setRows(prevRows =>
       prevRows.map(row => {
         if (!row.startTime || !row.endTime) return row;
+        const isHoliday = !!row.isHoliday || holidayMap.has(row.date);
+        const isOther = row.dayOfWeek === 'Sat' || row.dayOfWeek === 'Sun' || isHoliday;
         const calc = calculateShiftOvertime(
           row.startTime,
           row.endTime,
           Number(row.breakMinutes) || 0,
           maxOtLimitHours,
-          row.isWeekend
+          isOther
         );
         return {
           ...row,
           totalWorkMinutes: calc.totalWorkMinutes,
           rawOtMinutes: calc.rawOtMinutes,
           totalMinutes: calc.totalMinutes,
-          totalFormatted: formatMinutesToTime(calc.totalMinutes, otDisplayFormat),
+          totalFormatted: isOther ? '' : formatMinutesToTime(calc.totalMinutes, otDisplayFormat),
           isOvernight: calc.isOvernight,
           isCapped: calc.isCapped,
           uncappedMinutes: calc.uncappedMinutes,
           lateDeductionMinutes: calc.lateDeductionMinutes,
           isLateDisqualified: calc.isLateDisqualified,
           lateNote: calc.lateNote,
+          isDaysPayment: isOther && calc.totalWorkMinutes > 0,
         };
       })
     );
-  }, [maxOtLimitHours, otDisplayFormat]);
+  }, [maxOtLimitHours, otDisplayFormat, holidayMap]);
 
-  // Auto-Fill Month
+  // Auto-Fill Month: Automatically removes holidays and Sundays
   const handleAutoFillMonth = () => {
     const monthIndex = MONTH_NAMES.indexOf(claimMonth);
     if (monthIndex < 0) return;
 
-    const monthDates = generateMonthDates(claimYear, monthIndex);
+    const holidayDatesSet = new Set(calendarHolidays.map(h => h.date));
+    const monthDates = generateMonthDates(claimYear, monthIndex, holidayDatesSet, true);
     const existingDateMap = new Map(rows.map(r => [r.date, r]));
 
     const newRows: OvertimeRow[] = monthDates.map(({ date, day }) => {
       const existing = existingDateMap.get(date);
       if (existing) return existing;
-      const isWk = day === 'Sat' || day === 'Sun';
+      const isSat = day === 'Sat';
       return {
         id: 'row_' + Math.random().toString(36).substring(2, 9),
         date,
         dayOfWeek: day,
-        startTime: isWk ? '' : GENERAL_SHIFT_START,
+        startTime: isSat ? '' : GENERAL_SHIFT_START,
         endTime: '',
         breakMinutes: 0,
         isOvernight: false,
-        isWeekend: isWk,
+        isWeekend: isSat,
         totalWorkMinutes: 0,
         rawOtMinutes: 0,
         totalMinutes: 0,
         totalFormatted: '00:00',
-        reason: '',
+        reason: isSat ? "Saturday Duty (Day's Pay)" : '',
       };
     });
 
@@ -401,24 +448,49 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     setRows(rows.filter((_, i) => i !== index));
   };
 
-  // Totals
+  // Totals & Calculations
+  // Working days of weekdays (Mon-Fri, non-holiday) receive overtime hourly rate.
+  // Other days (Saturdays, non-working days) receive Day's Payment rate.
+  const weekdayWorkingRows = useMemo(() => {
+    return rows.filter(r => isWeekdayWorkingDay(r) && r.totalMinutes > 0);
+  }, [rows, holidayMap]);
+
+  const weekdayOtMinutes = useMemo(() => {
+    return weekdayWorkingRows.reduce((acc, r) => acc + (r.totalMinutes || 0), 0);
+  }, [weekdayWorkingRows]);
+
+  const weekdayDecimalHours = useMemo(() => {
+    return parseFloat((weekdayOtMinutes / 60).toFixed(2));
+  }, [weekdayOtMinutes]);
+
+  const otPaymentDueA = useMemo(() => {
+    if (hourlyRate === '' || isNaN(Number(hourlyRate))) return 0;
+    return Math.round(weekdayDecimalHours * Number(hourlyRate) * 100) / 100;
+  }, [weekdayDecimalHours, hourlyRate]);
+
+  // Other days (Saturdays, Sundays, non-working days, holidays)
+  const otherDaysWorkedRows = useMemo(() => {
+    return rows.filter(r => isOtherDayRow(r) && r.totalWorkMinutes > 0);
+  }, [rows, holidayMap]);
+
+  const daysPayCount = otherDaysWorkedRows.length;
+
+  const daysPayTotal = useMemo(() => {
+    if (daysPay === '' || isNaN(Number(daysPay))) return 0;
+    return Math.round(daysPayCount * Number(daysPay) * 100) / 100;
+  }, [daysPayCount, daysPay]);
+
+  const totalOtPayment = useMemo(() => {
+    const b = otPaymentDueB !== '' ? Number(otPaymentDueB) : 0;
+    return Math.round((otPaymentDueA + daysPayTotal + (isNaN(b) ? 0 : b)) * 100) / 100;
+  }, [otPaymentDueA, daysPayTotal, otPaymentDueB]);
+
   const summary = useMemo(() => {
-    let totalMin = 0;
-    let otDays = 0;
-    let cappedCount = 0;
-
-    for (const r of rows) {
-      if (r.totalMinutes > 0) {
-        totalMin += r.totalMinutes;
-        otDays += 1;
-      }
-      if (r.isCapped) {
-        cappedCount += 1;
-      }
-    }
-
+    const totalMin = weekdayOtMinutes;
+    const otDays = weekdayWorkingRows.length;
+    const cappedCount = weekdayWorkingRows.filter(r => r.isCapped).length;
     const totalHoursFormatted = formatMinutesToTime(totalMin, 'hhmm');
-    const totalDecimalHours = parseFloat((totalMin / 60).toFixed(2));
+    const totalDecimalHours = weekdayDecimalHours;
 
     return {
       totalMinutes: totalMin,
@@ -426,15 +498,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       totalDecimalHours,
       otDaysCount: otDays,
       cappedCount,
+      daysPayCount,
+      daysPayTotal,
     };
-  }, [rows]);
-
-  const invalidSaturdayRows = useMemo(() => {
-    return rows.filter(r => {
-      const isSat = r.dayOfWeek === 'Sat' || getDayOfWeek(r.date) === 'Sat';
-      return isSat && (r.startTime || r.endTime || r.totalWorkMinutes > 0) && r.totalWorkMinutes < 360;
-    });
-  }, [rows]);
+  }, [weekdayOtMinutes, weekdayWorkingRows, weekdayDecimalHours, daysPayCount, daysPayTotal]);
 
   const handleRemunerationChange = (val: string) => {
     if (val === '') {
@@ -453,16 +520,6 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       if (hourlyRate === '') setHourlyRate(calculatedHourlyRate);
     }
   };
-
-  const otPaymentDueA = useMemo(() => {
-    if (hourlyRate === '' || isNaN(Number(hourlyRate))) return 0;
-    return Math.round(summary.totalDecimalHours * Number(hourlyRate) * 100) / 100;
-  }, [summary.totalDecimalHours, hourlyRate]);
-
-  const totalOtPayment = useMemo(() => {
-    const b = otPaymentDueB !== '' ? Number(otPaymentDueB) : 0;
-    return Math.round((otPaymentDueA + (isNaN(b) ? 0 : b)) * 100) / 100;
-  }, [otPaymentDueA, otPaymentDueB]);
 
   const validateForm = (): boolean => {
     setValidationError(null);
@@ -485,24 +542,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       }
     }
 
-    // Saturday Minimum 6.00 Hours Working Time Validation:
-    for (let i = 0; i < rows.length; i++) {
-      const r = rows[i];
-      const isSat = r.dayOfWeek === 'Sat' || getDayOfWeek(r.date) === 'Sat';
-      if (isSat && (r.startTime || r.endTime || r.totalWorkMinutes > 0)) {
-        if (r.totalWorkMinutes < 360) {
-          const hoursWorked = (r.totalWorkMinutes / 60).toFixed(2);
-          setValidationError(
-            `Saturday Working Time Requirement: Employees must work a minimum of 6.00 hours (360 minutes) on Saturdays. ${r.date || `Row ${i + 1}`} has only ${hoursWorked} hours (${r.totalWorkMinutes} mins) recorded. Please enter at least 6 hours or remove this Saturday entry before generating the OT sheet.`
-          );
-          return false;
-        }
-      }
-    }
-
-    if (summary.totalMinutes <= 0) {
+    if (summary.totalMinutes <= 0 && daysPayCount <= 0) {
       setValidationError(
-        'No claimable overtime generated. Note: General shift ends at 4:45 PM. Overtime requires at least 15 minutes worked after 4:45 PM, and arrivals after 8:30 AM cannot claim overtime for that date.'
+        'No claimable overtime or days payment recorded. Please enter valid working hours for weekdays or non-working days.'
       );
       return false;
     }
@@ -514,7 +556,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     if (hasReviewedSunday) return true;
     const sundayOrHolidayRows = rows.filter(r => {
       const isSun = r.dayOfWeek === 'Sun' || getDayOfWeek(r.date) === 'Sun';
-      const isHol = !!r.isHoliday || /holiday|poya|mercantile|off\s*day|leave/i.test(r.reason || '');
+      const isHol = !!r.isHoliday || holidayMap.has(r.date) || /holiday|poya|mercantile|off\s*day|leave/i.test(r.reason || '');
       return (isSun || isHol) && (r.startTime || r.endTime || r.totalWorkMinutes > 0);
     });
     if (sundayOrHolidayRows.length > 0) {
@@ -540,9 +582,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
   const buildClaimRecord = (customRows?: OvertimeRow[]): ClaimRecord => {
     const claimId = initialClaim?.id || 'clm_' + Date.now();
-    const activeRows = (customRows || rows).filter(r => r.totalMinutes > 0 || r.startTime || r.endTime);
-    const totalMinutes = activeRows.reduce((acc, r) => acc + (r.totalMinutes || 0), 0);
-    const otDaysCount = activeRows.filter(r => r.totalMinutes > 0).length;
+    const activeRows = (customRows || rows).filter(r => r.totalMinutes > 0 || r.totalWorkMinutes > 0 || r.startTime || r.endTime);
+    const totalMinutes = activeRows.filter(r => isWeekdayWorkingDay(r)).reduce((acc, r) => acc + (r.totalMinutes || 0), 0);
+    const otDaysCount = activeRows.filter(r => isWeekdayWorkingDay(r) && r.totalMinutes > 0).length;
     const totalDecimalHours = parseFloat((totalMinutes / 60).toFixed(2));
     const totalHoursFormatted = formatMinutesToTime(totalMinutes, otDisplayFormat);
 
@@ -550,8 +592,15 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       hourlyRate !== '' && !isNaN(Number(hourlyRate))
         ? Math.round(totalDecimalHours * Number(hourlyRate) * 100) / 100
         : 0;
+
+    const currentDaysPayCount = activeRows.filter(r => isOtherDayRow(r) && r.totalWorkMinutes > 0).length;
+    const currentDaysPayTotal =
+      daysPay !== '' && !isNaN(Number(daysPay))
+        ? Math.round(currentDaysPayCount * Number(daysPay) * 100) / 100
+        : 0;
+
     const b = otPaymentDueB !== '' ? Number(otPaymentDueB) : 0;
-    const calculatedTotalPayment = Math.round((calculatedPaymentA + (isNaN(b) ? 0 : b)) * 100) / 100;
+    const calculatedTotalPayment = Math.round((calculatedPaymentA + currentDaysPayTotal + (isNaN(b) ? 0 : b)) * 100) / 100;
 
     return {
       id: claimId,
@@ -576,6 +625,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       totalRemuneration: totalRemuneration !== '' ? Number(totalRemuneration) : undefined,
       hourlyRate: hourlyRate !== '' ? Number(hourlyRate) : undefined,
       daysPay: daysPay !== '' ? Number(daysPay) : undefined,
+      daysPayCount: currentDaysPayCount,
+      daysPayTotal: currentDaysPayTotal,
       otPaymentDueA: calculatedPaymentA,
       otPaymentDueB: otPaymentDueB !== '' ? Number(otPaymentDueB) : 0,
       totalOtPayment: calculatedTotalPayment,
@@ -722,15 +773,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
               <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
                 Timesheet &amp; Overtime Entry
               </h1>
-              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                Shift: 8:00 AM – 4:45 PM
-              </span>
-              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono">
-                15-Min Increments
-              </span>
             </div>
             <p className="text-xs sm:text-sm text-slate-500 mt-1">
-              Enter your daily starting and ending times. The system calculates total work duration and generates overtime strictly for hours after 4:45 PM, capped at your assigned limit ({maxOtLimitHours} hrs max).
+              Enter your daily starting and ending times to calculate overtime claims and generate print-ready sheets.
             </p>
           </div>
 
@@ -776,19 +821,6 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           </div>
         )}
 
-        {/* Saturday Minimum Working Time Warning Banner */}
-        {invalidSaturdayRows.length > 0 && !validationError && (
-          <div className="mt-4 p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-xs text-amber-900 flex items-start gap-2.5">
-            <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-            <div>
-              <p className="font-bold">Saturday Working Time Requirement (Min 6.00 Hours):</p>
-              <p className="mt-0.5 text-[11px] leading-relaxed text-amber-800">
-                You have {invalidSaturdayRows.length} Saturday entry with less than 6.00 hours (360 minutes) of working time recorded. The company overtime policy requires a minimum of 6.00 hours of working time on Saturdays before generating or downloading an Overtime Sheet.
-              </p>
-            </div>
-          </div>
-        )}
-
         {/* Success Alert */}
         {claimSavedSuccess && (
           <div className="mt-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2 text-xs text-emerald-800">
@@ -796,27 +828,6 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             <span>Overtime claim saved to database successfully!</span>
           </div>
         )}
-
-        {/* General Shift Policy Info Notice */}
-        <div className="mt-4 p-3.5 rounded-xl bg-blue-50/70 border border-blue-200 text-blue-900 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Info className="w-4 h-4 text-blue-600 shrink-0" />
-              <span>
-                <strong>Shift Policy:</strong> General shift runs from <strong>08:00 AM to 04:45 PM</strong>. Overtime begins strictly after 04:45 PM in <strong>15-minute blocks</strong>.
-              </span>
-            </div>
-            <div className="text-[11px] text-blue-800 ml-6 flex flex-wrap gap-x-4 gap-y-1">
-              <span>&bull; Late 08:01–08:15: <strong>-15m OT deducted</strong></span>
-              <span>&bull; Late 08:16–08:30: <strong>-30m OT deducted</strong></span>
-              <span>&bull; After 08:30: <strong>0 OT allocated</strong></span>
-              <span>&bull; Saturdays: <strong>Min 6.00 hrs working time required</strong></span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 font-mono text-[11px] font-bold text-blue-800 shrink-0">
-            <span>Your Assigned Cap: {maxOtLimitHours} hrs/day</span>
-          </div>
-        </div>
 
         {/* Template Selector Banner */}
         <div className="mt-3 p-3 rounded-xl bg-slate-100/80 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
@@ -1152,7 +1163,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3.5 text-xs">
           {/* Total Remuneration */}
           <div>
             <label className="block font-bold text-slate-700 mb-1">
@@ -1167,15 +1178,15 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
               className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
             />
             <span className="text-[10px] text-slate-400 mt-1 block">
-              Salary Book (Excl. interim allowance)
+              Salary Book
             </span>
           </div>
 
-          {/* Hourly OT Rate */}
+          {/* Hourly OT Rate (Weekday working days) */}
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="block font-bold text-slate-700">Hourly OT Rate (Rs.)</label>
-              <span className="text-[10px] text-indigo-600 font-semibold">Form 10756</span>
+              <span className="text-[10px] text-indigo-600 font-semibold">Weekday OT</span>
             </div>
             <input
               type="number"
@@ -1186,15 +1197,28 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
               className="w-full rounded-xl border border-indigo-300 bg-indigo-50/20 px-3 py-2 text-slate-900 font-mono font-bold focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
             />
             <span className="text-[10px] text-slate-400 mt-1 block">
-              Hourly Rate Rs. (Printed on form)
+              Applied to weekday working hours
             </span>
           </div>
 
-          {/* Days Payment of OT */}
+          {/* Overtime Payment Due 'A' */}
+          <div className="bg-emerald-50/60 p-3 rounded-xl border border-emerald-200">
+            <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">
+              Weekday OT Due &apos;A&apos;
+            </span>
+            <div className="text-base font-extrabold font-mono text-emerald-800 mt-1">
+              Rs. {otPaymentDueA.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <span className="text-[10px] text-emerald-700/80 mt-0.5 block">
+              {weekdayDecimalHours}h weekday OT @ {hourlyRate !== '' ? Number(hourlyRate).toFixed(2) : '0.00'}/h
+            </span>
+          </div>
+
+          {/* Days Payment Rate */}
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="block font-bold text-slate-700">Days Payment of OT (Rs.)</label>
-              <span className="text-[10px] text-indigo-600 font-semibold">Day&apos;s Pay</span>
+              <label className="block font-bold text-slate-700">Days Payment Rate (Rs.)</label>
+              <span className="text-[10px] text-amber-700 font-semibold bg-amber-50 px-1 rounded">Day&apos;s Pay</span>
             </div>
             <input
               type="number"
@@ -1205,20 +1229,20 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
               className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
             />
             <span className="text-[10px] text-slate-400 mt-1 block">
-              Day&apos;s Pay Rs. (Printed on form)
+              Rate for Saturdays &amp; other days
             </span>
           </div>
 
-          {/* Overtime Payment Due 'A' */}
-          <div className="bg-emerald-50/60 p-3 rounded-xl border border-emerald-200">
-            <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">
-              Payment Due &apos;A&apos; (Hours × Rate)
+          {/* Days Payment Total */}
+          <div className="bg-amber-50/60 p-3 rounded-xl border border-amber-200">
+            <span className="text-[10px] font-bold text-amber-900 uppercase tracking-wider block">
+              Other Days Payment
             </span>
-            <div className="text-base font-extrabold font-mono text-emerald-800 mt-1">
-              Rs. {otPaymentDueA.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            <div className="text-base font-extrabold font-mono text-amber-900 mt-1">
+              Rs. {daysPayTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
-            <span className="text-[10px] text-emerald-700/80 mt-0.5 block">
-              {summary.totalDecimalHours}h worked @ {hourlyRate !== '' ? Number(hourlyRate).toFixed(2) : '0.00'}/h
+            <span className="text-[10px] text-amber-800/80 mt-0.5 block">
+              {daysPayCount} day(s) worked @ {daysPay !== '' ? Number(daysPay).toFixed(2) : '0.00'}/day
             </span>
           </div>
 

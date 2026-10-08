@@ -73,6 +73,33 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["id", "name"]
+    },
+    "Holiday": {
+      "title": "Holiday",
+      "description": "Company, bank, and public holidays calendar entry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["public", "bank", "mercantile", "special"] },
+        "description": { "type": "string" },
+        "isRecurringYearly": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "date", "name", "type"]
+    },
+    "PfDirectory": {
+      "title": "PF Directory",
+      "description": "Directory mapping PF numbers to user email and account identity",
+      "type": "object",
+      "properties": {
+        "pfNumber": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "userId": { "type": "string" }
+      },
+      "required": ["pfNumber", "email"]
     }
   },
   "firestore": {
@@ -91,6 +118,14 @@
     "/admins/{adminId}": {
       "schema": { "$ref": "#/entities/User" },
       "description": "Marker collection denoting administrator access"
+    },
+    "/holidays/{holidayId}": {
+      "schema": { "$ref": "#/entities/Holiday" },
+      "description": "Official company and public holidays"
+    },
+    "/pfDirectory/{pfNumber}": {
+      "schema": { "$ref": "#/entities/PfDirectory" },
+      "description": "PF Number lookup directory for user sign in"
     }
   }
 }

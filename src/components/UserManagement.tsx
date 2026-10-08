@@ -21,6 +21,7 @@ import {
   KeyRound,
   Eye,
   EyeOff,
+  Mail,
 } from 'lucide-react';
 import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc, deleteField } from 'firebase/firestore';
 import { db } from '../firebase/config';
@@ -31,7 +32,8 @@ import { fetchTemplatesFromFirestore, subscribeToTemplates } from '../services/t
 import { DEFAULT_TEMPLATE } from '../utils/defaultTemplate';
 import { ConfirmationModal } from './ConfirmationModal';
 import { sanitizeFirestoreData } from '../utils/firestoreUtils';
-import { adminChangeUserPassword, adminSendUserPasswordResetEmail } from '../utils/adminAuthHelper';
+import { adminChangeUserPassword, adminSendUserPasswordResetEmail, adminCreateUserInAuth } from '../utils/adminAuthHelper';
+import { sendUserWelcomeEmail, EmailDispatchResult } from '../utils/emailNotifier';
 
 export const UserManagement: React.FC = () => {
   const { currentUser, isAdmin, refreshUserProfile } = useAuth();
@@ -39,6 +41,10 @@ export const UserManagement: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'ALL' | 'admin' | 'user'>('ALL');
+
+  // Welcome Email Dispatched Modal
+  const [welcomeEmailResult, setWelcomeEmailResult] = useState<EmailDispatchResult | null>(null);
+  const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
 
   // Templates list
   const [availableTemplates, setAvailableTemplates] = useState<TemplateConfig[]>([DEFAULT_TEMPLATE]);
@@ -110,6 +116,19 @@ export const UserManagement: React.FC = () => {
         list.push({ ...u, id: u.id || d.id });
       });
       setUsers(list);
+
+      // Background sync: ensure all users with a PF Number are indexed in pfDirectory
+      for (const u of list) {
+        const pf = (u.employeeNumber || u.pfNumber || '').trim().toUpperCase();
+        if (pf && u.email) {
+          setDoc(doc(db, 'pfDirectory', pf), {
+            pfNumber: pf,
+            email: u.email.toLowerCase().trim(),
+            name: u.name,
+            updatedAt: new Date().toISOString(),
+          }).catch(() => {});
+        }
+      }
     } catch (err) {
       handleFirestoreError(err, OperationType.LIST, 'users');
     } finally {
@@ -128,7 +147,8 @@ export const UserManagement: React.FC = () => {
     setPassword('');
     setRole('user');
     setClaimType('OT');
-    setEmployeeNumber('EMP-' + Math.floor(1000 + Math.random() * 9000));
+    // Generate standard PF Number starting with PF
+    setEmployeeNumber('PF' + Math.floor(1000 + Math.random() * 9000));
     setDesignation('Staff Member');
     setBranch('Head Office');
     setDepartment('IT & Infrastructure Operations');
@@ -150,7 +170,7 @@ export const UserManagement: React.FC = () => {
     setPassword('');
     setRole(user.role);
     setClaimType(user.claimType || 'OT');
-    setEmployeeNumber(user.employeeNumber || '');
+    setEmployeeNumber(user.employeeNumber || user.pfNumber || '');
     setDesignation(user.designation || '');
     setBranch(user.branch || 'Head Office');
     setDepartment(user.department || 'IT & Infrastructure Operations');
@@ -177,6 +197,18 @@ export const UserManagement: React.FC = () => {
       return;
     }
 
+    // Normalize and validate PF Number (must start with PF)
+    let cleanPf = employeeNumber.trim().toUpperCase();
+    if (!cleanPf.startsWith('PF')) {
+      cleanPf = 'PF' + cleanPf.replace(/^EMP[-_]?/i, '');
+    }
+    setEmployeeNumber(cleanPf);
+
+    if (cleanPf.length < 3 || !/^PF[0-9A-Z_-]+$/i.test(cleanPf)) {
+      setFormError('PF Number must start with "PF" (e.g. PF1001, PF002) and be valid.');
+      return;
+    }
+
     // Open confirmation dialog before saving
     setIsConfirmSaveModalOpen(true);
   };
@@ -186,6 +218,11 @@ export const UserManagement: React.FC = () => {
     setFormError(null);
 
     try {
+      let cleanPf = employeeNumber.trim().toUpperCase();
+      if (!cleanPf.startsWith('PF')) {
+        cleanPf = 'PF' + cleanPf.replace(/^EMP[-_]?/i, '');
+      }
+
       if (editingUser) {
         // Update existing user profile in Firestore
         const userRef = doc(db, 'users', editingUser.id);
@@ -193,7 +230,8 @@ export const UserManagement: React.FC = () => {
           name: name.trim(),
           role,
           claimType,
-          employeeNumber: employeeNumber.trim(),
+          employeeNumber: cleanPf,
+          pfNumber: cleanPf,
           designation: designation.trim(),
           branch: branch.trim(),
           department: department.trim(),
@@ -224,6 +262,18 @@ export const UserManagement: React.FC = () => {
         const cleanUpdated = sanitizeFirestoreData(updatedData);
         await updateDoc(userRef, cleanUpdated);
 
+        // Sync to pfDirectory
+        try {
+          await setDoc(doc(db, 'pfDirectory', cleanPf), {
+            pfNumber: cleanPf,
+            email: editingUser.email.toLowerCase().trim(),
+            name: name.trim(),
+            updatedAt: new Date().toISOString(),
+          });
+        } catch (dirErr) {
+          console.warn('pfDirectory update error', dirErr);
+        }
+
         // Update admin marker collection
         if (role === 'admin') {
           await setDoc(doc(db, 'admins', editingUser.id), {
@@ -248,15 +298,31 @@ export const UserManagement: React.FC = () => {
 
         setActionSuccess(`User ${name} updated successfully!`);
       } else {
-        // Create new user profile in Firestore
-        const newUid = 'usr_' + Date.now();
+        // Create new user profile in Firebase Auth and Firestore
+        const cleanEmail = email.trim().toLowerCase();
+        let targetUid = 'usr_' + Date.now();
+
+        // 1. Create account in Firebase Auth with initial password = PF Number
+        try {
+          const authRes = await adminCreateUserInAuth(cleanEmail, cleanPf);
+          if (authRes.uid) {
+            targetUid = authRes.uid;
+          }
+        } catch (createAuthErr: any) {
+          console.warn('adminCreateUserInAuth note:', createAuthErr?.message);
+        }
+
+        // 2. Create user profile in Firestore
         const newProfile: Record<string, any> = {
-          id: newUid,
+          id: targetUid,
           name: name.trim(),
-          email: email.trim().toLowerCase(),
+          email: cleanEmail,
           role,
           claimType,
-          employeeNumber: employeeNumber.trim() || 'EMP-' + Math.floor(1000 + Math.random() * 9000),
+          employeeNumber: cleanPf,
+          pfNumber: cleanPf,
+          mustChangePassword: true,
+          isFirstLogin: true,
           designation: designation.trim(),
           branch: branch.trim(),
           department: department.trim(),
@@ -277,22 +343,45 @@ export const UserManagement: React.FC = () => {
         }
 
         const cleanNewProfile = sanitizeFirestoreData(newProfile);
-        await setDoc(doc(db, 'users', newUid), cleanNewProfile);
+        await setDoc(doc(db, 'users', targetUid), cleanNewProfile);
+
+        // 3. Register in pfDirectory for username lookup
+        try {
+          await setDoc(doc(db, 'pfDirectory', cleanPf), {
+            pfNumber: cleanPf,
+            email: cleanEmail,
+            name: name.trim(),
+            createdAt: new Date().toISOString(),
+          });
+        } catch (dirErr) {
+          console.warn('pfDirectory write note:', dirErr);
+        }
 
         if (role === 'admin') {
-          await setDoc(doc(db, 'admins', newUid), {
+          await setDoc(doc(db, 'admins', targetUid), {
             email: cleanNewProfile.email,
             assignedAt: new Date().toISOString(),
           });
         }
 
-        setActionSuccess(`New user ${name} created successfully!`);
+        // 4. Send Welcome Credentials Email
+        const emailDispatch = await sendUserWelcomeEmail({
+          email: cleanEmail,
+          name: name.trim(),
+          pfNumber: cleanPf,
+          initialPassword: cleanPf,
+          loginUrl: 'https://otclaim.vercel.app/',
+        });
+
+        setWelcomeEmailResult(emailDispatch);
+        setIsEmailModalOpen(true);
+        setActionSuccess(`New user ${name} created with PF Number ${cleanPf}! Credentials email prepared.`);
       }
 
       setIsConfirmSaveModalOpen(false);
       setIsModalOpen(false);
       fetchUsers();
-      setTimeout(() => setActionSuccess(null), 3000);
+      setTimeout(() => setActionSuccess(null), 4000);
     } catch (err: any) {
       console.error('Error saving user', err);
       setFormError(err.message || 'Failed to save user.');
@@ -476,7 +565,7 @@ export const UserManagement: React.FC = () => {
               type="text"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Search user by name, email, employee number, department..."
+              placeholder="Search user by name, email, PF Number, department..."
               className="w-full rounded-xl border border-slate-300 bg-white py-2 pl-9 pr-3 text-xs text-slate-800 placeholder:text-slate-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
             />
           </div>
@@ -510,7 +599,7 @@ export const UserManagement: React.FC = () => {
             <table className="w-full text-left border-collapse min-w-[850px]">
               <thead>
                 <tr className="bg-slate-50 text-slate-700 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200">
-                  <th className="py-3 px-4">User</th>
+                  <th className="py-3 px-4">User &amp; PF Number (Username)</th>
                   <th className="py-3 px-4">Role</th>
                   <th className="py-3 px-4">Claim Type</th>
                   <th className="py-3 px-4">Assigned Templates</th>
@@ -523,6 +612,7 @@ export const UserManagement: React.FC = () => {
               <tbody className="divide-y divide-slate-100 text-xs">
                 {filteredUsers.map(u => {
                   const isCurrent = u.id === currentUser?.uid;
+                  const pfNum = (u.employeeNumber || u.pfNumber || '').toUpperCase();
                   return (
                     <tr key={u.id} className="hover:bg-slate-50/70 transition-colors">
                       {/* User */}
@@ -540,8 +630,12 @@ export const UserManagement: React.FC = () => {
                                 </span>
                               )}
                             </div>
-                            <div className="text-[11px] text-slate-400">
-                              {u.email} &bull; <span className="font-mono">{u.employeeNumber}</span>
+                            <div className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
+                              <span>{u.email}</span>
+                              <span>&bull;</span>
+                              <span className="font-mono font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
+                                {pfNum || 'No PF'}
+                              </span>
                             </div>
                           </div>
                         </div>
@@ -909,17 +1003,26 @@ export const UserManagement: React.FC = () => {
                 </div>
               </div>
 
-              {/* Employee ID & Designation */}
+              {/* PF Number & Designation */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Employee Number</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-bold text-slate-700">
+                      PF Number (Username) <span className="text-rose-500">*</span>
+                    </label>
+                    <span className="text-[10px] text-indigo-600 font-semibold font-mono">Must start with PF</span>
+                  </div>
                   <input
                     type="text"
+                    required
                     value={employeeNumber}
                     onChange={e => setEmployeeNumber(e.target.value)}
-                    placeholder="e.g. EMP-4892"
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 font-mono"
+                    placeholder="e.g. PF1001"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 font-mono font-bold"
                   />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    Staff login username and initial default password
+                  </span>
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Designation</label>
@@ -1121,10 +1224,10 @@ export const UserManagement: React.FC = () => {
             )}
 
             <div className="space-y-4 text-xs">
-              {/* Option 1: Quick set to Employee Number */}
+              {/* Option 1: Quick set to PF Number */}
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-800 text-xs">Option A: Use Employee Number as Password</span>
+                  <span className="font-bold text-slate-800 text-xs">Option A: Use PF Number as Password</span>
                   <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold">
                     Quick Reset
                   </span>
@@ -1138,31 +1241,31 @@ export const UserManagement: React.FC = () => {
                   className="w-full py-2 px-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold transition cursor-pointer flex items-center justify-center gap-1.5 shadow-2xs"
                 >
                   <KeyRound className="w-3.5 h-3.5" />
-                  <span>Set Password to Employee Number ({passwordModalUser.employeeNumber})</span>
+                  <span>Set Password to PF Number ({passwordModalUser.employeeNumber})</span>
                 </button>
               </div>
 
-              {/* Option 2: Enter employee number to unlock custom reset panel */}
+              {/* Option 2: Enter PF number to unlock custom reset panel */}
               {!isResetPanelUnlocked ? (
                 <div className="p-4 bg-indigo-50/50 border border-indigo-200 rounded-2xl space-y-3">
                   <span className="font-bold text-slate-800 text-xs block">Option B: Unlock Password Reset Panel</span>
                   <p className="text-[11px] text-slate-500 leading-relaxed">
-                    Enter the user's employee number below to access the custom password reset panel.
+                    Enter the user's PF number below to access the password reset panel to change their password.
                   </p>
                   <form onSubmit={handleUnlockResetPanel} className="space-y-2">
                     <input
                       type="text"
                       value={employeeNumberInput}
                       onChange={e => setEmployeeNumberInput(e.target.value)}
-                      placeholder={`Enter employee number (e.g. ${passwordModalUser.employeeNumber})`}
-                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                      placeholder={`Enter PF number (e.g. ${passwordModalUser.employeeNumber})`}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 font-mono font-bold focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                     />
                     <button
                       type="submit"
                       className="w-full py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold transition cursor-pointer flex items-center justify-center gap-1.5"
                     >
                       <Lock className="w-3.5 h-3.5" />
-                      <span>Verify &amp; Unlock Reset Panel</span>
+                      <span>Verify PF Number &amp; Unlock Reset Panel</span>
                     </button>
                   </form>
                 </div>
@@ -1267,14 +1370,14 @@ export const UserManagement: React.FC = () => {
           pendingPasswordTarget?.type === 'email'
             ? 'Dispatch Password Reset Email'
             : pendingPasswordTarget?.type === 'employeeNumber'
-            ? 'Set Password to Employee Number'
+            ? 'Set Password to PF Number'
             : 'Update User Password'
         }
         message={
           pendingPasswordTarget?.type === 'email'
             ? `Send an official password reset email link to "${passwordModalUser?.email}"?`
             : pendingPasswordTarget?.type === 'employeeNumber'
-            ? `Set the sign-in password for "${passwordModalUser?.name}" to their employee number "${passwordModalUser?.employeeNumber}"?`
+            ? `Set the sign-in password for "${passwordModalUser?.name}" to their PF Number "${passwordModalUser?.employeeNumber}"?`
             : `Are you sure you want to apply the new custom password for "${passwordModalUser?.name}" (${passwordModalUser?.email})?`
         }
         confirmText="Confirm Password Update"
@@ -1283,11 +1386,95 @@ export const UserManagement: React.FC = () => {
         isLoading={isSubmittingPassword}
         details={passwordModalUser ? [
           { label: 'Employee Name', value: passwordModalUser.name },
-          { label: 'Employee ID', value: passwordModalUser.employeeNumber },
+          { label: 'PF Number (Username)', value: passwordModalUser.employeeNumber },
           { label: 'Email Address', value: passwordModalUser.email },
           ...(pendingPasswordTarget?.passToSet ? [{ label: 'New Password', value: '••••••••' }] : []),
         ] : []}
       />
+
+      {/* Welcome Credentials Email Dispatched Modal */}
+      {isEmailModalOpen && welcomeEmailResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl border border-slate-200 animate-scale-in">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-slate-900">
+                    User Created &amp; Credentials Email Prepared
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Official notification for newly created staff account
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEmailModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-900 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold">Login Details Dispatched:</p>
+                  <p className="text-[11px] text-blue-800 mt-0.5">
+                    User can log in at <strong className="underline">https://otclaim.vercel.app/</strong> using their <strong>PF Number</strong> and initial password. They will be prompted to reset their password upon first sign-in.
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Email Content (Sent to Employee)
+                </label>
+                <pre className="p-3.5 rounded-2xl bg-slate-900 text-slate-100 font-mono text-[11px] leading-relaxed whitespace-pre-wrap max-h-56 overflow-y-auto border border-slate-800 selection:bg-indigo-500">
+                  {welcomeEmailResult.body}
+                </pre>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                <a
+                  href={welcomeEmailResult.mailtoUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition"
+                >
+                  <Mail className="w-3.5 h-3.5 text-slate-600" />
+                  <span>Open in Mail Client</span>
+                </a>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(welcomeEmailResult.body);
+                      setActionSuccess('Email content copied to clipboard!');
+                      setTimeout(() => setActionSuccess(null), 2500);
+                    }}
+                    className="px-3.5 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold transition cursor-pointer"
+                  >
+                    Copy Text
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsEmailModalOpen(false)}
+                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition cursor-pointer"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

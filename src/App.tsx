@@ -4,6 +4,7 @@ import { AuthScreen } from './components/AuthScreen';
 import { Navbar, NavigationTab } from './components/Navbar';
 import { Dashboard } from './components/Dashboard';
 import { ClaimEditor } from './components/ClaimEditor';
+import { CalendarManager } from './components/CalendarManager';
 import { UserManagement } from './components/UserManagement';
 import { EmployeeManager } from './components/EmployeeManager';
 import { ClaimHistory } from './components/ClaimHistory';
@@ -97,6 +98,8 @@ function AppContent() {
           />
         )}
 
+        {activeTab === 'calendar' && <CalendarManager />}
+
         {activeTab === 'users' && isAdmin && <UserManagement />}
 
         {activeTab === 'employees' && <EmployeeManager />}
@@ -117,7 +120,7 @@ function AppContent() {
       <footer className="mt-auto border-t border-slate-200 bg-white py-4 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <div>
-            <strong>Overtime Claim Manager</strong> &bull; General Shift (8:00 AM – 4:45 PM) &bull; 15-Min Step Engine
+            <strong>Overtime Claim Manager</strong> &bull; Official A4 Timesheet &amp; Claim System
           </div>
           <div className="flex items-center gap-3 text-[11px] text-slate-400">
             <span>Signed in as: <strong className="text-slate-700">{userProfile?.name || currentUser.email}</strong> ({isAdmin ? 'Admin' : 'User'})</span>

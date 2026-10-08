@@ -66,5 +66,17 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow write: if isAdmin();
     }
+
+    // Holidays calendar collection: readable by all, writable by admins
+    match /holidays/{holidayId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // PF Directory for authentication lookup: readable by all for username/PF resolution, writable by admins
+    match /pfDirectory/{pfNumber} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
   }
 }
