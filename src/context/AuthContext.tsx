@@ -4,6 +4,8 @@ import {
   onAuthStateChanged,
   signInWithPopup,
   signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
   signOut as fbSignOut,
 } from 'firebase/auth';
 import {
@@ -30,6 +32,8 @@ interface AuthContextType {
   clearAuthError: () => void;
   loginWithGoogle: () => Promise<void>;
   loginWithEmail: (email: string, pass: string) => Promise<void>;
+  loginWithIdentifier: (identifier: string, pass: string) => Promise<void>;
+  sendPasswordReset: (identifierOrEmail: string) => Promise<string>;
   logout: () => Promise<void>;
   refreshUserProfile: () => Promise<void>;
 }
@@ -226,6 +230,116 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const loginWithIdentifier = async (identifier: string, pass: string) => {
+    setLoading(true);
+    setAuthError(null);
+    try {
+      const cleanId = identifier.trim();
+      if (!cleanId) {
+        throw new Error('Please enter your email or employee number.');
+      }
+      if (!pass) {
+        throw new Error('Please enter your password.');
+      }
+
+      let targetEmail = cleanId;
+
+      if (!cleanId.includes('@')) {
+        // Look up registered user by employeeNumber in Firestore
+        const q = query(collection(db, 'users'), where('employeeNumber', '==', cleanId));
+        let snap = await getDocs(q);
+
+        if (snap.empty) {
+          // Case-insensitive / upper-case fallback
+          const qUpper = query(collection(db, 'users'), where('employeeNumber', '==', cleanId.toUpperCase()));
+          snap = await getDocs(qUpper);
+        }
+
+        if (snap.empty) {
+          throw new Error(
+            `No registered account found with Employee Number "${cleanId}". Please check your employee number or contact your administrator.`
+          );
+        }
+
+        targetEmail = snap.docs[0].data().email;
+      }
+
+      if (!targetEmail) {
+        throw new Error('Could not resolve account email for this employee.');
+      }
+
+      let cred;
+      try {
+        cred = await signInWithEmailAndPassword(auth, targetEmail.toLowerCase().trim(), pass);
+      } catch (signInErr: any) {
+        // If user account is registered in Firestore by admin but not yet created in Firebase Auth:
+        if (
+          signInErr.code === 'auth/user-not-found' ||
+          signInErr.code === 'auth/invalid-credential'
+        ) {
+          const qUser = query(collection(db, 'users'), where('email', '==', targetEmail.toLowerCase().trim()));
+          const userSnap = await getDocs(qUser);
+          if (!userSnap.empty) {
+            // User exists in system! Try creating Auth record with this password
+            try {
+              cred = await createUserWithEmailAndPassword(auth, targetEmail.toLowerCase().trim(), pass);
+            } catch {
+              throw signInErr;
+            }
+          } else {
+            throw signInErr;
+          }
+        } else {
+          throw signInErr;
+        }
+      }
+
+      const profile = await fetchProfile(cred.user);
+      setCurrentUser(cred.user);
+      setUserProfile(profile);
+    } catch (err: any) {
+      await fbSignOut(auth);
+      setCurrentUser(null);
+      setUserProfile(null);
+      let msg = err.message || 'Authentication failed.';
+      if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+        msg = 'Invalid password. If you forgot your password or need a reset, use "Forgot Password" or ask your administrator.';
+      } else if (err.code === 'auth/user-not-found') {
+        msg = 'No user account found with this email or employee number.';
+      }
+      setAuthError(msg);
+      throw new Error(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const sendPasswordReset = async (identifierOrEmail: string): Promise<string> => {
+    const clean = identifierOrEmail.trim();
+    if (!clean) throw new Error('Please enter your email or employee number.');
+
+    let targetEmail = clean;
+    if (!clean.includes('@')) {
+      const q = query(collection(db, 'users'), where('employeeNumber', '==', clean));
+      let snap = await getDocs(q);
+      if (snap.empty) {
+        const qUpper = query(collection(db, 'users'), where('employeeNumber', '==', clean.toUpperCase()));
+        snap = await getDocs(qUpper);
+      }
+      if (snap.empty) {
+        throw new Error(`No registered account found with Employee Number "${clean}".`);
+      }
+      targetEmail = snap.docs[0].data().email;
+    }
+
+    if (!targetEmail) {
+      throw new Error('No email found for this user.');
+    }
+
+    await sendPasswordResetEmail(auth, targetEmail.toLowerCase().trim());
+    return targetEmail.toLowerCase().trim();
+  };
+
   const logout = async () => {
     await fbSignOut(auth);
     setCurrentUser(null);
@@ -248,6 +362,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         clearAuthError,
         loginWithGoogle,
         loginWithEmail,
+        loginWithIdentifier,
+        sendPasswordReset,
         logout,
         refreshUserProfile,
       }}

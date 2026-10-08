@@ -18,6 +18,9 @@ import {
   Lock,
   Banknote,
   Calculator,
+  KeyRound,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc, deleteField } from 'firebase/firestore';
 import { db } from '../firebase/config';
@@ -28,6 +31,7 @@ import { fetchTemplatesFromFirestore, subscribeToTemplates } from '../services/t
 import { DEFAULT_TEMPLATE } from '../utils/defaultTemplate';
 import { ConfirmationModal } from './ConfirmationModal';
 import { sanitizeFirestoreData } from '../utils/firestoreUtils';
+import { adminChangeUserPassword, adminSendUserPasswordResetEmail } from '../utils/adminAuthHelper';
 
 export const UserManagement: React.FC = () => {
   const { currentUser, isAdmin, refreshUserProfile } = useAuth();
@@ -67,6 +71,22 @@ export const UserManagement: React.FC = () => {
 
   const [formError, setFormError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+
+  // Password Management State
+  const [passwordModalUser, setPasswordModalUser] = useState<UserProfile | null>(null);
+  const [employeeNumberInput, setEmployeeNumberInput] = useState('');
+  const [isResetPanelUnlocked, setIsResetPanelUnlocked] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [showPasswordText, setShowPasswordText] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
+  const [isSubmittingPassword, setIsSubmittingPassword] = useState(false);
+  const [isConfirmPasswordModalOpen, setIsConfirmPasswordModalOpen] = useState(false);
+  const [pendingPasswordTarget, setPendingPasswordTarget] = useState<{
+    type: 'employeeNumber' | 'custom' | 'email';
+    passToSet?: string;
+  } | null>(null);
 
   // Load templates from Cloud Firestore
   useEffect(() => {
@@ -301,6 +321,106 @@ export const UserManagement: React.FC = () => {
     }
   };
 
+  const openPasswordModal = (user: UserProfile) => {
+    setPasswordModalUser(user);
+    setEmployeeNumberInput('');
+    setIsResetPanelUnlocked(false);
+    setNewPassword('');
+    setConfirmNewPassword('');
+    setShowPasswordText(false);
+    setPasswordError(null);
+    setPasswordSuccess(null);
+  };
+
+  const handleUnlockResetPanel = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!passwordModalUser) return;
+    setPasswordError(null);
+
+    const entered = employeeNumberInput.trim().toUpperCase();
+    const targetEmpNo = (passwordModalUser.employeeNumber || '').trim().toUpperCase();
+
+    if (!entered) {
+      setPasswordError('Please enter the employee number to unlock the password reset panel.');
+      return;
+    }
+
+    if (entered !== targetEmpNo) {
+      setPasswordError(`The entered employee number does not match (${passwordModalUser.employeeNumber}).`);
+      return;
+    }
+
+    setIsResetPanelUnlocked(true);
+    setPasswordSuccess('Identity verified! Password reset panel is now unlocked.');
+  };
+
+  const handlePromptSetEmployeeNumberPassword = () => {
+    if (!passwordModalUser) return;
+    setPendingPasswordTarget({
+      type: 'employeeNumber',
+      passToSet: passwordModalUser.employeeNumber || '123456',
+    });
+    setIsConfirmPasswordModalOpen(true);
+  };
+
+  const handlePromptApplyCustomPassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!passwordModalUser) return;
+    setPasswordError(null);
+
+    if (newPassword.length < 6) {
+      setPasswordError('Password must be at least 6 characters long.');
+      return;
+    }
+
+    if (newPassword !== confirmNewPassword) {
+      setPasswordError('Passwords do not match.');
+      return;
+    }
+
+    setPendingPasswordTarget({
+      type: 'custom',
+      passToSet: newPassword,
+    });
+    setIsConfirmPasswordModalOpen(true);
+  };
+
+  const handlePromptSendResetEmail = () => {
+    if (!passwordModalUser) return;
+    setPendingPasswordTarget({
+      type: 'email',
+    });
+    setIsConfirmPasswordModalOpen(true);
+  };
+
+  const confirmExecutePasswordAction = async () => {
+    if (!passwordModalUser || !pendingPasswordTarget) return;
+    setIsSubmittingPassword(true);
+    setPasswordError(null);
+
+    try {
+      if (pendingPasswordTarget.type === 'email') {
+        await adminSendUserPasswordResetEmail(passwordModalUser.email);
+        setPasswordSuccess(`A secure password reset link has been dispatched to ${passwordModalUser.email}!`);
+      } else {
+        const passToSet = pendingPasswordTarget.passToSet || passwordModalUser.employeeNumber;
+        const res = await adminChangeUserPassword(
+          passwordModalUser.email,
+          passToSet,
+          passwordModalUser.employeeNumber
+        );
+        setPasswordSuccess(res.message);
+      }
+      setIsConfirmPasswordModalOpen(false);
+    } catch (err: any) {
+      console.error('Password operation failed', err);
+      setPasswordError(err.message || 'Failed to update user password.');
+      setIsConfirmPasswordModalOpen(false);
+    } finally {
+      setIsSubmittingPassword(false);
+    }
+  };
+
   const filteredUsers = users.filter(u => {
     const matchesSearch =
       u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -505,8 +625,15 @@ export const UserManagement: React.FC = () => {
                       <td className="py-3.5 px-4 text-right">
                         <div className="flex items-center justify-end gap-1">
                           <button
+                            onClick={() => openPasswordModal(u)}
+                            className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition cursor-pointer"
+                            title="Change User Password"
+                          >
+                            <KeyRound className="w-4 h-4" />
+                          </button>
+                          <button
                             onClick={() => openEditModal(u)}
-                            className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition"
+                            className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
                             title="Edit User &amp; Overtime Limit"
                           >
                             <Edit2 className="w-4 h-4" />
@@ -950,6 +1077,216 @@ export const UserManagement: React.FC = () => {
           { label: 'Daily OT Cap', value: `${maxOtHoursPerDay} hrs/day` },
           { label: 'Claim Type', value: claimType },
         ]}
+      />
+
+      {/* Admin Change Password Modal */}
+      {passwordModalUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="relative w-full max-w-lg rounded-3xl bg-white p-6 sm:p-7 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto flex flex-col">
+            <button
+              onClick={() => setPasswordModalUser(null)}
+              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="pb-3 border-b border-slate-100 mb-4">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
+                  <KeyRound className="w-4 h-4" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-900">
+                    Change Password: {passwordModalUser.name}
+                  </h2>
+                  <p className="text-[11px] text-slate-500">
+                    Employee No: <span className="font-mono font-bold text-slate-700">{passwordModalUser.employeeNumber}</span> &bull; {passwordModalUser.email}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {passwordError && (
+              <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <span>{passwordError}</span>
+              </div>
+            )}
+
+            {passwordSuccess && (
+              <div className="mb-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-start gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <span>{passwordSuccess}</span>
+              </div>
+            )}
+
+            <div className="space-y-4 text-xs">
+              {/* Option 1: Quick set to Employee Number */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-800 text-xs">Option A: Use Employee Number as Password</span>
+                  <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold">
+                    Quick Reset
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  Directly configure <strong>{passwordModalUser.employeeNumber}</strong> as the sign-in password for this employee.
+                </p>
+                <button
+                  type="button"
+                  onClick={handlePromptSetEmployeeNumberPassword}
+                  className="w-full py-2 px-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold transition cursor-pointer flex items-center justify-center gap-1.5 shadow-2xs"
+                >
+                  <KeyRound className="w-3.5 h-3.5" />
+                  <span>Set Password to Employee Number ({passwordModalUser.employeeNumber})</span>
+                </button>
+              </div>
+
+              {/* Option 2: Enter employee number to unlock custom reset panel */}
+              {!isResetPanelUnlocked ? (
+                <div className="p-4 bg-indigo-50/50 border border-indigo-200 rounded-2xl space-y-3">
+                  <span className="font-bold text-slate-800 text-xs block">Option B: Unlock Password Reset Panel</span>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Enter the user's employee number below to access the custom password reset panel.
+                  </p>
+                  <form onSubmit={handleUnlockResetPanel} className="space-y-2">
+                    <input
+                      type="text"
+                      value={employeeNumberInput}
+                      onChange={e => setEmployeeNumberInput(e.target.value)}
+                      placeholder={`Enter employee number (e.g. ${passwordModalUser.employeeNumber})`}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                    />
+                    <button
+                      type="submit"
+                      className="w-full py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold transition cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <Lock className="w-3.5 h-3.5" />
+                      <span>Verify &amp; Unlock Reset Panel</span>
+                    </button>
+                  </form>
+                </div>
+              ) : (
+                /* Unlocked Password Reset Panel */
+                <div className="p-4 bg-emerald-50/50 border border-emerald-200 rounded-2xl space-y-3 animate-scale-in">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-emerald-900 text-xs flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      <span>Password Reset Panel (Unlocked)</span>
+                    </span>
+                    <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold">
+                      Verified
+                    </span>
+                  </div>
+
+                  <form onSubmit={handlePromptApplyCustomPassword} className="space-y-3">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block font-bold text-slate-700 text-[11px]">New Password</label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNewPassword(passwordModalUser.employeeNumber);
+                            setConfirmNewPassword(passwordModalUser.employeeNumber);
+                          }}
+                          className="text-[10px] text-indigo-600 hover:underline font-semibold"
+                        >
+                          Fill Employee No
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <input
+                          type={showPasswordText ? 'text' : 'password'}
+                          required
+                          value={newPassword}
+                          onChange={e => setNewPassword(e.target.value)}
+                          placeholder="At least 6 characters"
+                          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-1.5 pr-8 text-xs text-slate-800"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPasswordText(!showPasswordText)}
+                          className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600"
+                        >
+                          {showPasswordText ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1 text-[11px]">Confirm New Password</label>
+                      <input
+                        type={showPasswordText ? 'text' : 'password'}
+                        required
+                        value={confirmNewPassword}
+                        onChange={e => setConfirmNewPassword(e.target.value)}
+                        placeholder="Re-enter password"
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800"
+                      />
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                      <button
+                        type="submit"
+                        className="flex-1 py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold transition cursor-pointer text-center shadow-xs"
+                      >
+                        Apply New Password
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handlePromptSendResetEmail}
+                        className="py-2 px-3 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold transition cursor-pointer text-center"
+                      >
+                        Send Reset Link Email
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-4 mt-4 border-t border-slate-100 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => setPasswordModalUser(null)}
+                className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 font-semibold hover:bg-slate-50 transition cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal for Password Changes */}
+      <ConfirmationModal
+        isOpen={isConfirmPasswordModalOpen}
+        onClose={() => setIsConfirmPasswordModalOpen(false)}
+        onConfirm={confirmExecutePasswordAction}
+        title={
+          pendingPasswordTarget?.type === 'email'
+            ? 'Dispatch Password Reset Email'
+            : pendingPasswordTarget?.type === 'employeeNumber'
+            ? 'Set Password to Employee Number'
+            : 'Update User Password'
+        }
+        message={
+          pendingPasswordTarget?.type === 'email'
+            ? `Send an official password reset email link to "${passwordModalUser?.email}"?`
+            : pendingPasswordTarget?.type === 'employeeNumber'
+            ? `Set the sign-in password for "${passwordModalUser?.name}" to their employee number "${passwordModalUser?.employeeNumber}"?`
+            : `Are you sure you want to apply the new custom password for "${passwordModalUser?.name}" (${passwordModalUser?.email})?`
+        }
+        confirmText="Confirm Password Update"
+        cancelText="Cancel"
+        variant="warning"
+        isLoading={isSubmittingPassword}
+        details={passwordModalUser ? [
+          { label: 'Employee Name', value: passwordModalUser.name },
+          { label: 'Employee ID', value: passwordModalUser.employeeNumber },
+          { label: 'Email Address', value: passwordModalUser.email },
+          ...(pendingPasswordTarget?.passToSet ? [{ label: 'New Password', value: '••••••••' }] : []),
+        ] : []}
       />
     </div>
   );

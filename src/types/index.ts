@@ -56,6 +56,11 @@ export interface OvertimeRow {
   totalFormatted: string; // e.g. "02:00"
   isCapped?: boolean;
   uncappedMinutes?: number;
+  lateDeductionMinutes?: number;
+  isLateDisqualified?: boolean;
+  lateNote?: string;
+  isHoliday?: boolean;
+  holidayName?: string;
   reason: string;
   specialAssignmentHours?: string;
   approvedBy?: string;

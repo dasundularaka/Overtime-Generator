@@ -178,6 +178,17 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   const [claimSavedSuccess, setClaimSavedSuccess] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
+  // Sunday / Holiday Review State
+  const [isSundayReviewModalOpen, setIsSundayReviewModalOpen] = useState(false);
+  const [sundayRowsToReview, setSundayRowsToReview] = useState<OvertimeRow[]>([]);
+  const [hasReviewedSunday, setHasReviewedSunday] = useState(false);
+  const [sundayReviewTrigger, setSundayReviewTrigger] = useState<'preview' | 'download' | 'save' | null>(null);
+
+  // Download Confirmation & No-OT Days Removal State
+  const [isConfirmDownloadOpen, setIsConfirmDownloadOpen] = useState(false);
+  const [isNoOtModalOpen, setIsNoOtModalOpen] = useState(false);
+  const [noOtRowsDetected, setNoOtRowsDetected] = useState<OvertimeRow[]>([]);
+
   // Fetch users if admin
   useEffect(() => {
     if (isAdmin) {
@@ -290,6 +301,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       target.isOvernight = calc.isOvernight;
       target.isCapped = calc.isCapped;
       target.uncappedMinutes = calc.uncappedMinutes;
+      target.lateDeductionMinutes = calc.lateDeductionMinutes;
+      target.isLateDisqualified = calc.isLateDisqualified;
+      target.lateNote = calc.lateNote;
 
       updated[index] = target;
       return updated;
@@ -317,6 +331,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           isOvernight: calc.isOvernight,
           isCapped: calc.isCapped,
           uncappedMinutes: calc.uncappedMinutes,
+          lateDeductionMinutes: calc.lateDeductionMinutes,
+          isLateDisqualified: calc.isLateDisqualified,
+          lateNote: calc.lateNote,
         };
       })
     );
@@ -412,6 +429,13 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     };
   }, [rows]);
 
+  const invalidSaturdayRows = useMemo(() => {
+    return rows.filter(r => {
+      const isSat = r.dayOfWeek === 'Sat' || getDayOfWeek(r.date) === 'Sat';
+      return isSat && (r.startTime || r.endTime || r.totalWorkMinutes > 0) && r.totalWorkMinutes < 360;
+    });
+  }, [rows]);
+
   const handleRemunerationChange = (val: string) => {
     if (val === '') {
       setTotalRemuneration('');
@@ -448,28 +472,87 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       return false;
     }
 
+    // Check pair completeness
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
       if (r.startTime && !r.endTime) {
-        setValidationError(`Row ${i + 1}: Ending time cannot be empty when starting time is provided.`);
+        setValidationError(`Row ${i + 1} (${r.date || 'entry'}): Ending time cannot be empty when starting time is provided.`);
         return false;
       }
       if (!r.startTime && r.endTime) {
-        setValidationError(`Row ${i + 1}: Starting time cannot be empty when ending time is provided.`);
+        setValidationError(`Row ${i + 1} (${r.date || 'entry'}): Starting time cannot be empty when ending time is provided.`);
         return false;
       }
     }
 
+    // Saturday Minimum 6.00 Hours Working Time Validation:
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const isSat = r.dayOfWeek === 'Sat' || getDayOfWeek(r.date) === 'Sat';
+      if (isSat && (r.startTime || r.endTime || r.totalWorkMinutes > 0)) {
+        if (r.totalWorkMinutes < 360) {
+          const hoursWorked = (r.totalWorkMinutes / 60).toFixed(2);
+          setValidationError(
+            `Saturday Working Time Requirement: Employees must work a minimum of 6.00 hours (360 minutes) on Saturdays. ${r.date || `Row ${i + 1}`} has only ${hoursWorked} hours (${r.totalWorkMinutes} mins) recorded. Please enter at least 6 hours or remove this Saturday entry before generating the OT sheet.`
+          );
+          return false;
+        }
+      }
+    }
+
     if (summary.totalMinutes <= 0) {
-      setValidationError('No overtime generated. Note: General shift ends at 4:45 PM. Overtime is only generated in 15-minute increments for time worked after 4:45 PM.');
+      setValidationError(
+        'No claimable overtime generated. Note: General shift ends at 4:45 PM. Overtime requires at least 15 minutes worked after 4:45 PM, and arrivals after 8:30 AM cannot claim overtime for that date.'
+      );
       return false;
     }
 
     return true;
   };
 
-  const buildClaimRecord = (): ClaimRecord => {
+  const checkSundayOrHolidayReview = (trigger: 'preview' | 'download' | 'save'): boolean => {
+    if (hasReviewedSunday) return true;
+    const sundayOrHolidayRows = rows.filter(r => {
+      const isSun = r.dayOfWeek === 'Sun' || getDayOfWeek(r.date) === 'Sun';
+      const isHol = !!r.isHoliday || /holiday|poya|mercantile|off\s*day|leave/i.test(r.reason || '');
+      return (isSun || isHol) && (r.startTime || r.endTime || r.totalWorkMinutes > 0);
+    });
+    if (sundayOrHolidayRows.length > 0) {
+      setSundayRowsToReview(sundayOrHolidayRows);
+      setSundayReviewTrigger(trigger);
+      setIsSundayReviewModalOpen(true);
+      return false;
+    }
+    return true;
+  };
+
+  const handleConfirmSundayReview = () => {
+    setHasReviewedSunday(true);
+    setIsSundayReviewModalOpen(false);
+    if (sundayReviewTrigger === 'preview') {
+      executePreviewPdf();
+    } else if (sundayReviewTrigger === 'download') {
+      setIsConfirmDownloadOpen(true);
+    } else if (sundayReviewTrigger === 'save') {
+      setIsConfirmSaveClaimOpen(true);
+    }
+  };
+
+  const buildClaimRecord = (customRows?: OvertimeRow[]): ClaimRecord => {
     const claimId = initialClaim?.id || 'clm_' + Date.now();
+    const activeRows = (customRows || rows).filter(r => r.totalMinutes > 0 || r.startTime || r.endTime);
+    const totalMinutes = activeRows.reduce((acc, r) => acc + (r.totalMinutes || 0), 0);
+    const otDaysCount = activeRows.filter(r => r.totalMinutes > 0).length;
+    const totalDecimalHours = parseFloat((totalMinutes / 60).toFixed(2));
+    const totalHoursFormatted = formatMinutesToTime(totalMinutes, otDisplayFormat);
+
+    const calculatedPaymentA =
+      hourlyRate !== '' && !isNaN(Number(hourlyRate))
+        ? Math.round(totalDecimalHours * Number(hourlyRate) * 100) / 100
+        : 0;
+    const b = otPaymentDueB !== '' ? Number(otPaymentDueB) : 0;
+    const calculatedTotalPayment = Math.round((calculatedPaymentA + (isNaN(b) ? 0 : b)) * 100) / 100;
+
     return {
       id: claimId,
       userId: selectedUserId || currentUser?.uid || 'user_1',
@@ -485,17 +568,17 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       month: claimMonth,
       year: claimYear,
       claimDate,
-      rows: rows.filter(r => r.totalMinutes > 0 || r.startTime || r.endTime),
-      totalMinutes: summary.totalMinutes,
-      totalHoursFormatted: summary.totalHoursFormatted,
-      totalDecimalHours: summary.totalDecimalHours,
-      otDaysCount: summary.otDaysCount,
+      rows: activeRows,
+      totalMinutes,
+      totalHoursFormatted,
+      totalDecimalHours,
+      otDaysCount,
       totalRemuneration: totalRemuneration !== '' ? Number(totalRemuneration) : undefined,
       hourlyRate: hourlyRate !== '' ? Number(hourlyRate) : undefined,
       daysPay: daysPay !== '' ? Number(daysPay) : undefined,
-      otPaymentDueA,
+      otPaymentDueA: calculatedPaymentA,
       otPaymentDueB: otPaymentDueB !== '' ? Number(otPaymentDueB) : 0,
-      totalOtPayment,
+      totalOtPayment: calculatedTotalPayment,
       status: 'submitted',
       templateId: activeTemplate.id,
       createdAt: initialClaim?.createdAt || new Date().toISOString(),
@@ -506,6 +589,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   // Trigger confirmation dialog for Save / Submit Claim
   const handleSaveClaim = () => {
     if (!validateForm()) return;
+    if (!checkSundayOrHolidayReview('save')) return;
     setIsConfirmSaveClaimOpen(true);
   };
 
@@ -529,11 +613,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     }
   };
 
-  // Preview PDF
-  const handlePreviewPdf = async () => {
-    if (!validateForm()) return;
-
+  // Executes PDF generation and opens preview
+  const executePreviewPdf = async () => {
     setIsGeneratingPdf(true);
+    setValidationError(null);
     try {
       const claim = buildClaimRecord();
       const { url, filename } = await generateOvertimePdf(
@@ -553,13 +636,56 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     }
   };
 
-  // Direct Download PDF
-  const handleDownloadPdf = async () => {
+  // Preview PDF handler
+  const handlePreviewPdf = async () => {
     if (!validateForm()) return;
+    if (!checkSundayOrHolidayReview('preview')) return;
+    executePreviewPdf();
+  };
 
+  // Triggered by "Download PDF" button to start confirmation sequence
+  const handleInitiateDownload = () => {
+    if (!validateForm()) return;
+    if (!checkSundayOrHolidayReview('download')) return;
+    setIsConfirmDownloadOpen(true);
+  };
+
+  // Step 1: User confirmed download intent; check for No-OT days (< 15 min OT)
+  const handleConfirmDownloadStep1 = () => {
+    setIsConfirmDownloadOpen(false);
+
+    // Check for days with entered hours that yielded no claimable OT (< 15 mins)
+    const noOtDays = rows.filter(
+      r => (r.startTime || r.endTime || r.totalWorkMinutes > 0) && r.totalMinutes < 15
+    );
+
+    if (noOtDays.length > 0) {
+      setNoOtRowsDetected(noOtDays);
+      setIsNoOtModalOpen(true);
+      return;
+    }
+
+    // No zero-OT days, proceed directly
+    executeGenerateAndDownload(rows);
+  };
+
+  // Step 2: User confirmed removing No-OT days
+  const handleConfirmRemoveNoOtAndDownload = () => {
+    setIsNoOtModalOpen(false);
+    // Remove the No-OT rows from the timesheet (keep only rows with valid claimable OT >= 15 min)
+    const validRows = rows.filter(
+      r => r.totalMinutes >= 15
+    );
+    const finalRows = validRows.length > 0 ? validRows : [createBlankRow()];
+    setRows(finalRows);
+    executeGenerateAndDownload(finalRows);
+  };
+
+  // Generates PDF and downloads file
+  const executeGenerateAndDownload = async (claimRows: OvertimeRow[]) => {
     setIsGeneratingPdf(true);
     try {
-      const claim = buildClaimRecord();
+      const claim = buildClaimRecord(claimRows);
       const { url, filename } = await generateOvertimePdf(
         claim,
         activeTemplate,
@@ -577,8 +703,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       // Also save to Firestore database
       await setDoc(doc(db, 'claims', claim.id), sanitizeFirestoreData(claim));
       setClaimSavedSuccess(true);
-    } catch (err) {
-      setValidationError('Failed to generate PDF download.');
+      if (onClaimSaved) onClaimSaved(claim);
+      setTimeout(() => setClaimSavedSuccess(false), 3000);
+    } catch (err: any) {
+      setValidationError('Failed to generate PDF download: ' + err.message);
     } finally {
       setIsGeneratingPdf(false);
     }
@@ -625,9 +753,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             </button>
 
             <button
-              onClick={handleDownloadPdf}
+              onClick={handleInitiateDownload}
               disabled={isGeneratingPdf}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm transition"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm transition cursor-pointer disabled:opacity-60"
             >
               <Download className="w-3.5 h-3.5" />
               <span>{isGeneratingPdf ? 'Generating...' : 'Download PDF'}</span>
@@ -648,6 +776,19 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           </div>
         )}
 
+        {/* Saturday Minimum Working Time Warning Banner */}
+        {invalidSaturdayRows.length > 0 && !validationError && (
+          <div className="mt-4 p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-xs text-amber-900 flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold">Saturday Working Time Requirement (Min 6.00 Hours):</p>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-amber-800">
+                You have {invalidSaturdayRows.length} Saturday entry with less than 6.00 hours (360 minutes) of working time recorded. The company overtime policy requires a minimum of 6.00 hours of working time on Saturdays before generating or downloading an Overtime Sheet.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Success Alert */}
         {claimSavedSuccess && (
           <div className="mt-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2 text-xs text-emerald-800">
@@ -657,14 +798,22 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         )}
 
         {/* General Shift Policy Info Notice */}
-        <div className="mt-4 p-3 rounded-xl bg-blue-50/70 border border-blue-200 text-blue-900 text-xs flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Info className="w-4 h-4 text-blue-600 shrink-0" />
-            <span>
-              <strong>Shift Policy:</strong> General shift runs from <strong>08:00 AM to 04:45 PM</strong>. Overtime begins generating strictly after 04:45 PM in <strong>15-minute blocks</strong>.
-            </span>
+        <div className="mt-4 p-3.5 rounded-xl bg-blue-50/70 border border-blue-200 text-blue-900 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Info className="w-4 h-4 text-blue-600 shrink-0" />
+              <span>
+                <strong>Shift Policy:</strong> General shift runs from <strong>08:00 AM to 04:45 PM</strong>. Overtime begins strictly after 04:45 PM in <strong>15-minute blocks</strong>.
+              </span>
+            </div>
+            <div className="text-[11px] text-blue-800 ml-6 flex flex-wrap gap-x-4 gap-y-1">
+              <span>&bull; Late 08:01–08:15: <strong>-15m OT deducted</strong></span>
+              <span>&bull; Late 08:16–08:30: <strong>-30m OT deducted</strong></span>
+              <span>&bull; After 08:30: <strong>0 OT allocated</strong></span>
+              <span>&bull; Saturdays: <strong>Min 6.00 hrs working time required</strong></span>
+            </div>
           </div>
-          <div className="flex items-center gap-2 font-mono text-[11px] font-bold text-blue-800">
+          <div className="flex items-center gap-2 font-mono text-[11px] font-bold text-blue-800 shrink-0">
             <span>Your Assigned Cap: {maxOtLimitHours} hrs/day</span>
           </div>
         </div>
@@ -1149,11 +1298,20 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             <tbody className="divide-y divide-slate-100 text-xs">
               {rows.map((row, index) => {
                 const hasOt = row.totalMinutes > 0;
+                const isSat = row.dayOfWeek === 'Sat' || getDayOfWeek(row.date) === 'Sat';
+                const isSun = row.dayOfWeek === 'Sun' || getDayOfWeek(row.date) === 'Sun';
+                const isHol = !!row.isHoliday || /holiday|poya|mercantile|off\s*day|leave/i.test(row.reason || '');
+                const isSatInvalid = isSat && (row.startTime || row.endTime || row.totalWorkMinutes > 0) && row.totalWorkMinutes < 360;
+
                 return (
                   <tr
                     key={row.id}
                     className={`hover:bg-slate-50/80 transition-colors ${
-                      hasOt ? 'bg-indigo-50/20' : ''
+                      isSatInvalid
+                        ? 'bg-rose-50/40 border-l-4 border-l-rose-500'
+                        : hasOt
+                        ? 'bg-indigo-50/20'
+                        : ''
                     }`}
                   >
                     <td className="py-2.5 px-2 text-center text-slate-400 font-mono text-[11px]">
@@ -1170,17 +1328,37 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       />
                     </td>
 
-                    {/* 2. Day & Weekend Indicator */}
+                    {/* 2. Day & Holiday Indicator */}
                     <td className="py-2.5 px-2 text-center">
-                      <span
-                        className={`inline-block px-1.5 py-0.5 rounded text-[11px] font-semibold ${
-                          row.isWeekend
-                            ? 'bg-amber-100 text-amber-800'
-                            : 'bg-slate-100 text-slate-700'
-                        }`}
-                      >
-                        {row.dayOfWeek || '-'}
-                      </span>
+                      <div className="flex flex-col items-center gap-1">
+                        <span
+                          className={`inline-block px-1.5 py-0.5 rounded text-[11px] font-semibold ${
+                            row.isHoliday || isHol
+                              ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                              : isSun
+                              ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                              : isSat
+                              ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                              : 'bg-slate-100 text-slate-700'
+                          }`}
+                        >
+                          {row.isHoliday ? 'Holiday' : row.dayOfWeek || '-'}
+                        </span>
+                        {!isSun && (
+                          <button
+                            type="button"
+                            onClick={() => updateRowField(index, 'isHoliday', !row.isHoliday)}
+                            className={`text-[9px] px-1 py-0.2 rounded font-bold cursor-pointer transition ${
+                              row.isHoliday
+                                ? 'bg-rose-200 text-rose-900 border border-rose-300'
+                                : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                            }`}
+                            title="Toggle Holiday / Off-Day status for this date"
+                          >
+                            {row.isHoliday ? 'Holiday ✓' : '+ Holiday'}
+                          </button>
+                        )}
+                      </div>
                     </td>
 
                     {/* 3. Reason / Nature of Duties (Position 3 as in Overtime Sheet) */}
@@ -1243,13 +1421,25 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                     {/* 8. Total Working Time (Difference start to end) */}
                     <td className="py-2.5 px-2 text-center font-mono text-slate-600">
                       {row.totalWorkMinutes > 0 ? (
-                        <span>{formatMinutesToTime(row.totalWorkMinutes, 'hhmm')}</span>
+                        <div className="flex flex-col items-center">
+                          <span className={isSatInvalid ? 'text-rose-700 font-bold' : ''}>
+                            {formatMinutesToTime(row.totalWorkMinutes, 'hhmm')}
+                          </span>
+                          {isSatInvalid && (
+                            <span
+                              className="text-[9px] font-bold text-rose-700 bg-rose-50 px-1 py-0.2 rounded border border-rose-200 mt-0.5 whitespace-nowrap"
+                              title="Saturday requires minimum 6.00 hrs (360 mins) of working time"
+                            >
+                              Min 6h req!
+                            </span>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-slate-300">-</span>
                       )}
                     </td>
 
-                    {/* 9. Generated Overtime (A) (15-min blocks + Capped indicator) */}
+                    {/* 9. Generated Overtime (A) (15-min blocks + Late deduction + Capped indicator) */}
                     <td className="py-2.5 px-2 text-center">
                       <div className="flex flex-col items-center">
                         <span
@@ -1259,9 +1449,25 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                         >
                           {row.totalFormatted}
                         </span>
+                        {row.isLateDisqualified && (
+                          <span
+                            className="text-[9px] font-bold text-rose-700 bg-rose-50 px-1 py-0.2 rounded border border-rose-200 mt-0.5 whitespace-nowrap"
+                            title={row.lateNote || 'Late arrival after 08:30: No overtime allocated'}
+                          >
+                            Late &gt; 08:30 (0 OT)
+                          </span>
+                        )}
+                        {!row.isLateDisqualified && row.lateDeductionMinutes !== undefined && row.lateDeductionMinutes > 0 && (
+                          <span
+                            className="text-[9px] font-bold text-amber-700 bg-amber-50 px-1 py-0.2 rounded border border-amber-200 mt-0.5 whitespace-nowrap"
+                            title={row.lateNote || `Late arrival: -${row.lateDeductionMinutes}m deducted from OT`}
+                          >
+                            Late -{row.lateDeductionMinutes}m OT
+                          </span>
+                        )}
                         {row.isCapped && (
                           <span
-                            className="text-[9px] font-bold text-amber-700 bg-amber-50 px-1 py-0.2 rounded border border-amber-200 mt-0.5"
+                            className="text-[9px] font-bold text-indigo-700 bg-indigo-50 px-1 py-0.2 rounded border border-indigo-200 mt-0.5 whitespace-nowrap"
                             title={`Capped at ${maxOtLimitHours}h limit (uncapped was ${formatMinutesToTime(row.uncappedMinutes || 0, 'hhmm')})`}
                           >
                             Capped {maxOtLimitHours}h
@@ -1383,6 +1589,56 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             value: `Rs. ${totalOtPayment.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
           },
         ]}
+      />
+
+      {/* Confirmation Modal: Step 1 Download Intent */}
+      <ConfirmationModal
+        isOpen={isConfirmDownloadOpen}
+        onClose={() => setIsConfirmDownloadOpen(false)}
+        onConfirm={handleConfirmDownloadStep1}
+        title="Generate and Download Overtime Sheet"
+        message={`Are you sure you want to generate and download the official A4 Overtime Sheet for "${employeeName}" for ${claimMonth} ${claimYear}?`}
+        confirmText="Confirm & Download"
+        cancelText="Review Timesheet"
+        variant="info"
+        details={[
+          { label: 'Claimant', value: employeeName },
+          { label: 'Claim Period', value: `${claimMonth} ${claimYear}` },
+          { label: 'Total Claimable OT', value: `${summary.totalHoursFormatted} (${summary.totalDecimalHours} hrs)` },
+          { label: 'Days with Overtime', value: `${summary.otDaysCount} Days` },
+        ]}
+      />
+
+      {/* Confirmation Modal: Step 2 No-OT Days Detected */}
+      <ConfirmationModal
+        isOpen={isNoOtModalOpen}
+        onClose={() => setIsNoOtModalOpen(false)}
+        onConfirm={handleConfirmRemoveNoOtAndDownload}
+        title="No-OT Days Detected (< 15 Minutes)"
+        message={`The system detected ${noOtRowsDetected.length} day(s) with entered working hours but NO claimable overtime (less than 15 minutes of overtime generated after 4:45 PM or disqualified due to late arrival). The system will remove these No-OT days from the claim sheet and continue. Do you want to proceed?`}
+        confirmText="Remove No-OT Days & Download"
+        cancelText="Cancel & Keep Editing"
+        variant="warning"
+        details={noOtRowsDetected.map((r, i) => ({
+          label: `${r.date || `Day ${i + 1}`} (${r.dayOfWeek || '-'})`,
+          value: `In: ${r.startTime || '-'} | Out: ${r.endTime || '-'} (OT: ${r.totalFormatted || '00:00'}${r.lateNote ? ` • ${r.lateNote}` : ''})`,
+        }))}
+      />
+
+      {/* Confirmation Modal: Sunday / Holiday Review */}
+      <ConfirmationModal
+        isOpen={isSundayReviewModalOpen}
+        onClose={() => setIsSundayReviewModalOpen(false)}
+        onConfirm={handleConfirmSundayReview}
+        title="Review Sunday / Holiday Overtime"
+        message="You have entered work hours on Sunday or a Holiday date. Please review and confirm that Sunday/Holiday overtime was officially authorized before generating the claim."
+        confirmText="Confirm Authorization & Continue"
+        cancelText="Review & Modify Entries"
+        variant="warning"
+        details={sundayRowsToReview.map(r => ({
+          label: `${r.date} (${r.isHoliday ? 'Holiday' : r.dayOfWeek})`,
+          value: `Worked: ${r.startTime} – ${r.endTime} (OT: ${r.totalFormatted || '00:00'}${r.reason ? ` • ${r.reason}` : ''})`,
+        }))}
       />
     </div>
   );

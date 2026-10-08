@@ -69,12 +69,19 @@ export interface ShiftOvertimeResult {
   isOvernight: boolean;
   isCapped: boolean;
   uncappedMinutes: number;
+  lateDeductionMinutes: number;
+  isLateDisqualified: boolean;
+  lateNote: string;
 }
 
 /**
  * Calculates working time difference and Overtime according to organizational policy:
  * - General shift: 8:00 AM to 4:45 PM (08:00 - 16:45)
  * - Only after 4:45 PM is overtime generated
+ * - Late Attendance Rules (08:00 to 08:30):
+ *     - Arrived 08:01 to 08:15: Deduct 15 mins from OT
+ *     - Arrived 08:16 to 08:30: Deduct 30 mins from OT
+ *     - Arrived after 08:30: Strictly 0 OT minutes allocated for that day
  * - Generated in 15-minute increments (15 mins to 15 mins)
  * - Capped to user's assigned maximum overtime limit (e.g. 2.0 hours)
  */
@@ -95,6 +102,9 @@ export function calculateShiftOvertime(
       isOvernight: false,
       isCapped: false,
       uncappedMinutes: 0,
+      lateDeductionMinutes: 0,
+      isLateDisqualified: false,
+      lateNote: '',
     };
   }
 
@@ -141,6 +151,34 @@ export function calculateShiftOvertime(
     }
   }
 
+  // Step 1.5: Late attendance deduction policy (between 8:00 AM and 8:30 AM)
+  // - 8:00 to 8:15 -> deduct 15 mins from OT
+  // - 8:16 to 8:30 -> deduct 30 mins from OT
+  // - After 8:30   -> 0 OT allowance for that date
+  let lateDeductionMinutes = 0;
+  let isLateDisqualified = false;
+  let lateNote = '';
+
+  if (!forceWeekendAllDay) {
+    const morningShiftStartMin = 8 * 60; // 08:00 = 480 min
+    if (startMin > morningShiftStartMin + 30) {
+      // Arrived after 08:30 (e.g. 08:31+)
+      isLateDisqualified = true;
+      rawOtMinutes = 0;
+      lateNote = 'Late arrival after 08:30 (No OT allocated)';
+    } else if (startMin > morningShiftStartMin + 15) {
+      // Arrived 08:16 - 08:30
+      lateDeductionMinutes = 30;
+      rawOtMinutes = Math.max(0, rawOtMinutes - 30);
+      lateNote = 'Late arrival (08:16–08:30): -30 min OT';
+    } else if (startMin > morningShiftStartMin) {
+      // Arrived 08:01 - 08:15
+      lateDeductionMinutes = 15;
+      rawOtMinutes = Math.max(0, rawOtMinutes - 15);
+      lateNote = 'Late arrival (08:01–08:15): -15 min OT';
+    }
+  }
+
   // Step 2: Overtime generation in 15-minute to 15-minute blocks
   // e.g. 14 mins -> 0 mins; 15 mins -> 15 mins; 29 mins -> 15 mins; 30 mins -> 30 mins
   const steppedOtMinutes = Math.floor(rawOtMinutes / OT_INCREMENT_STEP) * OT_INCREMENT_STEP;
@@ -165,6 +203,9 @@ export function calculateShiftOvertime(
     isOvernight,
     isCapped,
     uncappedMinutes: steppedOtMinutes,
+    lateDeductionMinutes,
+    isLateDisqualified,
+    lateNote,
   };
 }
 

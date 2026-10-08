@@ -6,18 +6,29 @@ import {
   ArrowRight,
   ShieldCheck,
   AlertCircle,
-  Building2,
   LockKeyhole,
+  User,
+  KeyRound,
+  CheckCircle2,
+  X,
+  Loader2,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export const AuthScreen: React.FC = () => {
-  const { loginWithGoogle, loginWithEmail, authError, clearAuthError } = useAuth();
+  const { loginWithGoogle, loginWithIdentifier, sendPasswordReset, authError, clearAuthError } = useAuth();
 
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [localError, setLocalError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Forgot password modal state
+  const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
+  const [forgotInput, setForgotInput] = useState('');
+  const [isSendingReset, setIsSendingReset] = useState(false);
+  const [resetSuccessMessage, setResetSuccessMessage] = useState<string | null>(null);
+  const [resetErrorMessage, setResetErrorMessage] = useState<string | null>(null);
 
   const activeError = authError || localError;
 
@@ -28,16 +39,10 @@ export const AuthScreen: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      await loginWithEmail(email.trim(), password);
+      await loginWithIdentifier(identifier.trim(), password);
     } catch (err: any) {
       console.error('Authentication error', err);
-      let msg = err.message || 'Authentication failed.';
-      if (msg.includes('auth/invalid-credential') || msg.includes('auth/wrong-password')) {
-        msg = 'Invalid email or password. Please verify your credentials.';
-      } else if (msg.includes('auth/user-not-found')) {
-        msg = 'No user account found with this email.';
-      }
-      setLocalError(msg);
+      setLocalError(err.message || 'Authentication failed.');
     } finally {
       setIsSubmitting(false);
     }
@@ -56,6 +61,22 @@ export const AuthScreen: React.FC = () => {
       }
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleSendPasswordReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetErrorMessage(null);
+    setResetSuccessMessage(null);
+    setIsSendingReset(true);
+
+    try {
+      const email = await sendPasswordReset(forgotInput.trim());
+      setResetSuccessMessage(`Password reset link sent to ${email}! Please check your email inbox (and spam folder) to set a new password.`);
+    } catch (err: any) {
+      setResetErrorMessage(err.message || 'Failed to send password reset email.');
+    } finally {
+      setIsSendingReset(false);
     }
   };
 
@@ -86,7 +107,7 @@ export const AuthScreen: React.FC = () => {
             </span>
           </div>
           <p className="text-xs text-slate-500 leading-relaxed">
-            Access is restricted to authorized company personnel. Accounts must be registered by a system administrator.
+            Sign in using your <strong>Company Email</strong> or <strong>Employee Number</strong>.
           </p>
         </div>
 
@@ -129,29 +150,48 @@ export const AuthScreen: React.FC = () => {
         <div className="relative flex items-center justify-center mb-5">
           <div className="border-t border-slate-200 w-full" />
           <span className="bg-white px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400 absolute">
-            Or with registered email &amp; password
+            Or with email / employee number
           </span>
         </div>
 
         {/* Credentials Form */}
         <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
           <div>
-            <label className="block font-bold text-slate-700 mb-1">Company Email</label>
+            <label className="block font-bold text-slate-700 mb-1">
+              Email or Employee Number
+            </label>
             <div className="relative">
-              <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
               <input
-                type="email"
+                type="text"
                 required
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                placeholder="name@company.com"
-                className="w-full rounded-xl border border-slate-300 py-2 pl-9 pr-3 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                value={identifier}
+                onChange={e => setIdentifier(e.target.value)}
+                placeholder="name@company.com or EMP-1001"
+                className="w-full rounded-xl border border-slate-300 py-2 pl-9 pr-3 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-white"
               />
             </div>
+            <span className="text-[10px] text-slate-400 mt-0.5 block">
+              You can enter either your registered email address or assigned employee number.
+            </span>
           </div>
 
           <div>
-            <label className="block font-bold text-slate-700 mb-1">Password</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block font-bold text-slate-700">Password</label>
+              <button
+                type="button"
+                onClick={() => {
+                  setForgotInput(identifier);
+                  setResetSuccessMessage(null);
+                  setResetErrorMessage(null);
+                  setIsForgotModalOpen(true);
+                }}
+                className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 transition cursor-pointer"
+              >
+                Forgot Password?
+              </button>
+            </div>
             <div className="relative">
               <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
               <input
@@ -160,7 +200,7 @@ export const AuthScreen: React.FC = () => {
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full rounded-xl border border-slate-300 py-2 pl-9 pr-3 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                className="w-full rounded-xl border border-slate-300 py-2 pl-9 pr-3 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-white"
               />
             </div>
           </div>
@@ -182,10 +222,103 @@ export const AuthScreen: React.FC = () => {
             <span>Strict Administrator Control</span>
           </div>
           <p className="text-[10px] text-slate-400">
-            Public user registration is disabled. If you do not have an account, please reach out to your department supervisor or IT system administrator to be added.
+            Public user registration is disabled. Accounts are created and provisioned directly by administrators.
           </p>
         </div>
       </div>
+
+      {/* Forgot Password Modal */}
+      {isForgotModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-slate-200 animate-scale-in">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+                  <KeyRound className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Reset Your Password</h3>
+                  <p className="text-[11px] text-slate-500">Self Password Recovery</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsForgotModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {resetSuccessMessage ? (
+              <div className="py-6 text-center space-y-3">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <h4 className="text-sm font-bold text-slate-900">Reset Email Dispatched!</h4>
+                <p className="text-xs text-slate-600 leading-relaxed max-w-sm mx-auto">
+                  {resetSuccessMessage}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setIsForgotModalOpen(false)}
+                  className="mt-2 px-5 py-2 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 transition"
+                >
+                  Return to Sign In
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleSendPasswordReset} className="mt-4 space-y-4 text-xs">
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Enter your registered <strong>Company Email</strong> or <strong>Employee Number</strong>. We will send a secure password reset link to your email.
+                </p>
+
+                {resetErrorMessage && (
+                  <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <span>{resetErrorMessage}</span>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Email or Employee Number
+                  </label>
+                  <div className="relative">
+                    <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                    <input
+                      type="text"
+                      required
+                      value={forgotInput}
+                      onChange={e => setForgotInput(e.target.value)}
+                      placeholder="e.g. name@company.com or EMP-1001"
+                      className="w-full rounded-xl border border-slate-300 py-2 pl-9 pr-3 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsForgotModalOpen(false)}
+                    className="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSendingReset}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-700 transition disabled:opacity-60 cursor-pointer shadow-xs"
+                  >
+                    {isSendingReset && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    <span>{isSendingReset ? 'Sending link...' : 'Send Reset Email'}</span>
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
