@@ -265,7 +265,7 @@ export async function generateOvertimePdf(
         // Do not show shift on other days (Saturdays, non-working days)
         { col: cols.startTime, val: isOtherDay ? '' : (row.startTime || '') },
         { col: cols.endTime, val: isOtherDay ? '' : (row.endTime ? `${row.endTime}${row.isOvernight ? '*' : ''}` : '') },
-        { col: cols.totalHours, val: row.totalWorkMinutes > 0 ? formatMinutesToTime(row.totalWorkMinutes, 'hhmm') : '' },
+        { col: cols.totalHours, val: isOtherDay ? '' : (row.totalWorkMinutes > 0 ? formatMinutesToTime(row.totalWorkMinutes, 'hhmm') : '') },
         // Do not show OT hours on other days (Saturdays, non-working days)
         { col: cols.otHoursClaimed || (cols.breakMinutes ? undefined : cols.totalHours), val: isOtherDay ? '' : (row.totalFormatted || '') },
         { col: cols.specialHoursClaimed, val: row.specialAssignmentHours || '' },

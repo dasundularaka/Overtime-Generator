@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Calendar as CalendarIcon,
   Plus,
@@ -17,6 +17,7 @@ import {
   Building2,
   Landmark,
   Star,
+  FileSpreadsheet,
 } from 'lucide-react';
 import {
   subscribeToHolidays,
@@ -59,6 +60,8 @@ export const CalendarManager: React.FC = () => {
   // Import / Seed confirmation
   const [isSeedModalOpen, setIsSeedModalOpen] = useState(false);
   const [isSeeding, setIsSeeding] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isImportingFile, setIsImportingFile] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -145,6 +148,78 @@ export const CalendarManager: React.FC = () => {
     }
   };
 
+  const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImportingFile(true);
+    setActionError(null);
+    setActionSuccess(null);
+
+    try {
+      const text = await file.text();
+      let importedList: Array<{ date: string; name: string; type?: HolidayType; description?: string }> = [];
+
+      if (file.name.endsWith('.json')) {
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) {
+          importedList = parsed.map(item => ({
+            date: item.date || item.holidayDate || '',
+            name: item.name || item.holidayName || item.description || '',
+            type: (item.type || 'public') as HolidayType,
+            description: item.description || item.notes || '',
+          }));
+        } else {
+          throw new Error('Invalid JSON format: expected an array of holiday objects [{ date, name }]');
+        }
+      } else {
+        // Parse CSV format
+        const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        if (lines.length === 0) throw new Error('File is empty.');
+
+        const startIdx = lines[0].toLowerCase().includes('date') ? 1 : 0;
+        for (let i = startIdx; i < lines.length; i++) {
+          const parts = lines[i].split(',').map(s => s.trim().replace(/^["']|["']$/g, ''));
+          if (parts.length >= 2 && parts[0] && parts[1]) {
+            importedList.push({
+              date: parts[0],
+              name: parts[1],
+              type: (parts[2] as HolidayType) || 'public',
+              description: parts[3] || '',
+            });
+          }
+        }
+      }
+
+      // Filter and save valid items
+      let savedCount = 0;
+      for (const item of importedList) {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(item.date) && item.name) {
+          await saveHoliday({
+            date: item.date,
+            name: item.name,
+            type: item.type || 'public',
+            description: item.description || '',
+          });
+          savedCount++;
+        }
+      }
+
+      if (savedCount === 0) {
+        throw new Error('No valid holiday records found. Format required: YYYY-MM-DD, Holiday Name');
+      }
+
+      setActionSuccess(`Successfully imported ${savedCount} holidays from file "${file.name}"!`);
+      setTimeout(() => setActionSuccess(null), 4000);
+    } catch (err: any) {
+      console.error('File import error', err);
+      setActionError(err.message || 'Failed to import holidays from file.');
+    } finally {
+      setIsImportingFile(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   // Filtered list for active month
   const monthHolidays = useMemo(() => {
     const prefix = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}`;
@@ -198,6 +273,14 @@ export const CalendarManager: React.FC = () => {
           <div className="flex flex-wrap items-center gap-2">
             {isAdmin && (
               <>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept=".csv,.json"
+                  onChange={handleFileImport}
+                  className="hidden"
+                />
+
                 <button
                   type="button"
                   onClick={() => setIsSeedModalOpen(true)}
@@ -206,6 +289,17 @@ export const CalendarManager: React.FC = () => {
                 >
                   <Sparkles className="w-3.5 h-3.5 text-purple-600" />
                   <span>Import Standard Holidays</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isImportingFile}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold border border-slate-300 transition cursor-pointer disabled:opacity-60"
+                  title="Import Holidays from CSV or JSON file"
+                >
+                  <Upload className="w-3.5 h-3.5 text-slate-600" />
+                  <span>{isImportingFile ? 'Importing File...' : 'Import CSV / JSON'}</span>
                 </button>
 
                 <button

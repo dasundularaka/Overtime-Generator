@@ -314,12 +314,17 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       if (field === 'date') {
         target.dayOfWeek = getDayOfWeek(value);
         target.isWeekend = isWeekendDay(value);
-        if (holidayMap.has(value)) {
+        if (holidayMap.has(value) || target.dayOfWeek === 'Sun') {
           target.isHoliday = true;
-          target.holidayName = holidayMap.get(value)?.name;
+          target.holidayName = holidayMap.get(value)?.name || 'Sunday';
           target.startTime = '';
           target.endTime = '';
         }
+      }
+
+      if (field === 'isHoliday' && value) {
+        target.startTime = '';
+        target.endTime = '';
       }
 
       const isHoliday = !!target.isHoliday || holidayMap.has(target.date);
@@ -1324,18 +1329,14 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                 const hasOt = row.totalMinutes > 0;
                 const isSat = row.dayOfWeek === 'Sat' || getDayOfWeek(row.date) === 'Sat';
                 const isSun = row.dayOfWeek === 'Sun' || getDayOfWeek(row.date) === 'Sun';
-                const isHol = !!row.isHoliday || /holiday|poya|mercantile|off\s*day|leave/i.test(row.reason || '');
-                const isSatInvalid = isSat && (row.startTime || row.endTime || row.totalWorkMinutes > 0) && row.totalWorkMinutes < 360;
+                const isHol = !!row.isHoliday || holidayMap.has(row.date) || isSun || /holiday|poya|mercantile|off\s*day|leave/i.test(row.reason || '');
+                const isOther = isSat || isSun || isHol;
 
                 return (
                   <tr
                     key={row.id}
                     className={`hover:bg-slate-50/80 transition-colors ${
-                      isSatInvalid
-                        ? 'bg-rose-50/40 border-l-4 border-l-rose-500'
-                        : hasOt
-                        ? 'bg-indigo-50/20'
-                        : ''
+                      hasOt ? 'bg-indigo-50/20' : ''
                     }`}
                   >
                     <td className="py-2.5 px-2 text-center text-slate-400 font-mono text-[11px]">
@@ -1391,7 +1392,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                         type="text"
                         value={row.reason}
                         onChange={e => updateRowField(index, 'reason', e.target.value)}
-                        placeholder="Duties performed..."
+                        placeholder={isOther ? (isHol ? "Holiday / Off Day" : "Weekend Duty...") : "Duties performed..."}
                         className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 placeholder:text-slate-300"
                       />
                     </td>
@@ -1407,32 +1408,49 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       />
                     </td>
 
-                    {/* 5. Starting Time */}
+                    {/* 5. Starting Time (Disabled on Holidays) */}
                     <td className="py-2.5 px-2">
                       <input
                         type="time"
-                        value={row.startTime}
+                        disabled={isHol}
+                        value={isHol ? '' : row.startTime}
                         onChange={e => updateRowField(index, 'startTime', e.target.value)}
-                        className="w-full rounded-lg border border-slate-200 bg-white px-1.5 py-1.5 text-xs text-slate-800"
+                        title={isHol ? "Holidays / Sundays cannot have in/out times" : "Starting Time"}
+                        placeholder={isHol ? "Holiday" : ""}
+                        className={`w-full rounded-lg border border-slate-200 px-1.5 py-1.5 text-xs ${
+                          isHol
+                            ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                            : 'bg-white text-slate-800'
+                        }`}
                       />
                     </td>
 
-                    {/* 6. Ending Time (Left) */}
+                    {/* 6. Ending Time (Left) (Disabled on Holidays) */}
                     <td className="py-2.5 px-2">
                       <input
                         type="time"
-                        value={row.endTime}
+                        disabled={isHol}
+                        value={isHol ? '' : row.endTime}
                         onChange={e => updateRowField(index, 'endTime', e.target.value)}
-                        className="w-full rounded-lg border border-slate-200 bg-white px-1.5 py-1.5 text-xs text-slate-800"
+                        title={isHol ? "Holidays / Sundays cannot have in/out times" : "Ending Time"}
+                        placeholder={isHol ? "Holiday" : ""}
+                        className={`w-full rounded-lg border border-slate-200 px-1.5 py-1.5 text-xs ${
+                          isHol
+                            ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                            : 'bg-white text-slate-800'
+                        }`}
                       />
                     </td>
 
                     {/* 7. Break */}
                     <td className="py-2.5 px-2 text-center">
                       <select
+                        disabled={isHol}
                         value={row.breakMinutes || 0}
                         onChange={e => updateRowField(index, 'breakMinutes', parseInt(e.target.value, 10))}
-                        className="w-full rounded-lg border border-slate-200 bg-white px-1 py-1 text-xs text-center"
+                        className={`w-full rounded-lg border border-slate-200 px-1 py-1 text-xs text-center ${
+                          isHol ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white'
+                        }`}
                       >
                         <option value="0">0m</option>
                         <option value="15">15m</option>
@@ -1442,62 +1460,62 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       </select>
                     </td>
 
-                    {/* 8. Total Working Time (Difference start to end) */}
+                    {/* 8. Total Working Time (Do NOT show shift / working hours on other days; show Day's Pay badge if worked) */}
                     <td className="py-2.5 px-2 text-center font-mono text-slate-600">
-                      {row.totalWorkMinutes > 0 ? (
-                        <div className="flex flex-col items-center">
-                          <span className={isSatInvalid ? 'text-rose-700 font-bold' : ''}>
-                            {formatMinutesToTime(row.totalWorkMinutes, 'hhmm')}
+                      {isOther ? (
+                        row.totalWorkMinutes > 0 ? (
+                          <span className="inline-block text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 whitespace-nowrap">
+                            Day's Pay
                           </span>
-                          {isSatInvalid && (
-                            <span
-                              className="text-[9px] font-bold text-rose-700 bg-rose-50 px-1 py-0.2 rounded border border-rose-200 mt-0.5 whitespace-nowrap"
-                              title="Saturday requires minimum 6.00 hrs (360 mins) of working time"
-                            >
-                              Min 6h req!
-                            </span>
-                          )}
-                        </div>
+                        ) : (
+                          <span className="text-slate-300">-</span>
+                        )
+                      ) : row.totalWorkMinutes > 0 ? (
+                        <span>{formatMinutesToTime(row.totalWorkMinutes, 'hhmm')}</span>
                       ) : (
                         <span className="text-slate-300">-</span>
                       )}
                     </td>
 
-                    {/* 9. Generated Overtime (A) (15-min blocks + Late deduction + Capped indicator) */}
+                    {/* 9. Generated Overtime (A) (Do NOT show OT hours on other days) */}
                     <td className="py-2.5 px-2 text-center">
-                      <div className="flex flex-col items-center">
-                        <span
-                          className={`font-mono text-xs font-bold ${
-                            hasOt ? 'text-indigo-600' : 'text-slate-300'
-                          }`}
-                        >
-                          {row.totalFormatted}
-                        </span>
-                        {row.isLateDisqualified && (
+                      {isOther ? (
+                        <span className="text-slate-300">-</span>
+                      ) : (
+                        <div className="flex flex-col items-center">
                           <span
-                            className="text-[9px] font-bold text-rose-700 bg-rose-50 px-1 py-0.2 rounded border border-rose-200 mt-0.5 whitespace-nowrap"
-                            title={row.lateNote || 'Late arrival after 08:30: No overtime allocated'}
+                            className={`font-mono text-xs font-bold ${
+                              hasOt ? 'text-indigo-600' : 'text-slate-300'
+                            }`}
                           >
-                            Late &gt; 08:30 (0 OT)
+                            {row.totalFormatted}
                           </span>
-                        )}
-                        {!row.isLateDisqualified && row.lateDeductionMinutes !== undefined && row.lateDeductionMinutes > 0 && (
-                          <span
-                            className="text-[9px] font-bold text-amber-700 bg-amber-50 px-1 py-0.2 rounded border border-amber-200 mt-0.5 whitespace-nowrap"
-                            title={row.lateNote || `Late arrival: -${row.lateDeductionMinutes}m deducted from OT`}
-                          >
-                            Late -{row.lateDeductionMinutes}m OT
-                          </span>
-                        )}
-                        {row.isCapped && (
-                          <span
-                            className="text-[9px] font-bold text-indigo-700 bg-indigo-50 px-1 py-0.2 rounded border border-indigo-200 mt-0.5 whitespace-nowrap"
-                            title={`Capped at ${maxOtLimitHours}h limit (uncapped was ${formatMinutesToTime(row.uncappedMinutes || 0, 'hhmm')})`}
-                          >
-                            Capped {maxOtLimitHours}h
-                          </span>
-                        )}
-                      </div>
+                          {row.isLateDisqualified && (
+                            <span
+                              className="text-[9px] font-bold text-rose-700 bg-rose-50 px-1 py-0.2 rounded border border-rose-200 mt-0.5 whitespace-nowrap"
+                              title={row.lateNote || 'Late arrival after 08:30: No overtime allocated'}
+                            >
+                              Late &gt; 08:30 (0 OT)
+                            </span>
+                          )}
+                          {!row.isLateDisqualified && row.lateDeductionMinutes !== undefined && row.lateDeductionMinutes > 0 && (
+                            <span
+                              className="text-[9px] font-bold text-amber-700 bg-amber-50 px-1 py-0.2 rounded border border-amber-200 mt-0.5 whitespace-nowrap"
+                              title={row.lateNote || `Late arrival: -${row.lateDeductionMinutes}m deducted from OT`}
+                            >
+                              Late -{row.lateDeductionMinutes}m OT
+                            </span>
+                          )}
+                          {row.isCapped && (
+                            <span
+                              className="text-[9px] font-bold text-indigo-700 bg-indigo-50 px-1 py-0.2 rounded border border-indigo-200 mt-0.5 whitespace-nowrap"
+                              title={`Capped at ${maxOtLimitHours}h limit (uncapped was ${formatMinutesToTime(row.uncappedMinutes || 0, 'hhmm')})`}
+                            >
+                              Capped {maxOtLimitHours}h
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </td>
 
                     {/* 10. Special Assignment Hours (B) */}

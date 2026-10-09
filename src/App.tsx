@@ -13,11 +13,12 @@ import { SettingsPage } from './components/SettingsPage';
 import { OnboardingModal } from './components/OnboardingModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { LoadingScreen } from './components/LoadingScreen';
+import { PasswordResetModal } from './components/PasswordResetModal';
 import { ClaimRecord } from './types';
 import { getSettings, saveSettings } from './utils/storage';
 
 function AppContent() {
-  const { currentUser, userProfile, isAdmin, loading } = useAuth();
+  const { currentUser, userProfile, isAdmin, loading, refreshUserProfile } = useAuth();
   const [activeTab, setActiveTab] = useState<NavigationTab>('dashboard');
   const [editingClaim, setEditingClaim] = useState<ClaimRecord | null>(null);
   const [showHelpModal, setShowHelpModal] = useState<boolean>(false);
@@ -149,6 +150,16 @@ function AppContent() {
           handleStartFreshClaim();
         }}
       />
+
+      {/* Force Password Change Modal on First Login or Admin Reset */}
+      {currentUser && (userProfile?.mustChangePassword || userProfile?.isFirstLogin) && (
+        <PasswordResetModal
+          isOpen={true}
+          onPasswordChanged={() => {
+            refreshUserProfile();
+          }}
+        />
+      )}
 
       {/* Offline Status Toast */}
       <OfflineIndicator />

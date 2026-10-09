@@ -247,7 +247,7 @@ export const AuthScreen: React.FC = () => {
             ) : (
               <form onSubmit={handleSendPasswordReset} className="mt-4 space-y-4 text-xs">
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  Enter your registered <strong>Company Email</strong> or <strong>Employee Number</strong>. We will send a secure password reset link to your email.
+                  Enter your registered <strong>PF Number</strong> or <strong>Email</strong>. We will send a secure password reset link to your email.
                 </p>
 
                 {resetErrorMessage && (
@@ -259,7 +259,7 @@ export const AuthScreen: React.FC = () => {
 
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">
-                    Email or Employee Number
+                    PF Number or Email
                   </label>
                   <div className="relative">
                     <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
@@ -268,7 +268,7 @@ export const AuthScreen: React.FC = () => {
                       required
                       value={forgotInput}
                       onChange={e => setForgotInput(e.target.value)}
-                      placeholder="e.g. name@company.com or EMP-1001"
+                      placeholder="e.g. PF1001 or name@company.com"
                       className="w-full rounded-xl border border-slate-300 py-2 pl-9 pr-3 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-white"
                     />
                   </div>
