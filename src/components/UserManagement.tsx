@@ -34,6 +34,8 @@ import { ConfirmationModal } from './ConfirmationModal';
 import { sanitizeFirestoreData } from '../utils/firestoreUtils';
 import { adminChangeUserPassword, adminSendUserPasswordResetEmail, adminCreateUserInAuth } from '../utils/adminAuthHelper';
 import { sendUserWelcomeEmail, EmailDispatchResult } from '../utils/emailNotifier';
+import { generateStandardPfNumber, formatPfNumber, isValidPfNumber } from '../utils/pfHelper';
+import { upsertStoredAccount } from '../utils/localAuthManager';
 
 export const UserManagement: React.FC = () => {
   const { currentUser, isAdmin, refreshUserProfile } = useAuth();
@@ -147,8 +149,8 @@ export const UserManagement: React.FC = () => {
     setPassword('');
     setRole('user');
     setClaimType('OT');
-    // Generate standard PF Number starting with PF
-    setEmployeeNumber('PF' + Math.floor(1000 + Math.random() * 9000));
+    // Generate standard PF Number starting with PF and 6 digits (e.g. PF123456)
+    setEmployeeNumber(generateStandardPfNumber());
     setDesignation('Staff Member');
     setBranch('Head Office');
     setDepartment('IT & Infrastructure Operations');
@@ -218,9 +220,9 @@ export const UserManagement: React.FC = () => {
     setFormError(null);
 
     try {
-      let cleanPf = employeeNumber.trim().toUpperCase();
-      if (!cleanPf.startsWith('PF')) {
-        cleanPf = 'PF' + cleanPf.replace(/^EMP[-_]?/i, '');
+      let cleanPf = formatPfNumber(employeeNumber);
+      if (!isValidPfNumber(cleanPf)) {
+        cleanPf = 'PF' + cleanPf.replace(/^PF/i, '').padStart(6, '0').slice(-6);
       }
 
       if (editingUser) {
@@ -261,6 +263,11 @@ export const UserManagement: React.FC = () => {
 
         const cleanUpdated = sanitizeFirestoreData(updatedData);
         await updateDoc(userRef, cleanUpdated);
+
+        upsertStoredAccount({
+          ...editingUser,
+          ...updatedData,
+        } as UserProfile);
 
         // Sync to pfDirectory
         try {
@@ -344,6 +351,11 @@ export const UserManagement: React.FC = () => {
 
         const cleanNewProfile = sanitizeFirestoreData(newProfile);
         await setDoc(doc(db, 'users', targetUid), cleanNewProfile);
+
+        upsertStoredAccount({
+          ...(newProfile as UserProfile),
+          passwordHash: cleanPf,
+        });
 
         // 3. Register in pfDirectory for username lookup
         try {
@@ -498,6 +510,10 @@ export const UserManagement: React.FC = () => {
           passToSet,
           passwordModalUser.employeeNumber
         );
+        upsertStoredAccount({
+          ...passwordModalUser,
+          passwordHash: passToSet,
+        });
         setPasswordSuccess(res.message);
       }
       setIsConfirmPasswordModalOpen(false);

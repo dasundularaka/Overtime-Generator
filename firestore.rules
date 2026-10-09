@@ -73,10 +73,9 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // PF Directory for authentication lookup: readable by all for username/PF resolution, writable by admins
+    // PF Directory for authentication lookup: readable by all for username/PF resolution, writable for registration & admin updates
     match /pfDirectory/{pfNumber} {
-      allow read: if true;
-      allow write: if isAdmin();
+      allow read, write: if true;
     }
   }
 }

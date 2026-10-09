@@ -92,6 +92,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     return () => unsub();
   }, []);
 
+  const [mobileViewMode, setMobileViewMode] = useState<'cards' | 'table'>('cards');
+
   // Determine templates the user is allowed to use based on admin assignment
   const userAllowedTemplates = useMemo(() => {
     // If admin, all templates are accessible
@@ -100,10 +102,11 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     // If regular user has assigned templates configured by admin, strictly restrict to those
     if (userProfile?.assignedTemplateIds && userProfile.assignedTemplateIds.length > 0) {
       const allowed = availableTemplates.filter(t => userProfile.assignedTemplateIds!.includes(t.id));
-      if (allowed.length > 0) return allowed;
+      return allowed;
     }
 
-    return availableTemplates;
+    // Non-admin users must NEVER see unassigned templates: return empty if not assigned!
+    return [];
   }, [availableTemplates, isAdmin, userProfile?.assignedTemplateIds]);
 
   // Ensure selected template is within permitted list
@@ -474,8 +477,16 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   }, [weekdayDecimalHours, hourlyRate]);
 
   // Other days (Saturdays, Sundays, non-working days, holidays)
+  // Condition: Saturday requires minimum 6 hours (360 mins) to earn a Day's Payment; Sundays and holidays earn Day's payment if worked.
   const otherDaysWorkedRows = useMemo(() => {
-    return rows.filter(r => isOtherDayRow(r) && r.totalWorkMinutes > 0);
+    return rows.filter(r => {
+      if (!isOtherDayRow(r)) return false;
+      const isSat = r.dayOfWeek === 'Sat' || getDayOfWeek(r.date) === 'Sat';
+      if (isSat) {
+        return (r.totalWorkMinutes || 0) >= 360;
+      }
+      return (r.totalWorkMinutes || 0) > 0;
+    });
   }, [rows, holidayMap]);
 
   const daysPayCount = otherDaysWorkedRows.length;
@@ -544,6 +555,20 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       if (!r.startTime && r.endTime) {
         setValidationError(`Row ${i + 1} (${r.date || 'entry'}): Starting time cannot be empty when ending time is provided.`);
         return false;
+      }
+    }
+
+    // Check Saturday condition: Saturday duty requires minimum 6.00 hrs (360 mins) of working time
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const isSat = r.dayOfWeek === 'Sat' || getDayOfWeek(r.date) === 'Sat';
+      if (isSat && (r.startTime || r.endTime || r.totalWorkMinutes > 0)) {
+        if (r.totalWorkMinutes < 360) {
+          setValidationError(
+            `Saturday requirement: Row ${i + 1} (${r.date || 'Saturday'}) has only ${formatMinutesToTime(r.totalWorkMinutes, 'hhmm')} working time. Saturday duty requires a minimum of 6.00 hours (360 mins) of working time to generate an overtime claim sheet.`
+          );
+          return false;
+        }
       }
     }
 
@@ -707,13 +732,15 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   };
 
   // Step 1: User confirmed download intent; check for No-OT days (< 15 min OT)
+  // ONLY for valid working days (weekdays, non-holiday), NOT Saturdays or other holidays!
   const handleConfirmDownloadStep1 = () => {
     setIsConfirmDownloadOpen(false);
 
-    // Check for days with entered hours that yielded no claimable OT (< 15 mins)
-    const noOtDays = rows.filter(
-      r => (r.startTime || r.endTime || r.totalWorkMinutes > 0) && r.totalMinutes < 15
-    );
+    // Check for valid weekday working days with entered hours that yielded no claimable OT (< 15 mins)
+    const noOtDays = rows.filter(r => {
+      const isWeekday = isWeekdayWorkingDay(r);
+      return isWeekday && (r.startTime || r.endTime || r.totalWorkMinutes > 0) && r.totalMinutes < 15;
+    });
 
     if (noOtDays.length > 0) {
       setNoOtRowsDetected(noOtDays);
@@ -728,10 +755,12 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   // Step 2: User confirmed removing No-OT days
   const handleConfirmRemoveNoOtAndDownload = () => {
     setIsNoOtModalOpen(false);
-    // Remove the No-OT rows from the timesheet (keep only rows with valid claimable OT >= 15 min)
-    const validRows = rows.filter(
-      r => r.totalMinutes >= 15
-    );
+    // Remove only the No-OT valid weekday working days; retain other days (Saturdays, holidays with Day's Pay) and valid OT rows
+    const validRows = rows.filter(r => {
+      const isWeekday = isWeekdayWorkingDay(r);
+      const isNoOtWeekday = isWeekday && (r.startTime || r.endTime || r.totalWorkMinutes > 0) && r.totalMinutes < 15;
+      return !isNoOtWeekday;
+    });
     const finalRows = validRows.length > 0 ? validRows : [createBlankRow()];
     setRows(finalRows);
     executeGenerateAndDownload(finalRows);
@@ -834,52 +863,50 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           </div>
         )}
 
-        {/* Template Selector Banner */}
-        <div className="mt-3 p-3 rounded-xl bg-slate-100/80 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-lg bg-indigo-50 text-indigo-600 border border-indigo-100">
-              <FileText className="w-4 h-4" />
-            </div>
-            <div>
-              <span className="font-bold text-slate-800 block">Print Form Template</span>
-              <span className="text-[11px] text-slate-500">Official company layout configured in Template Designer</span>
+        {/* Template Selector (Clean inline control, never displayed like a banner) */}
+        {!isAdmin && userAllowedTemplates.length === 0 ? (
+          <div className="mt-3 p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center gap-2">
+            <Lock className="w-4 h-4 text-amber-600 shrink-0" />
+            <div className="flex-1 leading-relaxed">
+              <span className="font-bold">No Template Assigned:</span> Your administrator has not assigned an overtime claim template to your profile yet. Please contact your system administrator to assign an official template before submitting claims.
             </div>
           </div>
-
-          <div className="flex items-center gap-2">
-            {!isAdmin ? (
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-300 text-xs font-semibold text-slate-700 shadow-2xs">
-                <Lock className="w-3.5 h-3.5 text-slate-500" />
-                <span>{activeTemplate.name}</span>
-                <span className="text-[10px] text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded font-bold">
-                  Assigned (Locked)
+        ) : (
+          <div className="mt-3 p-2.5 rounded-xl bg-white border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs shadow-2xs">
+            <div className="flex items-center gap-2 flex-wrap">
+              <FileText className="w-4 h-4 text-indigo-600" />
+              <span className="font-semibold text-slate-700">Official Form Layout:</span>
+              {!isAdmin ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-800 font-medium border border-slate-200">
+                  <Lock className="w-3 h-3 text-slate-400" />
+                  <span>{activeTemplate?.name || 'Assigned Template'}</span>
                 </span>
-              </div>
-            ) : (
-              <select
-                value={selectedTemplateId}
-                onChange={e => setSelectedTemplateId(e.target.value)}
-                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-2xs focus:ring-2 focus:ring-indigo-500"
-              >
-                {userAllowedTemplates.map(t => (
-                  <option key={t.id} value={t.id}>
-                    {t.name} {t.isDefault ? '★ (Default)' : ''}
-                  </option>
-                ))}
-              </select>
-            )}
+              ) : (
+                <select
+                  value={selectedTemplateId}
+                  onChange={e => setSelectedTemplateId(e.target.value)}
+                  className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 focus:ring-1 focus:ring-indigo-500"
+                >
+                  {userAllowedTemplates.map(t => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} {t.isDefault ? '★ (Default)' : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
 
             {isAdmin && onNavigateToDesigner && (
               <button
                 type="button"
                 onClick={onNavigateToDesigner}
-                className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition"
+                className="self-end sm:self-auto px-2.5 py-1 rounded-lg text-[11px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition"
               >
-                Customize
+                Customize in Designer
               </button>
             )}
           </div>
-        </div>
+        )}
 
         {/* Form Inputs Grid */}
         <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
@@ -1284,20 +1311,42 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {/* View Mode Toggle (Mobile) */}
+            <div className="flex md:hidden items-center rounded-xl bg-slate-200/80 p-0.5 text-xs">
+              <button
+                type="button"
+                onClick={() => setMobileViewMode('cards')}
+                className={`px-2.5 py-1 rounded-lg font-semibold transition cursor-pointer ${
+                  mobileViewMode === 'cards' ? 'bg-white text-indigo-700 shadow-2xs' : 'text-slate-600'
+                }`}
+              >
+                Cards
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobileViewMode('table')}
+                className={`px-2.5 py-1 rounded-lg font-semibold transition cursor-pointer ${
+                  mobileViewMode === 'table' ? 'bg-white text-indigo-700 shadow-2xs' : 'text-slate-600'
+                }`}
+              >
+                Table
+              </button>
+            </div>
+
             <button
               type="button"
               onClick={() => setIsConfirmResetOpen(true)}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs font-semibold transition"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs font-semibold transition cursor-pointer"
               title="Clear all rows and reset timesheet"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              <span>Reset Entries</span>
+              <span className="hidden sm:inline">Reset Entries</span>
             </button>
 
             <button
               type="button"
               onClick={handleAddRow}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Add Row</span>
@@ -1305,8 +1354,172 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           </div>
         </div>
 
-        {/* Table */}
-        <div className="overflow-x-auto">
+        {/* Mobile Cards List View (Active on phones) */}
+        {mobileViewMode === 'cards' && (
+          <div className="block md:hidden divide-y divide-slate-100">
+            {rows.map((row, index) => {
+              const hasOt = row.totalMinutes > 0;
+              const isSat = row.dayOfWeek === 'Sat' || getDayOfWeek(row.date) === 'Sat';
+              const isSun = row.dayOfWeek === 'Sun' || getDayOfWeek(row.date) === 'Sun';
+              const isHol = !!row.isHoliday || holidayMap.has(row.date) || isSun || /holiday|poya|mercantile|off\s*day|leave/i.test(row.reason || '');
+              const isOther = isSat || isSun || isHol;
+
+              return (
+                <div key={row.id} className="p-3.5 space-y-2.5 bg-white">
+                  {/* Card Header: #, Date, Day, Holiday button, Actions */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs font-bold text-slate-400">#{index + 1}</span>
+                      <input
+                        type="date"
+                        value={row.date}
+                        onChange={e => updateRowField(index, 'date', e.target.value)}
+                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-800 font-medium"
+                      />
+                      <span
+                        className={`inline-block px-1.5 py-0.5 rounded text-[11px] font-bold ${
+                          row.isHoliday || isHol
+                            ? 'bg-rose-100 text-rose-800'
+                            : isSun
+                            ? 'bg-purple-100 text-purple-800'
+                            : isSat
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-slate-100 text-slate-700'
+                        }`}
+                      >
+                        {row.isHoliday ? 'Holiday' : row.dayOfWeek || '-'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      {!isSun && (
+                        <button
+                          type="button"
+                          onClick={() => updateRowField(index, 'isHoliday', !row.isHoliday)}
+                          className={`text-[10px] px-2 py-0.5 rounded font-bold transition cursor-pointer ${
+                            row.isHoliday
+                              ? 'bg-rose-200 text-rose-900 border border-rose-300'
+                              : 'text-slate-500 bg-slate-100 hover:bg-slate-200'
+                          }`}
+                        >
+                          {row.isHoliday ? 'Holiday ✓' : '+ Hol'}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteRow(index)}
+                        className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
+                        title="Delete row"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Duties / Reason input */}
+                  <div>
+                    <input
+                      type="text"
+                      value={row.reason}
+                      onChange={e => updateRowField(index, 'reason', e.target.value)}
+                      placeholder={isOther ? (isHol ? "Holiday / Off Day" : "Weekend Duty...") : "Duties performed..."}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-800 placeholder:text-slate-300"
+                    />
+                  </div>
+
+                  {/* Time Inputs: Start, End, Break */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Start</label>
+                      <input
+                        type="time"
+                        disabled={isHol}
+                        value={isHol ? '' : row.startTime}
+                        onChange={e => updateRowField(index, 'startTime', e.target.value)}
+                        className={`w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs ${
+                          isHol ? 'bg-slate-100 text-slate-400' : 'bg-white text-slate-800'
+                        }`}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 mb-0.5">End</label>
+                      <input
+                        type="time"
+                        disabled={isHol}
+                        value={isHol ? '' : row.endTime}
+                        onChange={e => updateRowField(index, 'endTime', e.target.value)}
+                        className={`w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs ${
+                          isHol ? 'bg-slate-100 text-slate-400' : 'bg-white text-slate-800'
+                        }`}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Break</label>
+                      <select
+                        disabled={isHol}
+                        value={row.breakMinutes || 0}
+                        onChange={e => updateRowField(index, 'breakMinutes', parseInt(e.target.value, 10))}
+                        className={`w-full rounded-lg border border-slate-200 px-1 py-1.5 text-xs text-center ${
+                          isHol ? 'bg-slate-100 text-slate-400' : 'bg-white'
+                        }`}
+                      >
+                        <option value="0">0m</option>
+                        <option value="15">15m</option>
+                        <option value="30">30m</option>
+                        <option value="45">45m</option>
+                        <option value="60">60m</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Outcome summary bar */}
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-xs">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase">Result:</span>
+                      {isOther ? (
+                        row.totalWorkMinutes > 0 ? (
+                          <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded border ${
+                            isSat && row.totalWorkMinutes < 360
+                              ? 'bg-rose-50 text-rose-800 border-rose-200'
+                              : 'bg-amber-50 text-amber-800 border-amber-200'
+                          }`}>
+                            Day's Pay {isSat && row.totalWorkMinutes < 360 ? '(Sat < 6h)' : ''}
+                          </span>
+                        ) : (
+                          <span className="text-slate-300 text-xs">-</span>
+                        )
+                      ) : (
+                        <div className="flex items-center gap-1">
+                          <span className={`font-mono text-xs font-bold ${hasOt ? 'text-indigo-600' : 'text-slate-400'}`}>
+                            {row.totalFormatted} OT
+                          </span>
+                          {row.isLateDisqualified && (
+                            <span className="text-[9px] font-bold text-rose-700 bg-rose-50 px-1 rounded border border-rose-200">
+                              Late 0 OT
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <input
+                        type="text"
+                        value={row.approvedBy || ''}
+                        onChange={e => updateRowField(index, 'approvedBy', e.target.value)}
+                        placeholder="Mgr Initials"
+                        className="rounded-lg border border-slate-200 px-2 py-1 text-[11px] text-center w-24 placeholder:text-slate-300 font-medium"
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Desktop Table View */}
+        <div className={`overflow-x-auto ${mobileViewMode === 'cards' ? 'hidden md:block' : 'block'}`}>
           <table className="w-full text-left border-collapse min-w-[980px]">
             <thead>
               <tr className="bg-slate-100 text-slate-700 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200">
@@ -1464,9 +1677,19 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                     <td className="py-2.5 px-2 text-center font-mono text-slate-600">
                       {isOther ? (
                         row.totalWorkMinutes > 0 ? (
-                          <span className="inline-block text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 whitespace-nowrap">
-                            Day's Pay
-                          </span>
+                          <div className="flex flex-col items-center">
+                            <span className="inline-block text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 whitespace-nowrap">
+                              Day's Pay
+                            </span>
+                            {isSat && row.totalWorkMinutes < 360 && (
+                              <span
+                                className="text-[9px] font-bold text-rose-700 bg-rose-50 px-1 py-0.2 rounded border border-rose-200 mt-0.5 whitespace-nowrap"
+                                title="Saturday requires minimum 6.00 hrs (360 mins) of working time"
+                              >
+                                Min 6h req!
+                              </span>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-slate-300">-</span>
                         )

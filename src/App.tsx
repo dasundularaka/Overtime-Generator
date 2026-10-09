@@ -76,7 +76,7 @@ function AppContent() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-24 md:pb-8">
         {activeTab === 'dashboard' && (
           <Dashboard
             onNavigate={(tab) => {
@@ -117,8 +117,8 @@ function AppContent() {
         {activeTab === 'settings' && <SettingsPage />}
       </main>
 
-      {/* Footer */}
-      <footer className="mt-auto border-t border-slate-200 bg-white py-4 text-center text-xs text-slate-500">
+      {/* Footer (Desktop only) */}
+      <footer className="mt-auto border-t border-slate-200 bg-white py-4 text-center text-xs text-slate-500 hidden md:block">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <div>
             <strong>Overtime Claim Manager</strong> &bull; Official A4 Timesheet &amp; Claim System

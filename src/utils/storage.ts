@@ -1,12 +1,31 @@
-import { AppSettings, ClaimRecord, Employee, TemplateConfig } from '../types';
+import { AppSettings, ClaimRecord, Employee, TemplateConfig, UserProfile } from '../types';
 import { DEFAULT_TEMPLATE } from './defaultTemplate';
+import { getActiveSession } from './localAuthManager';
+
+/**
+ * Returns the currently authenticated user's ID to ensure complete data isolation in localStorage.
+ */
+export function getActiveUserId(): string {
+  try {
+    const directId = localStorage.getItem('ot_active_user_id');
+    if (directId) return directId;
+    const session = getActiveSession();
+    if (session?.id) return session.id;
+  } catch {}
+  return 'default';
+}
+
+function getUserStorageKey(base: string, customUserId?: string): string {
+  const uid = customUserId || getActiveUserId();
+  return `${base}_usr_${uid}`;
+}
 
 const STORAGE_KEYS = {
-  EMPLOYEES: 'ot_manager_employees_v1',
-  CLAIMS: 'ot_manager_claims_v1',
-  TEMPLATES: 'ot_manager_templates_v1',
-  SETTINGS: 'ot_manager_settings_v1',
-  DRAFT_CLAIM: 'ot_manager_draft_claim_v1',
+  EMPLOYEES: 'ot_manager_employees_v2',
+  CLAIMS: 'ot_manager_claims_v2',
+  TEMPLATES: 'ot_manager_templates_v2',
+  SETTINGS: 'ot_manager_settings_v2',
+  DRAFT_CLAIM: 'ot_manager_draft_claim_v2',
 };
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -25,55 +44,40 @@ const DEFAULT_SETTINGS: AppSettings = {
   otStepMinutes: 15,
 };
 
-export const SAMPLE_EMPLOYEES: Employee[] = [
-  {
-    id: 'emp-1',
-    name: 'Dasun Ramasingha',
-    employeeNumber: 'EMP-4892',
-    designation: 'Senior Technical Officer',
-    branch: 'Headquarters',
-    department: 'IT & Infrastructure Operations',
-    createdAt: '2026-01-15T08:00:00Z',
-  },
-  {
-    id: 'emp-2',
-    name: 'Kavindi Perera',
-    employeeNumber: 'EMP-5104',
-    designation: 'Systems Administrator',
-    branch: 'Regional Hub - Colombo',
-    department: 'Network Operations',
-    createdAt: '2026-02-01T09:30:00Z',
-  },
-  {
-    id: 'emp-3',
-    name: 'Nuwan Jayawardena',
-    employeeNumber: 'EMP-3920',
-    designation: 'Operations Coordinator',
-    branch: 'Logistics Facility',
-    department: 'Supply Chain & Dispatch',
-    createdAt: '2026-02-10T11:00:00Z',
-  },
-];
+// ---------------- Employees (User Isolated) ----------------
 
-// ---------------- Employees ----------------
-
-export function getEmployees(): Employee[] {
+export function getEmployees(customUserId?: string): Employee[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.EMPLOYEES);
+    const key = getUserStorageKey(STORAGE_KEYS.EMPLOYEES, customUserId);
+    const raw = localStorage.getItem(key);
     if (!raw) {
-      // Seed initial sample employees
-      localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(SAMPLE_EMPLOYEES));
-      return SAMPLE_EMPLOYEES;
+      // Seed employee profile from the active user's session
+      const session = getActiveSession();
+      if (session) {
+        const userEmp: Employee = {
+          id: session.id,
+          name: session.name,
+          employeeNumber: session.employeeNumber || session.pfNumber || 'PF123456',
+          designation: session.designation || 'Staff Member',
+          branch: session.branch || 'Head Office',
+          department: session.department || 'IT & Infrastructure Operations',
+          createdAt: session.createdAt || new Date().toISOString(),
+        };
+        localStorage.setItem(key, JSON.stringify([userEmp]));
+        return [userEmp];
+      }
+      return [];
     }
     return JSON.parse(raw);
   } catch (err) {
-    console.error('Failed to read employees from storage', err);
-    return SAMPLE_EMPLOYEES;
+    console.error('Failed to read user employees from storage', err);
+    return [];
   }
 }
 
-export function saveEmployee(employee: Employee): Employee[] {
-  const list = getEmployees();
+export function saveEmployee(employee: Employee, customUserId?: string): Employee[] {
+  const key = getUserStorageKey(STORAGE_KEYS.EMPLOYEES, customUserId);
+  const list = getEmployees(customUserId);
   const index = list.findIndex(e => e.id === employee.id);
   let updated: Employee[];
   if (index >= 0) {
@@ -82,46 +86,73 @@ export function saveEmployee(employee: Employee): Employee[] {
   } else {
     updated = [employee, ...list];
   }
-  localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(updated));
+  localStorage.setItem(key, JSON.stringify(updated));
   return updated;
 }
 
-export function deleteEmployee(id: string): Employee[] {
-  const list = getEmployees().filter(e => e.id !== id);
-  localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(list));
+export function deleteEmployee(id: string, customUserId?: string): Employee[] {
+  const key = getUserStorageKey(STORAGE_KEYS.EMPLOYEES, customUserId);
+  const list = getEmployees(customUserId).filter(e => e.id !== id);
+  localStorage.setItem(key, JSON.stringify(list));
   return list;
 }
 
-// ---------------- Templates ----------------
+// ---------------- Templates (Strictly Filter Unassigned Templates) ----------------
 
-export function getTemplates(): TemplateConfig[] {
+/**
+ * Returns available templates.
+ * Rule: Non-admin users must NEVER see unassigned templates!
+ */
+export function getTemplates(activeProfile?: UserProfile | null): TemplateConfig[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.TEMPLATES);
-    if (!raw) {
-      localStorage.setItem(STORAGE_KEYS.TEMPLATES, JSON.stringify([DEFAULT_TEMPLATE]));
-      return [DEFAULT_TEMPLATE];
+    // 1. Read global template pool
+    const globalRaw = localStorage.getItem('ot_manager_templates_global_v2');
+    let allTemplates: TemplateConfig[] = [DEFAULT_TEMPLATE];
+    if (globalRaw) {
+      const parsed = JSON.parse(globalRaw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        allTemplates = parsed;
+      }
+    } else {
+      localStorage.setItem('ot_manager_templates_global_v2', JSON.stringify([DEFAULT_TEMPLATE]));
     }
-    const list = JSON.parse(raw);
-    if (!Array.isArray(list) || list.length === 0) {
-      localStorage.setItem(STORAGE_KEYS.TEMPLATES, JSON.stringify([DEFAULT_TEMPLATE]));
-      return [DEFAULT_TEMPLATE];
+
+    const session = activeProfile || getActiveSession();
+    // If admin, all templates are visible
+    if (session?.role === 'admin') {
+      return allTemplates;
     }
-    return list;
+
+    // If regular user: strictly restrict to assignedTemplateIds only!
+    if (session?.assignedTemplateIds && session.assignedTemplateIds.length > 0) {
+      return allTemplates.filter(t => session.assignedTemplateIds!.includes(t.id));
+    }
+
+    // If user has NO assigned templates configured by admin:
+    // Do NOT show unassigned templates to users!
+    return [];
   } catch (err) {
     console.error('Failed to read templates', err);
     return [DEFAULT_TEMPLATE];
   }
 }
 
-export function getActiveTemplate(): TemplateConfig {
+export function getActiveTemplate(activeProfile?: UserProfile | null): TemplateConfig {
   const settings = getSettings();
-  const templates = getTemplates();
+  const templates = getTemplates(activeProfile);
   const found = templates.find(t => t.id === settings.activeTemplateId);
   return found || templates[0] || DEFAULT_TEMPLATE;
 }
 
 export function saveTemplate(template: TemplateConfig): TemplateConfig[] {
-  const templates = getTemplates();
+  const globalRaw = localStorage.getItem('ot_manager_templates_global_v2');
+  let templates: TemplateConfig[] = [DEFAULT_TEMPLATE];
+  if (globalRaw) {
+    try {
+      templates = JSON.parse(globalRaw);
+    } catch {}
+  }
+
   const index = templates.findIndex(t => t.id === template.id);
   let updated: TemplateConfig[];
   if (index >= 0) {
@@ -130,104 +161,46 @@ export function saveTemplate(template: TemplateConfig): TemplateConfig[] {
   } else {
     updated = [...templates, { ...template, updatedAt: new Date().toISOString() }];
   }
-  localStorage.setItem(STORAGE_KEYS.TEMPLATES, JSON.stringify(updated));
+  localStorage.setItem('ot_manager_templates_global_v2', JSON.stringify(updated));
   return updated;
 }
 
 export function deleteTemplate(templateId: string): TemplateConfig[] {
-  const templates = getTemplates();
+  const globalRaw = localStorage.getItem('ot_manager_templates_global_v2');
+  let templates: TemplateConfig[] = [DEFAULT_TEMPLATE];
+  if (globalRaw) {
+    try {
+      templates = JSON.parse(globalRaw);
+    } catch {}
+  }
   const updated = templates.filter(t => t.id !== templateId);
   const finalTemplates = updated.length > 0 ? updated : [DEFAULT_TEMPLATE];
-  localStorage.setItem(STORAGE_KEYS.TEMPLATES, JSON.stringify(finalTemplates));
+  localStorage.setItem('ot_manager_templates_global_v2', JSON.stringify(finalTemplates));
   return finalTemplates;
 }
 
 export function resetTemplateToDefault(): TemplateConfig {
-  const templates = getTemplates().filter(t => t.id !== DEFAULT_TEMPLATE.id);
+  const globalRaw = localStorage.getItem('ot_manager_templates_global_v2');
+  let templates: TemplateConfig[] = [];
+  if (globalRaw) {
+    try {
+      templates = JSON.parse(globalRaw).filter((t: TemplateConfig) => t.id !== DEFAULT_TEMPLATE.id);
+    } catch {}
+  }
   const updated = [DEFAULT_TEMPLATE, ...templates];
-  localStorage.setItem(STORAGE_KEYS.TEMPLATES, JSON.stringify(updated));
+  localStorage.setItem('ot_manager_templates_global_v2', JSON.stringify(updated));
   const settings = getSettings();
   saveSettings({ ...settings, activeTemplateId: DEFAULT_TEMPLATE.id });
   return DEFAULT_TEMPLATE;
 }
 
-// ---------------- Claims / History ----------------
+// ---------------- Claims (User Isolated) ----------------
 
-export function getClaims(): ClaimRecord[] {
+export function getClaims(customUserId?: string): ClaimRecord[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.CLAIMS);
-    if (!raw) {
-      // Seed a sample past claim for demo purposes
-      const sampleClaim: ClaimRecord = {
-        id: 'claim-sample-1',
-        userId: 'usr_sample',
-        claimNumber: 'CLM-2026-03-001',
-        employeeId: 'emp-1',
-        employeeName: 'Dasun Ramasingha',
-        employeeNumber: 'EMP-4892',
-        designation: 'Senior Technical Officer',
-        branch: 'Headquarters',
-        department: 'IT & Infrastructure Operations',
-        claimType: 'OT',
-        month: 'March',
-        year: 2026,
-        claimDate: '2026-03-25',
-        rows: [
-          {
-            id: 'r-1',
-            date: '2026-03-02',
-            dayOfWeek: 'Mon',
-            startTime: '17:30',
-            endTime: '20:30',
-            breakMinutes: 0,
-            isOvernight: false,
-            totalWorkMinutes: 180,
-            rawOtMinutes: 180,
-            totalMinutes: 180,
-            totalFormatted: '03:00',
-            reason: 'Quarterly server infrastructure maintenance & security patch deployment',
-          },
-          {
-            id: 'r-2',
-            date: '2026-03-06',
-            dayOfWeek: 'Fri',
-            startTime: '17:30',
-            endTime: '21:00',
-            breakMinutes: 30,
-            isOvernight: false,
-            totalWorkMinutes: 210,
-            rawOtMinutes: 180,
-            totalMinutes: 180,
-            totalFormatted: '03:00',
-            reason: 'Emergency database failover testing and backup integrity check',
-          },
-          {
-            id: 'r-3',
-            date: '2026-03-14',
-            dayOfWeek: 'Sat',
-            startTime: '09:00',
-            endTime: '15:30',
-            breakMinutes: 60,
-            isOvernight: false,
-            totalWorkMinutes: 390,
-            rawOtMinutes: 330,
-            totalMinutes: 330,
-            totalFormatted: '05:30',
-            reason: 'Weekend core router upgrade and regional fiber link switchover',
-          },
-        ],
-        totalMinutes: 690,
-        totalHoursFormatted: '11:30',
-        totalDecimalHours: 11.5,
-        otDaysCount: 3,
-        status: 'completed',
-        templateId: DEFAULT_TEMPLATE.id,
-        createdAt: '2026-03-25T14:20:00Z',
-        updatedAt: '2026-03-25T14:20:00Z',
-      };
-      localStorage.setItem(STORAGE_KEYS.CLAIMS, JSON.stringify([sampleClaim]));
-      return [sampleClaim];
-    }
+    const key = getUserStorageKey(STORAGE_KEYS.CLAIMS, customUserId);
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
     return JSON.parse(raw);
   } catch (err) {
     console.error('Failed to read claims', err);
@@ -235,8 +208,9 @@ export function getClaims(): ClaimRecord[] {
   }
 }
 
-export function saveClaim(claim: ClaimRecord): ClaimRecord[] {
-  const claims = getClaims();
+export function saveClaim(claim: ClaimRecord, customUserId?: string): ClaimRecord[] {
+  const key = getUserStorageKey(STORAGE_KEYS.CLAIMS, customUserId || claim.userId);
+  const claims = getClaims(customUserId || claim.userId);
   const index = claims.findIndex(c => c.id === claim.id);
   let updated: ClaimRecord[];
   if (index >= 0) {
@@ -245,21 +219,23 @@ export function saveClaim(claim: ClaimRecord): ClaimRecord[] {
   } else {
     updated = [{ ...claim, updatedAt: new Date().toISOString() }, ...claims];
   }
-  localStorage.setItem(STORAGE_KEYS.CLAIMS, JSON.stringify(updated));
+  localStorage.setItem(key, JSON.stringify(updated));
   return updated;
 }
 
-export function deleteClaim(id: string): ClaimRecord[] {
-  const claims = getClaims().filter(c => c.id !== id);
-  localStorage.setItem(STORAGE_KEYS.CLAIMS, JSON.stringify(claims));
+export function deleteClaim(id: string, customUserId?: string): ClaimRecord[] {
+  const key = getUserStorageKey(STORAGE_KEYS.CLAIMS, customUserId);
+  const claims = getClaims(customUserId).filter(c => c.id !== id);
+  localStorage.setItem(key, JSON.stringify(claims));
   return claims;
 }
 
-// ---------------- Draft Claim ----------------
+// ---------------- Draft Claim (User Isolated) ----------------
 
-export function getDraftClaim(): Partial<ClaimRecord> | null {
+export function getDraftClaim(customUserId?: string): Partial<ClaimRecord> | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.DRAFT_CLAIM);
+    const key = getUserStorageKey(STORAGE_KEYS.DRAFT_CLAIM, customUserId);
+    const raw = localStorage.getItem(key);
     if (!raw) return null;
     return JSON.parse(raw);
   } catch {
@@ -267,35 +243,39 @@ export function getDraftClaim(): Partial<ClaimRecord> | null {
   }
 }
 
-export function saveDraftClaim(draft: Partial<ClaimRecord>): void {
+export function saveDraftClaim(draft: Partial<ClaimRecord>, customUserId?: string): void {
   try {
-    localStorage.setItem(STORAGE_KEYS.DRAFT_CLAIM, JSON.stringify(draft));
+    const key = getUserStorageKey(STORAGE_KEYS.DRAFT_CLAIM, customUserId);
+    localStorage.setItem(key, JSON.stringify(draft));
   } catch (e) {
     console.warn('Could not save draft claim', e);
   }
 }
 
-export function clearDraftClaim(): void {
-  localStorage.removeItem(STORAGE_KEYS.DRAFT_CLAIM);
+export function clearDraftClaim(customUserId?: string): void {
+  const key = getUserStorageKey(STORAGE_KEYS.DRAFT_CLAIM, customUserId);
+  localStorage.removeItem(key);
 }
 
-// ---------------- Settings ----------------
+// ---------------- Settings (User Isolated) ----------------
 
-export function getSettings(): AppSettings {
+export function getSettings(customUserId?: string): AppSettings {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.SETTINGS);
+    const key = getUserStorageKey(STORAGE_KEYS.SETTINGS, customUserId);
+    const raw = localStorage.getItem(key);
     if (!raw) {
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(DEFAULT_SETTINGS));
+      localStorage.setItem(key, JSON.stringify(DEFAULT_SETTINGS));
       return DEFAULT_SETTINGS;
     }
     return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
-  } catch (err) {
+  } catch {
     return DEFAULT_SETTINGS;
   }
 }
 
-export function saveSettings(settings: AppSettings): AppSettings {
-  localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
+export function saveSettings(settings: AppSettings, customUserId?: string): AppSettings {
+  const key = getUserStorageKey(STORAGE_KEYS.SETTINGS, customUserId);
+  localStorage.setItem(key, JSON.stringify(settings));
   return settings;
 }
 

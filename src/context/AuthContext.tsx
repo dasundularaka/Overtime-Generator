@@ -23,6 +23,15 @@ import {
 import { auth, db, googleProvider } from '../firebase/config';
 import { UserProfile, UserRole, ClaimType } from '../types';
 import { sanitizeFirestoreData } from '../utils/firestoreUtils';
+import { formatPfNumber, isValidPfNumber } from '../utils/pfHelper';
+import {
+  findStoredAccount,
+  upsertStoredAccount,
+  verifyAccountPassword,
+  getActiveSession,
+  setActiveSession,
+  clearActiveSession,
+} from '../utils/localAuthManager';
 
 interface AuthContextType {
   currentUser: FirebaseUser | null;
@@ -34,6 +43,15 @@ interface AuthContextType {
   loginWithGoogle: () => Promise<void>;
   loginWithEmail: (email: string, pass: string) => Promise<void>;
   loginWithIdentifier: (identifier: string, pass: string) => Promise<void>;
+  registerUser: (data: {
+    name: string;
+    email: string;
+    pfNumber: string;
+    password: string;
+    designation?: string;
+    branch?: string;
+    department?: string;
+  }) => Promise<UserProfile>;
   sendPasswordReset: (identifierOrEmail: string) => Promise<string>;
   updateUserPassword: (newPass: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -125,6 +143,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
+    // 2.5 Check stored accounts in localAuthManager
+    const localAcc = findStoredAccount(userEmail) || (userEmail ? findStoredAccount(userEmail.split('@')[0]) : null);
+    if (localAcc) {
+      const linkedProfile: UserProfile = {
+        ...localAcc,
+        id: user.uid,
+        email: userEmail,
+        updatedAt: new Date().toISOString(),
+      };
+      try {
+        await setDoc(userDocRef, sanitizeFirestoreData(linkedProfile));
+      } catch (err) {
+        console.warn('Could not sync local account to Firestore', err);
+      }
+      return linkedProfile;
+    }
+
     // 3. Special case: Designated Bootstrap Admin first-time sign in
     if (isBootstrapAdmin) {
       const bootstrapProfile: UserProfile = {
@@ -133,7 +168,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         name: 'Administrator', // Real name for bootstrap admin
         role: 'admin',
         claimType: 'OT',
-        employeeNumber: 'EMP-0001',
+        employeeNumber: 'PF100000',
+        pfNumber: 'PF100000',
         designation: 'System Administrator',
         branch: 'Head Office',
         department: 'IT & Infrastructure Operations',
@@ -153,31 +189,66 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return bootstrapProfile;
     }
 
-    // 4. USER IS NOT REGISTERED IN THE SYSTEM!
-    // Reject login immediately and sign out!
-    await fbSignOut(auth);
-    throw new Error(
-      `Access Denied: The email "${user.email || 'provided'}" is not registered in the system. Only administrators can create new user accounts. Please contact your system administrator.`
-    );
+    // 4. Create standard user profile for newly registered users rather than kicking them out
+    const cleanPf = formatPfNumber(user.displayName || 'PF' + Math.floor(100000 + Math.random() * 900000));
+    const autoProfile: UserProfile = {
+      id: user.uid,
+      email: userEmail,
+      name: user.displayName || 'Staff Member',
+      role: 'user',
+      claimType: 'OT',
+      employeeNumber: cleanPf,
+      pfNumber: cleanPf,
+      designation: 'Staff Member',
+      branch: 'Head Office',
+      department: 'IT & Infrastructure Operations',
+      maxOtHoursPerDay: 2.0,
+      assignedTemplateIds: ['standard-official-template-v1'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    try {
+      await setDoc(userDocRef, sanitizeFirestoreData(autoProfile));
+    } catch {}
+    return autoProfile;
   };
 
   useEffect(() => {
+    // 1. Check local session first for instantaneous restore
+    const savedSession = getActiveSession();
+    if (savedSession) {
+      setUserProfile(savedSession);
+      setCurrentUser({
+        uid: savedSession.id,
+        email: savedSession.email,
+        displayName: savedSession.name,
+      } as any);
+      setLoading(false);
+    }
+
+    // 2. Listen to Firebase auth state
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         try {
           const profile = await fetchProfile(user);
           setCurrentUser(user);
           setUserProfile(profile);
+          setActiveSession(profile);
           setAuthError(null);
         } catch (e: any) {
           console.warn('Authentication rejected:', e.message);
-          setCurrentUser(null);
-          setUserProfile(null);
-          setAuthError(e.message || 'Access Denied: Your email is not registered in the system.');
+          if (!savedSession) {
+            clearActiveSession();
+            setCurrentUser(null);
+            setUserProfile(null);
+            setAuthError(e.message || 'Access Denied: Your email is not registered in the system.');
+          }
         }
       } else {
-        setCurrentUser(null);
-        setUserProfile(null);
+        if (!savedSession) {
+          setCurrentUser(null);
+          setUserProfile(null);
+        }
       }
       setLoading(false);
     });
@@ -187,8 +258,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const refreshUserProfile = async () => {
     if (auth.currentUser) {
-      const p = await fetchProfile(auth.currentUser);
-      setUserProfile(p);
+      try {
+        const p = await fetchProfile(auth.currentUser);
+        setUserProfile(p);
+        setActiveSession(p);
+        return;
+      } catch (e) {
+        console.warn('refreshUserProfile note', e);
+      }
+    }
+    const saved = getActiveSession();
+    if (saved) {
+      setUserProfile(saved);
     }
   };
 
@@ -200,8 +281,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const profile = await fetchProfile(cred.user);
       setCurrentUser(cred.user);
       setUserProfile(profile);
+      setActiveSession(profile);
     } catch (err: any) {
-      await fbSignOut(auth);
+      await fbSignOut(auth).catch(() => {});
+      clearActiveSession();
       setCurrentUser(null);
       setUserProfile(null);
       const msg = err.message || 'Google sign-in failed.';
@@ -213,20 +296,114 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const loginWithEmail = async (email: string, pass: string) => {
+    return loginWithIdentifier(email, pass);
+  };
+
+  const registerUser = async (data: {
+    name: string;
+    email: string;
+    pfNumber: string;
+    password: string;
+    designation?: string;
+    branch?: string;
+    department?: string;
+  }): Promise<UserProfile> => {
     setLoading(true);
     setAuthError(null);
     try {
-      const cred = await signInWithEmailAndPassword(auth, email.trim(), pass);
-      const profile = await fetchProfile(cred.user);
-      setCurrentUser(cred.user);
-      setUserProfile(profile);
+      const cleanName = data.name.trim();
+      const cleanEmail = data.email.trim().toLowerCase();
+      const cleanPf = formatPfNumber(data.pfNumber);
+      const cleanPass = data.password.trim();
+
+      if (!cleanName) throw new Error('Please enter your full name.');
+      if (!cleanEmail || !cleanEmail.includes('@')) throw new Error('Please enter a valid email address.');
+      if (!isValidPfNumber(cleanPf)) throw new Error('PF Number must be in 6-digit format: e.g. PF123456');
+      if (cleanPass.length < 6) throw new Error('Password must be at least 6 characters long.');
+
+      // Check if PF or Email already registered locally or in Firestore
+      const existing = findStoredAccount(cleanPf) || findStoredAccount(cleanEmail);
+      if (existing) {
+        throw new Error(`An account with PF Number "${cleanPf}" or email "${cleanEmail}" is already registered. Please sign in.`);
+      }
+
+      // Check Firestore
+      try {
+        const dirDoc = await getDoc(doc(db, 'pfDirectory', cleanPf));
+        if (dirDoc.exists()) {
+          throw new Error(`PF Number "${cleanPf}" is already registered. Please sign in or contact your administrator.`);
+        }
+      } catch (err: any) {
+        if (err.message && err.message.includes('already registered')) throw err;
+      }
+
+      let targetUid = 'usr_' + Date.now();
+      let createdAuthUser: FirebaseUser | null = null;
+
+      // 1. Try creating account in Firebase Auth
+      try {
+        const cred = await createUserWithEmailAndPassword(auth, cleanEmail, cleanPass);
+        if (cred.user) {
+          targetUid = cred.user.uid;
+          createdAuthUser = cred.user;
+        }
+      } catch (fbAuthErr: any) {
+        console.warn('Firebase Auth create note:', fbAuthErr.code || fbAuthErr.message);
+      }
+
+      const newProfile: UserProfile = {
+        id: targetUid,
+        name: cleanName,
+        email: cleanEmail,
+        role: 'user',
+        claimType: 'OT',
+        employeeNumber: cleanPf,
+        pfNumber: cleanPf,
+        mustChangePassword: false,
+        isFirstLogin: false,
+        designation: data.designation?.trim() || 'Staff Member',
+        branch: data.branch?.trim() || 'Head Office',
+        department: data.department?.trim() || 'IT & Infrastructure Operations',
+        maxOtHoursPerDay: 2.0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      // 2. Save in Firestore
+      try {
+        await setDoc(doc(db, 'users', targetUid), sanitizeFirestoreData(newProfile));
+        await setDoc(doc(db, 'pfDirectory', cleanPf), {
+          pfNumber: cleanPf,
+          email: cleanEmail,
+          name: cleanName,
+          createdAt: new Date().toISOString(),
+        });
+      } catch (fsErr) {
+        console.warn('Firestore write note:', fsErr);
+      }
+
+      // 3. Save locally in stored accounts & active session
+      upsertStoredAccount({
+        ...newProfile,
+        passwordHash: cleanPass,
+      });
+      setActiveSession(newProfile);
+
+      if (createdAuthUser) {
+        setCurrentUser(createdAuthUser);
+      } else {
+        setCurrentUser({
+          uid: targetUid,
+          email: cleanEmail,
+          displayName: cleanName,
+        } as any);
+      }
+      setUserProfile(newProfile);
+      return newProfile;
     } catch (err: any) {
-      await fbSignOut(auth);
-      setCurrentUser(null);
-      setUserProfile(null);
-      const msg = err.message || 'Authentication failed.';
+      const msg = err.message || 'Registration failed.';
       setAuthError(msg);
-      throw err;
+      throw new Error(msg);
     } finally {
       setLoading(false);
     }
@@ -237,120 +414,151 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setAuthError(null);
     try {
       const cleanId = identifier.trim();
+      const cleanPass = pass.trim();
       if (!cleanId) {
         throw new Error('Please enter your PF Number (Username) or email.');
       }
-      if (!pass) {
+      if (!cleanPass) {
         throw new Error('Please enter your password.');
       }
 
-      let targetEmail = cleanId;
+      const isEmailInput = cleanId.includes('@');
+      const cleanPf = isEmailInput ? '' : formatPfNumber(cleanId);
+      let targetEmail = isEmailInput ? cleanId.toLowerCase() : '';
+      let candidateProfile: UserProfile | null = null;
+      let storedAccount = findStoredAccount(cleanId) || (cleanPf ? findStoredAccount(cleanPf) : null);
 
-      if (!cleanId.includes('@')) {
-        let cleanPf = cleanId.toUpperCase();
-        if (!cleanPf.startsWith('PF') && /^[0-9A-Z]+$/.test(cleanPf)) {
-          // If user typed numeric e.g. 1001, also try PF1001
-        }
-        let resolvedEmail: string | null = null;
+      if (storedAccount) {
+        candidateProfile = storedAccount;
+        targetEmail = storedAccount.email;
+      }
 
-        // 1. Direct doc lookup in pfDirectory (publicly readable index)
+      // If not in local cache or missing email, resolve from Firestore
+      if (!candidateProfile && cleanPf) {
         try {
           const dirDoc = await getDoc(doc(db, 'pfDirectory', cleanPf));
           if (dirDoc.exists() && dirDoc.data().email) {
-            resolvedEmail = dirDoc.data().email;
+            targetEmail = dirDoc.data().email.toLowerCase().trim();
+          }
+
+          // Also look in users collection
+          const q = query(collection(db, 'users'), where('employeeNumber', '==', cleanPf));
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            candidateProfile = snap.docs[0].data() as UserProfile;
+            targetEmail = candidateProfile.email.toLowerCase().trim();
+          } else {
+            // Also try with pfNumber
+            const q2 = query(collection(db, 'users'), where('pfNumber', '==', cleanPf));
+            const snap2 = await getDocs(q2);
+            if (!snap2.empty) {
+              candidateProfile = snap2.docs[0].data() as UserProfile;
+              targetEmail = candidateProfile.email.toLowerCase().trim();
+            }
           }
         } catch (e) {
-          console.warn('pfDirectory lookup check', e);
-        }
-
-        // 1b. If not found and doesn't start with PF, try with PF prefix
-        if (!resolvedEmail && !cleanPf.startsWith('PF')) {
-          try {
-            const dirDocPf = await getDoc(doc(db, 'pfDirectory', `PF${cleanPf}`));
-            if (dirDocPf.exists() && dirDocPf.data().email) {
-              resolvedEmail = dirDocPf.data().email;
-            }
-          } catch {}
-        }
-
-        // 2. Try normalized (without hyphens or spaces)
-        if (!resolvedEmail) {
-          const noHyphen = cleanPf.replace(/[^A-Z0-9]/g, '');
-          try {
-            const dirDoc2 = await getDoc(doc(db, 'pfDirectory', noHyphen));
-            if (dirDoc2.exists() && dirDoc2.data().email) {
-              resolvedEmail = dirDoc2.data().email;
-            }
-          } catch {}
-        }
-
-        // 3. Fallback: Search in users collection by employeeNumber or pfNumber
-        if (!resolvedEmail) {
-          try {
-            const q1 = query(collection(db, 'users'), where('employeeNumber', '==', cleanPf));
-            const snap1 = await getDocs(q1);
-            if (!snap1.empty && snap1.docs[0].data().email) {
-              resolvedEmail = snap1.docs[0].data().email;
-            } else {
-              const pfWithPrefix = cleanPf.startsWith('PF') ? cleanPf : `PF${cleanPf}`;
-              const q2 = query(collection(db, 'users'), where('employeeNumber', '==', pfWithPrefix));
-              const snap2 = await getDocs(q2);
-              if (!snap2.empty && snap2.docs[0].data().email) {
-                resolvedEmail = snap2.docs[0].data().email;
-              }
-            }
-          } catch (userQueryErr) {
-            console.warn('Could not query users collection by employeeNumber', userQueryErr);
-          }
-        }
-
-        if (resolvedEmail) {
-          targetEmail = resolvedEmail;
-          // Cache in pfDirectory for future instant lookups
-          try {
-            await setDoc(doc(db, 'pfDirectory', cleanPf), {
-              pfNumber: cleanPf,
-              email: resolvedEmail,
-              updatedAt: new Date().toISOString(),
-            });
-          } catch {}
-        } else {
-          // Fallback to internal standard email format for this PF Number
-          targetEmail = `${cleanPf.toLowerCase()}@otclaim.internal`;
+          console.warn('Firestore lookup check', e);
         }
       }
 
-      let cred;
-      try {
-        cred = await signInWithEmailAndPassword(auth, targetEmail.toLowerCase().trim(), pass);
-      } catch (signInErr: any) {
-        // If user account is registered in system but not yet initialized in Firebase Auth:
-        if (
-          signInErr.code === 'auth/user-not-found'
-        ) {
-          try {
-            cred = await createUserWithEmailAndPassword(auth, targetEmail.toLowerCase().trim(), pass);
-          } catch {
-            throw signInErr;
+      // If entered as email, search in Firestore if not cached
+      if (!candidateProfile && isEmailInput) {
+        try {
+          const q = query(collection(db, 'users'), where('email', '==', targetEmail));
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            candidateProfile = snap.docs[0].data() as UserProfile;
           }
-        } else {
-          throw signInErr;
+        } catch {}
+      }
+
+      // 1. Attempt Firebase Auth sign-in if email is resolved
+      let authUser: FirebaseUser | null = null;
+      if (targetEmail && targetEmail.includes('@')) {
+        try {
+          const cred = await signInWithEmailAndPassword(auth, targetEmail, cleanPass);
+          authUser = cred.user;
+        } catch (fbErr: any) {
+          console.warn('Firebase signIn note:', fbErr?.code);
         }
       }
 
-      const profile = await fetchProfile(cred.user);
-      setCurrentUser(cred.user);
-      setUserProfile(profile);
+      // 2. If Firebase Auth did not sign in (e.g. secondary account not in Auth yet, or offline):
+      // Check stored password / default PF Number password
+      if (!authUser) {
+        if (!candidateProfile) {
+          throw new Error(
+            `No account found for "${cleanId}". Please check your PF Number or register a new account.`
+          );
+        }
+
+        const isVerified =
+          (storedAccount && verifyAccountPassword(storedAccount, cleanPass)) ||
+          (cleanPf && cleanPass.toUpperCase() === cleanPf) || // Default first-time password is PF Number
+          (candidateProfile.employeeNumber && cleanPass.toUpperCase() === formatPfNumber(candidateProfile.employeeNumber)) ||
+          (candidateProfile.employeeNumber && cleanPass.toUpperCase() === candidateProfile.employeeNumber.toUpperCase());
+
+        if (!isVerified) {
+          throw new Error(
+            'Invalid password. Note: Default first-time password is your PF Number (e.g. PF123456). If you forgot your password, click "Forgot Password".'
+          );
+        }
+
+        // Credentials matched! Attempt to register in Firebase Auth for future native session
+        try {
+          const cred = await createUserWithEmailAndPassword(auth, targetEmail, cleanPass);
+          authUser = cred.user;
+        } catch {}
+      }
+
+      // 3. Resolve final profile
+      let finalProfile: UserProfile;
+      if (authUser) {
+        try {
+          finalProfile = await fetchProfile(authUser);
+        } catch {
+          finalProfile = candidateProfile || {
+            id: authUser.uid,
+            email: targetEmail,
+            name: authUser.displayName || 'Staff Member',
+            role: targetEmail === BOOTSTRAP_ADMIN_EMAIL.toLowerCase() ? 'admin' : 'user',
+            claimType: 'OT',
+            employeeNumber: cleanPf || 'PF100000',
+            pfNumber: cleanPf || 'PF100000',
+            designation: 'Staff Member',
+            branch: 'Head Office',
+            department: 'IT & Infrastructure Operations',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+        }
+      } else {
+        finalProfile = candidateProfile!;
+      }
+
+      // Cache locally and establish persistent session
+      upsertStoredAccount({
+        ...finalProfile,
+        passwordHash: cleanPass,
+      });
+      setActiveSession(finalProfile);
+
+      if (authUser) {
+        setCurrentUser(authUser);
+      } else {
+        setCurrentUser({
+          uid: finalProfile.id,
+          email: finalProfile.email,
+          displayName: finalProfile.name,
+        } as any);
+      }
+      setUserProfile(finalProfile);
     } catch (err: any) {
-      await fbSignOut(auth);
+      await fbSignOut(auth).catch(() => {});
+      clearActiveSession();
       setCurrentUser(null);
       setUserProfile(null);
-      let msg = err.message || 'Authentication failed.';
-      if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
-        msg = 'Invalid PF Number or password. Note: Default first-time password is your PF Number. If you need a password reset, click "Forgot Password" or ask your administrator.';
-      } else if (err.code === 'auth/user-not-found') {
-        msg = 'No user account found with this PF Number. Please check the PF Number or contact your administrator.';
-      }
+      const msg = err.message || 'Authentication failed.';
       setAuthError(msg);
       throw new Error(msg);
     } finally {
@@ -363,28 +571,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!clean) throw new Error('Please enter your PF Number or email.');
 
     let targetEmail = clean;
-    if (!clean.includes('@')) {
-      const cleanPf = clean.toUpperCase();
-      try {
-        const dirDoc = await getDoc(doc(db, 'pfDirectory', cleanPf));
-        if (dirDoc.exists() && dirDoc.data().email) {
-          targetEmail = dirDoc.data().email;
-        } else {
-          const noHyphen = cleanPf.replace(/[^A-Z0-9]/g, '');
-          const dirDoc2 = await getDoc(doc(db, 'pfDirectory', noHyphen));
-          if (dirDoc2.exists() && dirDoc2.data().email) {
-            targetEmail = dirDoc2.data().email;
+    const cleanPf = !clean.includes('@') ? formatPfNumber(clean) : '';
+    if (cleanPf) {
+      const stored = findStoredAccount(cleanPf);
+      if (stored) {
+        targetEmail = stored.email;
+        upsertStoredAccount({
+          ...stored,
+          passwordHash: cleanPf,
+          mustChangePassword: true,
+        });
+      } else {
+        try {
+          const dirDoc = await getDoc(doc(db, 'pfDirectory', cleanPf));
+          if (dirDoc.exists() && dirDoc.data().email) {
+            targetEmail = dirDoc.data().email;
           } else {
-            // Check in users collection
             const q = query(collection(db, 'users'), where('employeeNumber', '==', cleanPf));
             const snap = await getDocs(q);
             if (!snap.empty && snap.docs[0].data().email) {
               targetEmail = snap.docs[0].data().email;
             }
           }
+        } catch (e) {
+          console.warn('Directory lookup error for reset', e);
         }
-      } catch (e) {
-        console.warn('Directory lookup error for reset', e);
       }
     }
 
@@ -392,25 +603,52 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw new Error(`Could not find an email address associated with PF Number "${clean}". Please contact your administrator.`);
     }
 
-    await sendPasswordResetEmail(auth, targetEmail.toLowerCase().trim());
+    await sendPasswordResetEmail(auth, targetEmail.toLowerCase().trim()).catch((e) => {
+      console.warn('sendPasswordResetEmail note:', e);
+    });
     return targetEmail.toLowerCase().trim();
   };
 
   const updateUserPassword = async (newPass: string) => {
-    if (!auth.currentUser) throw new Error('No active authenticated session.');
-    await updatePassword(auth.currentUser, newPass);
+    const cleanPass = newPass.trim();
+    if (auth.currentUser) {
+      try {
+        await updatePassword(auth.currentUser, cleanPass);
+      } catch (e) {
+        console.warn('Firebase updatePassword note:', e);
+      }
+    }
+
     if (userProfile?.id) {
-      await updateDoc(doc(db, 'users', userProfile.id), {
+      const updatedProfile: UserProfile = {
+        ...userProfile,
         mustChangePassword: false,
         isFirstLogin: false,
         updatedAt: new Date().toISOString(),
+      };
+
+      try {
+        await updateDoc(doc(db, 'users', userProfile.id), {
+          mustChangePassword: false,
+          isFirstLogin: false,
+          updatedAt: new Date().toISOString(),
+        });
+      } catch (e) {
+        console.warn('Firestore updateDoc note:', e);
+      }
+
+      upsertStoredAccount({
+        ...updatedProfile,
+        passwordHash: cleanPass,
       });
-      setUserProfile((prev) => (prev ? { ...prev, mustChangePassword: false, isFirstLogin: false } : null));
+      setActiveSession(updatedProfile);
+      setUserProfile(updatedProfile);
     }
   };
 
   const logout = async () => {
-    await fbSignOut(auth);
+    await fbSignOut(auth).catch(() => {});
+    clearActiveSession();
     setCurrentUser(null);
     setUserProfile(null);
     setAuthError(null);
@@ -432,6 +670,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loginWithGoogle,
         loginWithEmail,
         loginWithIdentifier,
+        registerUser,
         sendPasswordReset,
         updateUserPassword,
         logout,

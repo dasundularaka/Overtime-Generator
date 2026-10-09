@@ -124,17 +124,17 @@ export const Navbar: React.FC<NavbarProps> = ({
           </nav>
 
           {/* Header Action Tools & User Profile */}
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* User Profile Capsule */}
+          <div className="flex items-center gap-1.5 sm:gap-3">
+            {/* User Profile Capsule (Mobile & Desktop) */}
             {userProfile && (
-              <div className="hidden lg:flex items-center gap-2 bg-slate-800/90 border border-slate-700/80 px-2.5 py-1 rounded-xl">
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-600 font-bold text-white text-[11px]">
+              <div className="flex items-center gap-2 bg-slate-800/90 border border-slate-700/80 px-2 sm:px-2.5 py-1 rounded-xl">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-600 font-bold text-white text-[11px] shrink-0">
                   {userProfile.name?.slice(0, 2).toUpperCase() || 'U'}
                 </div>
                 <div className="text-left">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-bold text-slate-200 truncate max-w-[100px]">
-                      {userProfile.name}
+                    <span className="text-xs font-bold text-slate-200 truncate max-w-[80px] sm:max-w-[120px]">
+                      {userProfile.employeeNumber || userProfile.pfNumber || userProfile.name}
                     </span>
                     <span
                       className={`text-[9px] font-extrabold uppercase px-1.5 py-0.2 rounded ${
@@ -146,7 +146,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       {isAdmin ? 'Admin' : 'User'}
                     </span>
                   </div>
-                  <div className="text-[10px] text-slate-400 font-mono">
+                  <div className="text-[10px] text-slate-400 font-mono hidden sm:block">
                     Cap: {userProfile.maxOtHoursPerDay !== undefined ? `${userProfile.maxOtHoursPerDay}h` : '2h'} &bull; {userProfile.claimType || 'OT'}
                   </div>
                 </div>
@@ -156,7 +156,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Quick Help button */}
             <button
               onClick={onOpenHelp}
-              className="p-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition"
+              className="p-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition cursor-pointer"
               title="Shift & Overtime Rules"
             >
               <HelpCircle className="w-4 h-4" />
@@ -168,17 +168,17 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Logout Button */}
             <button
               onClick={() => setIsLogoutConfirmOpen(true)}
-              className="p-2 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition"
+              className="p-2 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition cursor-pointer"
               title="Sign Out"
             >
               <LogOut className="w-4 h-4" />
             </button>
 
-            {/* Quick New Claim CTA */}
+            {/* Quick New Claim CTA (Desktop) */}
             {activeTab !== 'new-claim' && (
               <button
                 onClick={() => onSelectTab('new-claim')}
-                className="hidden sm:inline-flex items-center gap-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition"
+                className="hidden sm:inline-flex items-center gap-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition cursor-pointer"
               >
                 <PlusCircle className="w-3.5 h-3.5" />
                 <span>New Claim</span>
@@ -186,29 +186,54 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
           </div>
         </div>
+      </div>
 
-        {/* Mobile Sub-Navigation Bar */}
-        <div className="flex md:hidden overflow-x-auto py-2.5 space-x-1.5 border-t border-slate-800/80 no-scrollbar">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeTab === item.id;
+      {/* Modern Mobile Bottom Navigation Bar (Thumb Friendly) */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-slate-900/95 backdrop-blur-lg border-t border-slate-800 shadow-2xl px-2 py-1.5 flex items-center justify-around safe-bottom">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = activeTab === item.id;
+          const isNewClaim = item.id === 'new-claim';
+
+          if (isNewClaim) {
             return (
               <button
                 key={item.id}
                 onClick={() => onSelectTab(item.id)}
-                className={`flex shrink-0 items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium ${
-                  isActive
-                    ? 'bg-indigo-600 text-white'
-                    : 'text-slate-300 hover:bg-slate-800'
-                }`}
+                className="flex flex-col items-center justify-center -mt-5 relative group"
               >
-                <Icon className="w-3.5 h-3.5" />
-                <span>{item.label}</span>
+                <div className={`flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-transform active:scale-95 ${
+                  isActive
+                    ? 'bg-gradient-to-r from-indigo-500 to-blue-600 text-white ring-4 ring-indigo-950'
+                    : 'bg-indigo-600 text-white hover:bg-indigo-500'
+                }`}>
+                  <PlusCircle className="w-6 h-6" />
+                </div>
+                <span className={`text-[10px] font-bold mt-1 ${isActive ? 'text-indigo-400' : 'text-slate-400'}`}>
+                  New Claim
+                </span>
               </button>
             );
-          })}
-        </div>
-      </div>
+          }
+
+          return (
+            <button
+              key={item.id}
+              onClick={() => onSelectTab(item.id)}
+              className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition ${
+                isActive
+                  ? 'text-indigo-400 font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Icon className={`w-5 h-5 ${isActive ? 'stroke-[2.5]' : 'stroke-2'}`} />
+              <span className="text-[10px] mt-0.5 tracking-tight">
+                {item.label.split(' ')[0]}
+              </span>
+            </button>
+          );
+        })}
+      </nav>
 
       {/* Logout Confirmation Modal */}
       <ConfirmationModal
