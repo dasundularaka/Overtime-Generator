@@ -21,6 +21,7 @@ import {
   getSettings,
   saveSettings,
 } from '../utils/storage';
+import { recordAuditLog } from '../utils/auditLogger';
 import { ConfirmationModal } from './ConfirmationModal';
 
 export const EmployeeManager: React.FC = () => {
@@ -96,6 +97,20 @@ export const EmployeeManager: React.FC = () => {
 
     const updated = saveEmployee(payload);
     setEmployees(updated);
+
+    recordAuditLog({
+      action: editingEmployee ? 'USER_UPDATE' : 'USER_CREATE',
+      actionLabel: editingEmployee ? 'Updated employee profile' : 'Created employee profile',
+      targetType: 'user',
+      targetId: payload.id,
+      targetDescription: `${payload.name} (${payload.employeeNumber})`,
+      details: {
+        branch: payload.branch,
+        department: payload.department,
+        designation: payload.designation,
+      },
+    });
+
     setIsConfirmSaveModalOpen(false);
     setIsModalOpen(false);
   };
@@ -104,6 +119,15 @@ export const EmployeeManager: React.FC = () => {
     if (!employeeToDelete) return;
     const updated = deleteEmployee(employeeToDelete.id);
     setEmployees(updated);
+
+    recordAuditLog({
+      action: 'USER_DELETE',
+      actionLabel: 'Deleted employee profile',
+      targetType: 'user',
+      targetId: employeeToDelete.id,
+      targetDescription: `${employeeToDelete.name} (${employeeToDelete.employeeNumber})`,
+    });
+
     if (settings.defaultEmployeeId === employeeToDelete.id) {
       const newSettings = { ...settings, defaultEmployeeId: undefined };
       saveSettings(newSettings);

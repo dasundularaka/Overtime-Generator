@@ -28,6 +28,7 @@ import {
 } from '../services/holidayService';
 import { Holiday, HolidayType } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { recordAuditLog } from '../utils/auditLogger';
 import { ConfirmationModal } from './ConfirmationModal';
 import { MONTH_NAMES, DAYS_SHORT } from '../utils/timeCalculations';
 
@@ -102,13 +103,26 @@ export const CalendarManager: React.FC = () => {
     setIsSubmitting(true);
     setActionError(null);
     try {
-      await saveHoliday({
+      const saved = await saveHoliday({
         id: editingHoliday?.id,
         date: formDate,
         name: formName.trim(),
         type: formType,
         description: formDescription.trim(),
       });
+
+      await recordAuditLog({
+        action: 'HOLIDAY_IMPORT',
+        actionLabel: editingHoliday ? 'Updated holiday calendar entry' : 'Added calendar holiday',
+        targetType: 'holiday',
+        targetId: saved.id,
+        targetDescription: `${saved.name} (${saved.date})`,
+        details: {
+          type: saved.type,
+          date: saved.date,
+        },
+      });
+
       setIsModalOpen(false);
       setActionSuccess(`Holiday "${formName.trim()}" saved successfully!`);
       setTimeout(() => setActionSuccess(null), 3500);
@@ -124,6 +138,15 @@ export const CalendarManager: React.FC = () => {
     setIsDeleting(true);
     try {
       await deleteHoliday(holidayToDelete.id);
+
+      await recordAuditLog({
+        action: 'HOLIDAY_IMPORT',
+        actionLabel: 'Deleted calendar holiday',
+        targetType: 'holiday',
+        targetId: holidayToDelete.id,
+        targetDescription: `${holidayToDelete.name} (${holidayToDelete.date})`,
+      });
+
       setIsDeleteModalOpen(false);
       setActionSuccess(`Holiday "${holidayToDelete.name}" deleted.`);
       setTimeout(() => setActionSuccess(null), 3000);
@@ -138,6 +161,15 @@ export const CalendarManager: React.FC = () => {
     setIsSeeding(true);
     try {
       const count = await seedStandardHolidays();
+
+      await recordAuditLog({
+        action: 'HOLIDAY_IMPORT',
+        actionLabel: 'Imported standard public and bank holidays',
+        targetType: 'holiday',
+        targetDescription: `Imported ${count} standard holidays`,
+        details: { count },
+      });
+
       setIsSeedModalOpen(false);
       setActionSuccess(`Successfully imported ${count} standard public and bank holidays into the calendar!`);
       setTimeout(() => setActionSuccess(null), 4000);

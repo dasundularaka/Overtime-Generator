@@ -55,6 +55,7 @@ import {
 } from '../utils/storage';
 import { DEFAULT_TEMPLATE, getDefaultTemplateSvgDataUrl } from '../utils/defaultTemplate';
 import { generateOvertimePdf } from '../utils/pdfGenerator';
+import { recordAuditLog } from '../utils/auditLogger';
 import { PDFPreviewModal } from './PDFPreviewModal';
 import { ConfirmationModal } from './ConfirmationModal';
 import { useAuth } from '../context/AuthContext';
@@ -292,6 +293,19 @@ export const TemplateDesigner: React.FC = () => {
         return [saved, ...prev];
       });
 
+      // Record administrative audit log
+      await recordAuditLog({
+        action: 'TEMPLATE_SAVE',
+        actionLabel: 'Saved A4 form template layout',
+        targetType: 'template',
+        targetId: saved.id,
+        targetDescription: saved.name,
+        details: {
+          isDefault: willBeDefault,
+          fieldsCount: saved.fields?.length || 0,
+        },
+      });
+
       setSaveSuccessMsg(`Template "${saved.name}" successfully saved to Cloud Firestore and local storage!`);
       setTimeout(() => setSaveSuccessMsg(null), 4000);
     } catch (err: any) {
@@ -393,6 +407,15 @@ export const TemplateDesigner: React.FC = () => {
     setIsSaving(true);
     try {
       await deleteTemplateFromFirestore(template.id);
+
+      await recordAuditLog({
+        action: 'TEMPLATE_DELETE',
+        actionLabel: 'Deleted A4 form template',
+        targetType: 'template',
+        targetId: template.id,
+        targetDescription: template.name,
+      });
+
       const remaining = templateList.filter(t => t.id !== template.id);
       const fallback = remaining.length > 0 ? remaining[0] : DEFAULT_TEMPLATE;
       setTemplate(fallback);

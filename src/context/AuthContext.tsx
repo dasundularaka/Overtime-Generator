@@ -32,6 +32,7 @@ import {
   setActiveSession,
   clearActiveSession,
 } from '../utils/localAuthManager';
+import { recordAuditLog } from '../utils/auditLogger';
 
 interface AuthContextType {
   currentUser: FirebaseUser | null;
@@ -399,6 +400,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } as any);
       }
       setUserProfile(newProfile);
+
+      // Record administrative audit log
+      recordAuditLog({
+        action: 'USER_CREATE',
+        actionLabel: 'User self-registered new account',
+        targetType: 'user',
+        targetId: newProfile.id,
+        targetDescription: `${newProfile.name} (${newProfile.employeeNumber || newProfile.pfNumber})`,
+        userId: newProfile.id,
+        userName: newProfile.name,
+        userPfNumber: newProfile.employeeNumber || newProfile.pfNumber,
+        userBranch: newProfile.branch,
+        userDepartment: newProfile.department,
+      });
+
       return newProfile;
     } catch (err: any) {
       const msg = err.message || 'Registration failed.';
@@ -553,6 +569,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } as any);
       }
       setUserProfile(finalProfile);
+
+      // Record administrative audit log
+      recordAuditLog({
+        action: 'USER_LOGIN',
+        actionLabel: 'User signed in to system',
+        targetType: 'auth',
+        targetId: finalProfile.id,
+        targetDescription: `${finalProfile.name} (${finalProfile.employeeNumber || finalProfile.pfNumber})`,
+        userId: finalProfile.id,
+        userName: finalProfile.name,
+        userPfNumber: finalProfile.employeeNumber || finalProfile.pfNumber,
+        userBranch: finalProfile.branch,
+        userDepartment: finalProfile.department,
+        details: {
+          role: finalProfile.role,
+          claimType: finalProfile.claimType,
+        },
+      });
     } catch (err: any) {
       await fbSignOut(auth).catch(() => {});
       clearActiveSession();
@@ -606,6 +640,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await sendPasswordResetEmail(auth, targetEmail.toLowerCase().trim()).catch((e) => {
       console.warn('sendPasswordResetEmail note:', e);
     });
+
+    recordAuditLog({
+      action: 'PASSWORD_RESET',
+      actionLabel: 'User requested password recovery',
+      targetType: 'user',
+      targetDescription: `${clean} (${targetEmail})`,
+      details: {
+        identifier: clean,
+        targetEmail: targetEmail.toLowerCase().trim(),
+      },
+    });
+
     return targetEmail.toLowerCase().trim();
   };
 
@@ -647,6 +693,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
+    if (userProfile) {
+      recordAuditLog({
+        action: 'USER_LOGOUT',
+        actionLabel: 'User signed out of system',
+        targetType: 'auth',
+        targetId: userProfile.id,
+        targetDescription: `${userProfile.name} (${userProfile.employeeNumber || userProfile.pfNumber})`,
+      });
+    }
+
     await fbSignOut(auth).catch(() => {});
     clearActiveSession();
     setCurrentUser(null);

@@ -14,6 +14,7 @@ import { OnboardingModal } from './components/OnboardingModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { LoadingScreen } from './components/LoadingScreen';
 import { PasswordResetModal } from './components/PasswordResetModal';
+import { AuditLogViewer } from './components/AuditLogViewer';
 import { ClaimRecord } from './types';
 import { getSettings, saveSettings } from './utils/storage';
 
@@ -31,9 +32,9 @@ function AppContent() {
     }
   }, []);
 
-  // Safeguard: non-admins cannot stay on designer or user admin tabs
+  // Safeguard: non-admins cannot stay on designer, users, or audit tabs
   useEffect(() => {
-    if (!loading && !isAdmin && (activeTab === 'designer' || activeTab === 'users')) {
+    if (!loading && !isAdmin && (activeTab === 'designer' || activeTab === 'users' || activeTab === 'audit')) {
       setActiveTab('dashboard');
     }
   }, [loading, isAdmin, activeTab]);
@@ -102,6 +103,7 @@ function AppContent() {
         {activeTab === 'calendar' && <CalendarManager />}
 
         {activeTab === 'users' && isAdmin && <UserManagement />}
+        {activeTab === 'audit' && isAdmin && <AuditLogViewer />}
 
         {activeTab === 'employees' && <EmployeeManager />}
 

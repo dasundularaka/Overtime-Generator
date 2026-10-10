@@ -25,6 +25,7 @@ import {
 } from '../utils/storage';
 import { subscribeToTemplates, setDefaultTemplateInFirestore } from '../services/templateService';
 import { useAuth } from '../context/AuthContext';
+import { recordAuditLog } from '../utils/auditLogger';
 import { ConfirmationModal } from './ConfirmationModal';
 
 export const SettingsPage: React.FC = () => {
@@ -53,6 +54,21 @@ export const SettingsPage: React.FC = () => {
 
   const confirmCommitSaveSettings = () => {
     saveSettings(settings);
+
+    recordAuditLog({
+      action: 'SETTINGS_UPDATE',
+      actionLabel: 'Updated application settings and time rules',
+      targetType: 'settings',
+      targetDescription: 'Application Configuration',
+      details: {
+        shiftStartTime: settings.shiftStartTime,
+        shiftEndTime: settings.shiftEndTime,
+        otStepMinutes: settings.otStepMinutes,
+        timeFormat: settings.timeFormat,
+        otDisplayFormat: settings.otDisplayFormat,
+      },
+    });
+
     setSaveSuccess(true);
     setIsConfirmSaveSettingsOpen(false);
     setTimeout(() => setSaveSuccess(false), 2500);

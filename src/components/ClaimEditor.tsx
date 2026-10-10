@@ -51,6 +51,7 @@ import {
   getSettings,
   saveClaim,
 } from '../utils/storage';
+import { recordAuditLog } from '../utils/auditLogger';
 import { generateOvertimePdf, printPdfDocument } from '../utils/pdfGenerator';
 import { PDFPreviewModal } from './PDFPreviewModal';
 import { ConfirmationModal } from './ConfirmationModal';
@@ -682,6 +683,28 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     try {
       saveClaim(claim);
       await setDoc(doc(db, 'claims', claim.id), sanitizeFirestoreData(claim));
+
+      // Record administrative audit log
+      await recordAuditLog({
+        action: initialClaim ? 'CLAIM_UPDATE' : 'CLAIM_CREATE',
+        actionLabel: initialClaim ? 'Updated overtime claim' : 'Created new overtime claim',
+        targetType: 'claim',
+        targetId: claim.id,
+        targetDescription: `${claim.claimNumber} (${claim.employeeName} - ${claim.month}/${claim.year})`,
+        details: {
+          month: claim.month,
+          year: claim.year,
+          totalHours: claim.totalHoursFormatted,
+          totalMinutes: claim.totalMinutes,
+          totalOtPayment: claim.totalOtPayment,
+          claimType: claim.claimType,
+          branch: claim.branch,
+          department: claim.department,
+          hourlyRate: claim.hourlyRate,
+          daysPay: claim.daysPay,
+        },
+      });
+
       setClaimSavedSuccess(true);
       setIsConfirmSaveClaimOpen(false);
       if (onClaimSaved) onClaimSaved(claim);

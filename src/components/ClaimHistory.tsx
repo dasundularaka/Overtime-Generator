@@ -27,6 +27,7 @@ import { handleFirestoreError, OperationType } from '../firebase/errors';
 import { sanitizeFirestoreData } from '../utils/firestoreUtils';
 import { ClaimRecord, TemplateConfig } from '../types';
 import { getActiveTemplate } from '../utils/storage';
+import { recordAuditLog } from '../utils/auditLogger';
 import { generateOvertimePdf, printPdfDocument } from '../utils/pdfGenerator';
 import { PDFPreviewModal } from './PDFPreviewModal';
 import { ConfirmationModal } from './ConfirmationModal';
@@ -173,6 +174,22 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
 
     try {
       await setDoc(doc(db, 'claims', newId), sanitizeFirestoreData(duplicated));
+
+      await recordAuditLog({
+        action: 'CLAIM_CREATE',
+        actionLabel: 'Duplicated overtime claim',
+        targetType: 'claim',
+        targetId: newId,
+        targetDescription: `${duplicated.claimNumber} (${duplicated.employeeName} - ${duplicated.month}/${duplicated.year})`,
+        details: {
+          originalClaimId: claimToDuplicate.id,
+          month: duplicated.month,
+          year: duplicated.year,
+          totalHours: duplicated.totalHoursFormatted,
+          totalOtPayment: duplicated.totalOtPayment,
+        },
+      });
+
       fetchClaims();
       setToastMessage('Claim duplicated successfully!');
       setClaimToDuplicate(null);
@@ -189,6 +206,22 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
     setIsDeleting(true);
     try {
       await deleteDoc(doc(db, 'claims', claimToDelete.id));
+
+      await recordAuditLog({
+        action: 'CLAIM_DELETE',
+        actionLabel: 'Deleted overtime claim',
+        targetType: 'claim',
+        targetId: claimToDelete.id,
+        targetDescription: `${claimToDelete.claimNumber} (${claimToDelete.employeeName} - ${claimToDelete.month}/${claimToDelete.year})`,
+        details: {
+          month: claimToDelete.month,
+          year: claimToDelete.year,
+          totalHours: claimToDelete.totalHoursFormatted,
+          totalOtPayment: claimToDelete.totalOtPayment,
+          branch: claimToDelete.branch,
+        },
+      });
+
       fetchClaims();
       if (viewingClaim?.id === claimToDelete.id) {
         setViewingClaim(null);

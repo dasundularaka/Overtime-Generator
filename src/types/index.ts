@@ -193,3 +193,42 @@ export interface AppSettings {
   shiftEndTime: string; // "16:45"
   otStepMinutes: number; // 15
 }
+
+// ---------------- Administrative Audit Log ----------------
+
+export type AuditActionType =
+  | 'USER_CREATE'
+  | 'USER_UPDATE'
+  | 'USER_DELETE'
+  | 'PASSWORD_RESET'
+  | 'PASSWORD_CHANGE'
+  | 'CLAIM_CREATE'
+  | 'CLAIM_UPDATE'
+  | 'CLAIM_DELETE'
+  | 'TEMPLATE_SAVE'
+  | 'TEMPLATE_DELETE'
+  | 'HOLIDAY_IMPORT'
+  | 'SETTINGS_UPDATE'
+  | 'USER_LOGIN'
+  | 'USER_LOGOUT';
+
+export interface AuditLogEntry {
+  id: string;
+  action: AuditActionType;
+  actionLabel: string;
+  timestamp: string; // ISO 8601
+  // Performed By User Identifiers
+  userId?: string;
+  userName: string;
+  userPfNumber: string; // e.g. PF123456
+  userBranch: string;   // e.g. Head Office
+  userDepartment?: string;
+  userRole?: UserRole;
+  // Target Information
+  targetType: 'user' | 'claim' | 'template' | 'holiday' | 'settings' | 'auth';
+  targetId?: string;
+  targetDescription: string;
+  // Additional metadata & changed fields
+  details?: Record<string, any>;
+  ipOrDevice?: string;
+}

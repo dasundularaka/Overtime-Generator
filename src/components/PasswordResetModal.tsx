@@ -11,6 +11,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { recordAuditLog } from '../utils/auditLogger';
 
 interface PasswordResetModalProps {
   isOpen: boolean;
@@ -58,6 +59,15 @@ export const PasswordResetModal: React.FC<PasswordResetModalProps> = ({
     setIsSubmitting(true);
     try {
       await updateUserPassword(cleanPass);
+
+      await recordAuditLog({
+        action: 'PASSWORD_CHANGE',
+        actionLabel: 'User updated personal account password',
+        targetType: 'user',
+        targetId: userProfile?.id,
+        targetDescription: `${userProfile?.name} (${userProfile?.employeeNumber || userProfile?.pfNumber})`,
+      });
+
       setSuccess(true);
       setTimeout(() => {
         onPasswordChanged();

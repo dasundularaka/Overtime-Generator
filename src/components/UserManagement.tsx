@@ -36,6 +36,7 @@ import { adminChangeUserPassword, adminSendUserPasswordResetEmail, adminCreateUs
 import { sendUserWelcomeEmail, EmailDispatchResult } from '../utils/emailNotifier';
 import { generateStandardPfNumber, formatPfNumber, isValidPfNumber } from '../utils/pfHelper';
 import { upsertStoredAccount } from '../utils/localAuthManager';
+import { recordAuditLog } from '../utils/auditLogger';
 
 export const UserManagement: React.FC = () => {
   const { currentUser, isAdmin, refreshUserProfile } = useAuth();
@@ -303,6 +304,24 @@ export const UserManagement: React.FC = () => {
           }
         }
 
+        // Record administrative audit log
+        await recordAuditLog({
+          action: 'USER_UPDATE',
+          actionLabel: 'Updated user profile & overtime limits',
+          targetType: 'user',
+          targetId: editingUser.id,
+          targetDescription: `${name.trim()} (${cleanPf})`,
+          details: {
+            role,
+            claimType,
+            branch: branch.trim(),
+            department: department.trim(),
+            designation: designation.trim(),
+            maxOtHoursPerDay: Number(maxOtHoursPerDay) || 0,
+            assignedTemplatesCount: assignedTemplateIds?.length || 0,
+          },
+        });
+
         setActionSuccess(`User ${name} updated successfully!`);
       } else {
         // Create new user profile in Firebase Auth and Firestore
@@ -376,7 +395,25 @@ export const UserManagement: React.FC = () => {
           });
         }
 
-        // 4. Send Welcome Credentials Email
+        // 4. Record administrative audit log
+        await recordAuditLog({
+          action: 'USER_CREATE',
+          actionLabel: 'Created employee user account',
+          targetType: 'user',
+          targetId: targetUid,
+          targetDescription: `${name.trim()} (${cleanPf})`,
+          details: {
+            email: cleanEmail,
+            role,
+            claimType,
+            branch: branch.trim(),
+            department: department.trim(),
+            designation: designation.trim(),
+            maxOtHoursPerDay: Number(maxOtHoursPerDay) || 0,
+          },
+        });
+
+        // 5. Send Welcome Credentials Email
         const emailDispatch = await sendUserWelcomeEmail({
           email: cleanEmail,
           name: name.trim(),
@@ -411,6 +448,22 @@ export const UserManagement: React.FC = () => {
       try {
         await deleteDoc(doc(db, 'admins', userToDelete.id));
       } catch {}
+
+      // Record administrative audit log
+      await recordAuditLog({
+        action: 'USER_DELETE',
+        actionLabel: 'Deleted user account and profile',
+        targetType: 'user',
+        targetId: userToDelete.id,
+        targetDescription: `${userToDelete.name} (${userToDelete.employeeNumber || userToDelete.pfNumber || 'N/A'})`,
+        details: {
+          email: userToDelete.email,
+          role: userToDelete.role,
+          branch: userToDelete.branch,
+          department: userToDelete.department,
+        },
+      });
+
       setActionSuccess(`User "${userToDelete.name}" deleted successfully.`);
       setUserToDelete(null);
       fetchUsers();
@@ -503,6 +556,20 @@ export const UserManagement: React.FC = () => {
       if (pendingPasswordTarget.type === 'email') {
         await adminSendUserPasswordResetEmail(passwordModalUser.email);
         setPasswordSuccess(`A secure password reset link has been dispatched to ${passwordModalUser.email}!`);
+
+        // Record administrative audit log
+        await recordAuditLog({
+          action: 'PASSWORD_RESET',
+          actionLabel: 'Dispatched password reset email to user',
+          targetType: 'user',
+          targetId: passwordModalUser.id,
+          targetDescription: `${passwordModalUser.name} (${passwordModalUser.employeeNumber || passwordModalUser.pfNumber})`,
+          details: {
+            method: 'email',
+            targetEmail: passwordModalUser.email,
+            userBranch: passwordModalUser.branch,
+          },
+        });
       } else {
         const passToSet = pendingPasswordTarget.passToSet || passwordModalUser.employeeNumber;
         const res = await adminChangeUserPassword(
@@ -515,6 +582,22 @@ export const UserManagement: React.FC = () => {
           passwordHash: passToSet,
         });
         setPasswordSuccess(res.message);
+
+        // Record administrative audit log
+        await recordAuditLog({
+          action: 'PASSWORD_CHANGE',
+          actionLabel: pendingPasswordTarget.type === 'employeeNumber'
+            ? 'Reset user password to default PF Number'
+            : 'Applied custom administrative password reset',
+          targetType: 'user',
+          targetId: passwordModalUser.id,
+          targetDescription: `${passwordModalUser.name} (${passwordModalUser.employeeNumber || passwordModalUser.pfNumber})`,
+          details: {
+            method: pendingPasswordTarget.type,
+            targetEmail: passwordModalUser.email,
+            userBranch: passwordModalUser.branch,
+          },
+        });
       }
       setIsConfirmPasswordModalOpen(false);
     } catch (err: any) {

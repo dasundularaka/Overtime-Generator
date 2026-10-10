@@ -24,6 +24,7 @@ import { db } from '../firebase/config';
 import { handleFirestoreError, OperationType } from '../firebase/errors';
 import { ClaimRecord, TemplateConfig } from '../types';
 import { getActiveTemplate } from '../utils/storage';
+import { recordAuditLog } from '../utils/auditLogger';
 import { generateOvertimePdf, printPdfDocument } from '../utils/pdfGenerator';
 import { PDFPreviewModal } from './PDFPreviewModal';
 import { ConfirmationModal } from './ConfirmationModal';
@@ -162,6 +163,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
     setIsDeleting(true);
     try {
       await deleteDoc(doc(db, 'claims', claimToDeleteRecord.id));
+
+      await recordAuditLog({
+        action: 'CLAIM_DELETE',
+        actionLabel: 'Deleted overtime claim',
+        targetType: 'claim',
+        targetId: claimToDeleteRecord.id,
+        targetDescription: `${claimToDeleteRecord.claimNumber} (${claimToDeleteRecord.employeeName} - ${claimToDeleteRecord.month}/${claimToDeleteRecord.year})`,
+        details: {
+          month: claimToDeleteRecord.month,
+          year: claimToDeleteRecord.year,
+          totalHours: claimToDeleteRecord.totalHoursFormatted,
+          totalOtPayment: claimToDeleteRecord.totalOtPayment,
+        },
+      });
+
       setClaimToDeleteRecord(null);
       fetchClaims();
     } catch (err) {
