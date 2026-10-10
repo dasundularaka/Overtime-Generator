@@ -6,6 +6,8 @@ import { Dashboard } from './components/Dashboard';
 import { ClaimEditor } from './components/ClaimEditor';
 import { CalendarManager } from './components/CalendarManager';
 import { UserManagement } from './components/UserManagement';
+import { BranchManagement } from './components/BranchManagement';
+import { RoleManagement } from './components/RoleManagement';
 import { EmployeeManager } from './components/EmployeeManager';
 import { ClaimHistory } from './components/ClaimHistory';
 import { TemplateDesigner } from './components/TemplateDesigner';
@@ -32,9 +34,17 @@ function AppContent() {
     }
   }, []);
 
-  // Safeguard: non-admins cannot stay on designer, users, or audit tabs
+  // Safeguard: non-admins cannot stay on designer, users, audit, branches, or roles tabs
   useEffect(() => {
-    if (!loading && !isAdmin && (activeTab === 'designer' || activeTab === 'users' || activeTab === 'audit')) {
+    if (
+      !loading &&
+      !isAdmin &&
+      (activeTab === 'designer' ||
+        activeTab === 'users' ||
+        activeTab === 'audit' ||
+        activeTab === 'branches' ||
+        activeTab === 'roles')
+    ) {
       setActiveTab('dashboard');
     }
   }, [loading, isAdmin, activeTab]);
@@ -103,6 +113,8 @@ function AppContent() {
         {activeTab === 'calendar' && <CalendarManager />}
 
         {activeTab === 'users' && isAdmin && <UserManagement />}
+        {activeTab === 'branches' && isAdmin && <BranchManagement />}
+        {activeTab === 'roles' && isAdmin && <RoleManagement />}
         {activeTab === 'audit' && isAdmin && <AuditLogViewer />}
 
         {activeTab === 'employees' && <EmployeeManager />}

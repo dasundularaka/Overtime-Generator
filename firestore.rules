@@ -84,5 +84,17 @@ service cloud.firestore {
       allow create: if true;
       allow update, delete: if isSuperAdmin();
     }
+
+    // Branch network: readable by all users, managed by admins
+    match /branches/{branchId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Roles and overtime rates: readable by all users, managed by admins
+    match /roles/{roleId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
   }
 }

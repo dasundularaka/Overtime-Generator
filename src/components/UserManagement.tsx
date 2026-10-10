@@ -37,6 +37,13 @@ import { sendUserWelcomeEmail, EmailDispatchResult } from '../utils/emailNotifie
 import { generateStandardPfNumber, formatPfNumber, isValidPfNumber } from '../utils/pfHelper';
 import { upsertStoredAccount } from '../utils/localAuthManager';
 import { recordAuditLog } from '../utils/auditLogger';
+import { Branch, RoleRate } from '../types';
+import {
+  fetchBranchesFromFirestore,
+  subscribeToBranches,
+  fetchRoleRatesFromFirestore,
+  subscribeToRoleRates,
+} from '../utils/branchRoleManager';
 
 export const UserManagement: React.FC = () => {
   const { currentUser, isAdmin, refreshUserProfile } = useAuth();
@@ -44,6 +51,12 @@ export const UserManagement: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'ALL' | 'admin' | 'user'>('ALL');
+  const [branchFilter, setBranchFilter] = useState<string>('ALL');
+  const [corporateRoleFilter, setCorporateRoleFilter] = useState<string>('ALL');
+
+  // Branches & Corporate Roles
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [roleRates, setRoleRates] = useState<RoleRate[]>([]);
 
   // Welcome Email Dispatched Modal
   const [welcomeEmailResult, setWelcomeEmailResult] = useState<EmailDispatchResult | null>(null);
@@ -61,15 +74,18 @@ export const UserManagement: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<UserRole>('user');
+  const [roleId, setRoleId] = useState<string>('');
   const [claimType, setClaimType] = useState<ClaimType>('OT');
   const [employeeNumber, setEmployeeNumber] = useState('');
   const [designation, setDesignation] = useState('');
-  const [branch, setBranch] = useState('Head Office');
+  const [branch, setBranch] = useState('Head Office - Colombo');
+  const [branchCode, setBranchCode] = useState('');
   const [department, setDepartment] = useState('IT & Infrastructure Operations');
   const [maxOtHoursPerDay, setMaxOtHoursPerDay] = useState<number>(2.0);
   const [assignedTemplateIds, setAssignedTemplateIds] = useState<string[]>([]);
   const [hourlyRate, setHourlyRate] = useState<number | ''>('');
   const [daysPay, setDaysPay] = useState<number | ''>('');
+  const [hourlyRateNonWorkingDays, setHourlyRateNonWorkingDays] = useState<number | ''>('');
   const [totalRemuneration, setTotalRemuneration] = useState<number | ''>('');
 
   // Confirmation Modal State
@@ -97,15 +113,34 @@ export const UserManagement: React.FC = () => {
     passToSet?: string;
   } | null>(null);
 
-  // Load templates from Cloud Firestore
+  // Load templates, branches, and roles from Cloud Firestore
   useEffect(() => {
     fetchTemplatesFromFirestore(true).then(tpls => {
       if (tpls && tpls.length > 0) setAvailableTemplates(tpls);
     });
-    const unsub = subscribeToTemplates(tpls => {
+    const unsubTpls = subscribeToTemplates(tpls => {
       if (tpls && tpls.length > 0) setAvailableTemplates(tpls);
     });
-    return () => unsub();
+
+    fetchBranchesFromFirestore().then(bList => {
+      setBranches(bList);
+    });
+    const unsubBranches = subscribeToBranches(bList => {
+      setBranches(bList);
+    });
+
+    fetchRoleRatesFromFirestore().then(rList => {
+      setRoleRates(rList);
+    });
+    const unsubRoles = subscribeToRoleRates(rList => {
+      setRoleRates(rList);
+    });
+
+    return () => {
+      unsubTpls();
+      unsubBranches();
+      unsubRoles();
+    };
   }, []);
 
   // Fetch all users from Firestore
@@ -149,15 +184,20 @@ export const UserManagement: React.FC = () => {
     setEmail('');
     setPassword('');
     setRole('user');
+    setRoleId('');
     setClaimType('OT');
     // Generate standard PF Number starting with PF and 6 digits (e.g. PF123456)
     setEmployeeNumber(generateStandardPfNumber());
     setDesignation('Staff Member');
-    setBranch('Head Office');
+    const firstBranch = branches.length > 0 ? branches[0].name : 'Head Office - Colombo';
+    const firstBranchCode = branches.length > 0 ? branches[0].branchCode : '001';
+    setBranch(firstBranch);
+    setBranchCode(firstBranchCode);
     setDepartment('IT & Infrastructure Operations');
     setMaxOtHoursPerDay(2.0);
     setHourlyRate('');
     setDaysPay('');
+    setHourlyRateNonWorkingDays('');
     setTotalRemuneration('');
     // Default to primary template or all available
     const defTpl = availableTemplates.find(t => t.isDefault) || availableTemplates[0];
@@ -172,18 +212,35 @@ export const UserManagement: React.FC = () => {
     setEmail(user.email);
     setPassword('');
     setRole(user.role);
+    setRoleId(user.roleId || '');
     setClaimType(user.claimType || 'OT');
     setEmployeeNumber(user.employeeNumber || user.pfNumber || '');
     setDesignation(user.designation || '');
-    setBranch(user.branch || 'Head Office');
+    setBranch(user.branch || 'Head Office - Colombo');
+    setBranchCode(user.branchCode || '');
     setDepartment(user.department || 'IT & Infrastructure Operations');
     setMaxOtHoursPerDay(user.maxOtHoursPerDay !== undefined ? user.maxOtHoursPerDay : 2.0);
     setAssignedTemplateIds(user.assignedTemplateIds || []);
     setHourlyRate(user.hourlyRate !== undefined ? user.hourlyRate : '');
     setDaysPay(user.daysPay !== undefined ? user.daysPay : '');
+    setHourlyRateNonWorkingDays(user.hourlyRateNonWorkingDays !== undefined ? user.hourlyRateNonWorkingDays : '');
     setTotalRemuneration(user.totalRemuneration !== undefined ? user.totalRemuneration : '');
     setFormError(null);
     setIsModalOpen(true);
+  };
+
+  const handleSelectRoleRate = (selectedRoleId: string) => {
+    setRoleId(selectedRoleId);
+    if (!selectedRoleId) return;
+    const found = roleRates.find(r => r.id === selectedRoleId);
+    if (found) {
+      setHourlyRate(found.hourlyRateWorkingDays);
+      setDaysPay(found.daysPaymentNonWorkingDays);
+      setHourlyRateNonWorkingDays(found.hourlyRateNonWorkingDays);
+      if (!designation || designation === 'Staff Member') {
+        setDesignation(found.name);
+      }
+    }
   };
 
   const handleSave = (e: React.FormEvent) => {
@@ -232,11 +289,13 @@ export const UserManagement: React.FC = () => {
         const updatedData: Record<string, any> = {
           name: name.trim(),
           role,
+          roleId: roleId || deleteField(),
           claimType,
           employeeNumber: cleanPf,
           pfNumber: cleanPf,
           designation: designation.trim(),
           branch: branch.trim(),
+          branchCode: branchCode || deleteField(),
           department: department.trim(),
           maxOtHoursPerDay: Number(maxOtHoursPerDay) || 0,
           assignedTemplateIds: assignedTemplateIds || [],
@@ -254,6 +313,12 @@ export const UserManagement: React.FC = () => {
           updatedData.daysPay = Number(daysPay);
         } else {
           updatedData.daysPay = deleteField();
+        }
+
+        if (hourlyRateNonWorkingDays !== '' && !isNaN(Number(hourlyRateNonWorkingDays))) {
+          updatedData.hourlyRateNonWorkingDays = Number(hourlyRateNonWorkingDays);
+        } else {
+          updatedData.hourlyRateNonWorkingDays = deleteField();
         }
 
         if (totalRemuneration !== '' && !isNaN(Number(totalRemuneration))) {
@@ -344,6 +409,7 @@ export const UserManagement: React.FC = () => {
           name: name.trim(),
           email: cleanEmail,
           role,
+          roleId: roleId || undefined,
           claimType,
           employeeNumber: cleanPf,
           pfNumber: cleanPf,
@@ -351,6 +417,7 @@ export const UserManagement: React.FC = () => {
           isFirstLogin: true,
           designation: designation.trim(),
           branch: branch.trim(),
+          branchCode: branchCode || undefined,
           department: department.trim(),
           maxOtHoursPerDay: Number(maxOtHoursPerDay) || 0,
           assignedTemplateIds: assignedTemplateIds || [],
@@ -363,6 +430,9 @@ export const UserManagement: React.FC = () => {
         }
         if (daysPay !== '' && !isNaN(Number(daysPay))) {
           newProfile.daysPay = Number(daysPay);
+        }
+        if (hourlyRateNonWorkingDays !== '' && !isNaN(Number(hourlyRateNonWorkingDays))) {
+          newProfile.hourlyRateNonWorkingDays = Number(hourlyRateNonWorkingDays);
         }
         if (totalRemuneration !== '' && !isNaN(Number(totalRemuneration))) {
           newProfile.totalRemuneration = Number(totalRemuneration);
@@ -617,8 +687,13 @@ export const UserManagement: React.FC = () => {
       u.employeeNumber.toLowerCase().includes(searchQuery.toLowerCase());
 
     const matchesRole = roleFilter === 'ALL' || u.role === roleFilter;
+    const matchesBranch = branchFilter === 'ALL' || u.branch === branchFilter;
+    const matchesCorporateRole =
+      corporateRoleFilter === 'ALL' ||
+      u.roleId === corporateRoleFilter ||
+      (u.designation && u.designation.toLowerCase().includes(corporateRoleFilter.toLowerCase()));
 
-    return matchesSearch && matchesRole;
+    return matchesSearch && matchesRole && matchesBranch && matchesCorporateRole;
   });
 
   return (
@@ -656,15 +731,15 @@ export const UserManagement: React.FC = () => {
           </div>
         )}
 
-        {/* Filters */}
-        <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="sm:col-span-2 relative">
+        {/* Filters: Search, System Role, Branch Network, Corporate Role */}
+        <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
             <input
               type="text"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Search user by name, email, PF Number, department..."
+              placeholder="Search by name, email, PF..."
               className="w-full rounded-xl border border-slate-300 bg-white py-2 pl-9 pr-3 text-xs text-slate-800 placeholder:text-slate-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
             />
           </div>
@@ -674,9 +749,35 @@ export const UserManagement: React.FC = () => {
             onChange={e => setRoleFilter(e.target.value as any)}
             className="rounded-xl border border-slate-300 bg-white py-2 px-3 text-xs text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
           >
-            <option value="ALL">All Roles</option>
+            <option value="ALL">All System Roles</option>
             <option value="admin">Administrators Only</option>
             <option value="user">Standard Users Only</option>
+          </select>
+
+          <select
+            value={branchFilter}
+            onChange={e => setBranchFilter(e.target.value)}
+            className="rounded-xl border border-slate-300 bg-white py-2 px-3 text-xs text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+          >
+            <option value="ALL">All Branches</option>
+            {branches.map(b => (
+              <option key={b.id} value={b.name}>
+                {b.name} (Code: {b.branchCode})
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={corporateRoleFilter}
+            onChange={e => setCorporateRoleFilter(e.target.value)}
+            className="rounded-xl border border-slate-300 bg-white py-2 px-3 text-xs text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+          >
+            <option value="ALL">All Assigned Roles</option>
+            {roleRates.map(r => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -717,9 +818,18 @@ export const UserManagement: React.FC = () => {
                       {/* User */}
                       <td className="py-3.5 px-4">
                         <div className="flex items-center gap-2.5">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 font-bold text-slate-700 text-xs">
-                            {u.name.slice(0, 2).toUpperCase()}
-                          </div>
+                          {u.photoURL ? (
+                            <img
+                              src={u.photoURL}
+                              alt={u.name}
+                              referrerPolicy="no-referrer"
+                              className="h-9 w-9 rounded-xl object-cover border border-slate-200 shrink-0 shadow-2xs"
+                            />
+                          ) : (
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 font-bold text-slate-700 text-xs border border-slate-200">
+                              {u.name.slice(0, 2).toUpperCase()}
+                            </div>
+                          )}
                           <div>
                             <div className="font-bold text-slate-900 flex items-center gap-1.5">
                               <span>{u.name}</span>
@@ -1049,12 +1159,11 @@ export const UserManagement: React.FC = () => {
                 </div>
               </div>
 
-              {/* Department & Branch Custom Texts */}
+              {/* Department & Branch Selection */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block font-bold text-slate-700">Department</label>
-                    <span className="text-[10px] text-indigo-600 font-semibold">Custom Text</span>
                   </div>
                   <input
                     type="text"
@@ -1078,28 +1187,64 @@ export const UserManagement: React.FC = () => {
                 </div>
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="block font-bold text-slate-700">Branch</label>
-                    <span className="text-[10px] text-indigo-600 font-semibold">Custom Text</span>
+                    <label className="block font-bold text-slate-700">
+                      Branch <span className="text-rose-500">*</span>
+                    </label>
+                    <span className="text-[10px] text-indigo-600 font-semibold">Sorted A to Z</span>
                   </div>
-                  <input
-                    type="text"
-                    list="user-branch-suggestions"
+                  <select
                     value={branch}
-                    onChange={e => setBranch(e.target.value)}
-                    placeholder="e.g. Head Office - Colombo"
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 bg-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                  />
-                  <datalist id="user-branch-suggestions">
-                    <option value="Head Office - Colombo" />
-                    <option value="BOC Colombo Main Branch" />
-                    <option value="Corporate Branch" />
-                    <option value="Regional Colombo" />
-                    <option value="Kandy Super Grade Branch" />
-                    <option value="Galle Fort Branch" />
-                    <option value="Kurunegala City Branch" />
-                    <option value="Logistics Hub" />
-                  </datalist>
+                    onChange={e => {
+                      const selectedName = e.target.value;
+                      setBranch(selectedName);
+                      const found = branches.find(b => b.name === selectedName);
+                      if (found) {
+                        setBranchCode(found.branchCode);
+                      }
+                    }}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 bg-white font-medium focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  >
+                    {branches.map(b => (
+                      <option key={b.id} value={b.name}>
+                        {b.name} (Code: {b.branchCode})
+                      </option>
+                    ))}
+                    {!branches.some(b => b.name === branch) && branch && (
+                      <option value={branch}>{branch}</option>
+                    )}
+                  </select>
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    Branch code is selected here for administrative traceability, but never printed on claim templates.
+                  </span>
                 </div>
+              </div>
+
+              {/* Corporate Role & Overtime Rates Preset */}
+              <div className="p-3.5 bg-purple-50/70 border border-purple-200 rounded-2xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Briefcase className="w-4 h-4 text-purple-700" />
+                    <span className="font-bold text-purple-950 text-xs">
+                      Corporate Role Preset (Assigned Overtime Rates)
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-semibold text-purple-700">Auto-populates rates</span>
+                </div>
+                <p className="text-[11px] text-purple-900/80">
+                  Select a preconfigured corporate role to automatically assign working days hourly rate, non-working days payment, and non-working days hourly rate.
+                </p>
+                <select
+                  value={roleId}
+                  onChange={e => handleSelectRoleRate(e.target.value)}
+                  className="w-full rounded-xl border border-purple-300 bg-white px-3 py-2 text-slate-800 font-medium text-xs focus:ring-1 focus:ring-purple-500"
+                >
+                  <option value="">-- Choose Corporate Role or Customize Below --</option>
+                  {roleRates.map(r => (
+                    <option key={r.id} value={r.id}>
+                      {r.name} &bull; Working: Rs.{r.hourlyRateWorkingDays}/h | Day: Rs.{r.daysPaymentNonWorkingDays} | Non-Working: Rs.{r.hourlyRateNonWorkingDays}/h
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* PF Number & Designation */}
@@ -1141,7 +1286,7 @@ export const UserManagement: React.FC = () => {
                   <div className="flex items-center gap-1.5">
                     <Banknote className="w-4 h-4 text-indigo-600" />
                     <span className="font-bold text-slate-900 text-xs">
-                      Default Overtime Rates (Form 10756 Remuneration)
+                      Assigned Overtime Rates Matrix (Form 10756 Remuneration)
                     </span>
                   </div>
                   <span className="text-[10px] text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full font-bold">
@@ -1165,8 +1310,10 @@ export const UserManagement: React.FC = () => {
                           // Standard bank salary calculation formula (22 days * 8 hours = 176 work hours per month)
                           const calculatedRate = parseFloat((val / 176).toFixed(2));
                           const calculatedDaysPay = parseFloat((val / 22).toFixed(2));
+                          const calculatedNonWorkingRate = parseFloat((calculatedRate * 1.25).toFixed(2));
                           setHourlyRate(calculatedRate);
                           setDaysPay(calculatedDaysPay);
+                          setHourlyRateNonWorkingDays(calculatedNonWorkingRate);
                         }
                       }}
                       placeholder="e.g. 85000.00"
@@ -1180,7 +1327,7 @@ export const UserManagement: React.FC = () => {
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="block font-bold text-slate-700 text-[11px]">
-                        Hourly OT Rate (Rs.)
+                        Hourly Rate in Working Days (Rs.)
                       </label>
                     </div>
                     <input
@@ -1188,7 +1335,7 @@ export const UserManagement: React.FC = () => {
                       step="0.01"
                       value={hourlyRate}
                       onChange={e => setHourlyRate(e.target.value === '' ? '' : parseFloat(e.target.value))}
-                      placeholder="e.g. 482.95"
+                      placeholder="e.g. 1850.00"
                       className="w-full rounded-xl border border-indigo-300 bg-indigo-50/30 px-3 py-1.5 text-slate-900 font-mono font-bold text-xs"
                     />
                     <span className="text-[10px] text-slate-400 mt-0.5 block">
@@ -1198,18 +1345,37 @@ export const UserManagement: React.FC = () => {
 
                   <div>
                     <label className="block font-bold text-slate-700 mb-1 text-[11px]">
-                      Days Payment of OT (Rs.)
+                      Days Payment in Non-Working Days (Rs.)
                     </label>
                     <input
                       type="number"
                       step="0.01"
                       value={daysPay}
                       onChange={e => setDaysPay(e.target.value === '' ? '' : parseFloat(e.target.value))}
-                      placeholder="e.g. 3863.64"
+                      placeholder="e.g. 12500.00"
                       className="w-full rounded-xl border border-slate-300 px-3 py-1.5 text-slate-800 font-mono text-xs bg-white"
                     />
                     <span className="text-[10px] text-slate-400 mt-0.5 block">
-                      Day's Pay rate
+                      Weekends &amp; Holidays Day Payment
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1 text-[11px]">
+                      Hourly Rate in Non-Working Days (Rs.)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={hourlyRateNonWorkingDays}
+                      onChange={e =>
+                        setHourlyRateNonWorkingDays(e.target.value === '' ? '' : parseFloat(e.target.value))
+                      }
+                      placeholder="e.g. 2312.50"
+                      className="w-full rounded-xl border border-slate-300 px-3 py-1.5 text-slate-800 font-mono text-xs bg-white"
+                    />
+                    <span className="text-[10px] text-slate-400 mt-0.5 block">
+                      Saturday / Sunday / Holiday Hourly Rate
                     </span>
                   </div>
                 </div>

@@ -1,48 +1,33 @@
 import React, { useState } from 'react';
 import {
   Clock,
-  Mail,
   Lock,
   ArrowRight,
-  ShieldCheck,
   AlertCircle,
   User,
   KeyRound,
   CheckCircle2,
   X,
-  Loader2,
-  UserPlus,
-  LogIn,
+  ShieldCheck,
   Building2,
-  Briefcase,
+  Mail,
+  Loader2,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { formatPfNumber, isValidPfNumber, generateStandardPfNumber } from '../utils/pfHelper';
+import { formatPfNumber } from '../utils/pfHelper';
 
 export const AuthScreen: React.FC = () => {
   const {
     loginWithGoogle,
     loginWithIdentifier,
-    registerUser,
     sendPasswordReset,
     authError,
     clearAuthError,
   } = useAuth();
 
-  const [authMode, setAuthMode] = useState<'signin' | 'register'>('signin');
-
   // Sign In Form State
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
-
-  // Register Form State
-  const [regName, setRegName] = useState('');
-  const [regEmail, setRegEmail] = useState('');
-  const [regPf, setRegPf] = useState(generateStandardPfNumber());
-  const [regPassword, setRegPassword] = useState('');
-  const [regConfirmPassword, setRegConfirmPassword] = useState('');
-  const [regDesignation, setRegDesignation] = useState('Staff Member');
-  const [regDepartment, setRegDepartment] = useState('IT & Infrastructure Operations');
 
   const [localError, setLocalError] = useState<string | null>(null);
   const [localSuccess, setLocalSuccess] = useState<string | null>(null);
@@ -69,47 +54,6 @@ export const AuthScreen: React.FC = () => {
     } catch (err: any) {
       console.error('Authentication error', err);
       setLocalError(err.message || 'Authentication failed.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLocalError(null);
-    setLocalSuccess(null);
-    clearAuthError();
-
-    const cleanPf = formatPfNumber(regPf);
-    if (!isValidPfNumber(cleanPf)) {
-      setLocalError('PF Number must be formatted as PF followed by 6 digits (e.g. PF123456).');
-      return;
-    }
-
-    if (regPassword.length < 6) {
-      setLocalError('Password must be at least 6 characters long.');
-      return;
-    }
-
-    if (regPassword !== regConfirmPassword) {
-      setLocalError('Passwords do not match. Please re-enter.');
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      await registerUser({
-        name: regName,
-        email: regEmail,
-        pfNumber: cleanPf,
-        password: regPassword,
-        designation: regDesignation,
-        department: regDepartment,
-      });
-      setLocalSuccess('Account created and signed in successfully!');
-    } catch (err: any) {
-      console.error('Registration error', err);
-      setLocalError(err.message || 'Registration failed.');
     } finally {
       setIsSubmitting(false);
     }
@@ -167,40 +111,11 @@ export const AuthScreen: React.FC = () => {
 
       {/* Card Container */}
       <div className="w-full max-w-md bg-white rounded-3xl p-5 sm:p-8 shadow-2xl border border-slate-100 relative">
-        {/* Auth Mode Toggle Tabs */}
-        <div className="flex rounded-2xl bg-slate-100 p-1 mb-6">
-          <button
-            type="button"
-            onClick={() => {
-              setAuthMode('signin');
-              setLocalError(null);
-              clearAuthError();
-            }}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
-              authMode === 'signin'
-                ? 'bg-white text-indigo-700 shadow-xs'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <LogIn className="w-3.5 h-3.5" />
-            <span>Sign In</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setAuthMode('register');
-              setLocalError(null);
-              clearAuthError();
-            }}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
-              authMode === 'register'
-                ? 'bg-white text-indigo-700 shadow-xs'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <UserPlus className="w-3.5 h-3.5" />
-            <span>Create Account</span>
-          </button>
+        <div className="text-center mb-5">
+          <h2 className="text-lg font-bold text-slate-900">Sign in to your account</h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Access with your assigned PF Number or registered Google account
+          </p>
         </div>
 
         {activeError && (
@@ -217,7 +132,7 @@ export const AuthScreen: React.FC = () => {
           </div>
         )}
 
-        {/* 1-Click Sign in with Google (Available on both tabs) */}
+        {/* 1-Click Sign in with Google */}
         <button
           type="button"
           onClick={handleGoogleSignIn}
@@ -249,203 +164,81 @@ export const AuthScreen: React.FC = () => {
         <div className="relative flex items-center justify-center mb-4">
           <div className="border-t border-slate-200 w-full" />
           <span className="bg-white px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 absolute">
-            {authMode === 'signin' ? 'Or with PF Number' : 'Or fill credentials'}
+            Or with PF Number
           </span>
         </div>
 
         {/* SIGN IN FORM */}
-        {authMode === 'signin' ? (
-          <form onSubmit={handleSignIn} className="space-y-3.5 text-xs">
-            {/* Quick Demo Credentials Chips */}
-            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
-                Quick Test Credentials:
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIdentifier('PF123456');
-                    setPassword('PF123456');
-                  }}
-                  className="px-2 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-mono font-bold text-[11px] border border-indigo-200 transition cursor-pointer flex items-center gap-1"
-                >
-                  <span>PF123456</span>
-                  <span className="text-[9px] font-sans font-normal text-indigo-500">(Staff)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIdentifier('PF100000');
-                    setPassword('PF100000');
-                  }}
-                  className="px-2 py-1 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-700 font-mono font-bold text-[11px] border border-purple-200 transition cursor-pointer flex items-center gap-1"
-                >
-                  <span>PF100000</span>
-                  <span className="text-[9px] font-sans font-normal text-purple-500">(Admin)</span>
-                </button>
-              </div>
+        <form onSubmit={handleSignIn} className="space-y-3.5 text-xs">
+          <div>
+            <label className="block font-bold text-slate-700 mb-1">
+              PF Number (Username)
+            </label>
+            <div className="relative">
+              <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                required
+                value={identifier}
+                onChange={e => setIdentifier(e.target.value)}
+                onBlur={() => {
+                  if (identifier && !identifier.includes('@')) {
+                    setIdentifier(formatPfNumber(identifier));
+                  }
+                }}
+                placeholder="e.g. PF123456"
+                className="w-full rounded-xl border border-slate-300 py-2.5 pl-9 pr-3 text-slate-800 font-medium focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-white"
+              />
             </div>
+            <p className="text-[10px] text-slate-400 mt-1">
+              Your official PF Number assigned by the administrator. Default first password is your PF Number.
+            </p>
+          </div>
 
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">
-                PF Number (Username)
-              </label>
-              <div className="relative">
-                <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                <input
-                  type="text"
-                  required
-                  value={identifier}
-                  onChange={e => setIdentifier(e.target.value)}
-                  onBlur={() => {
-                    if (identifier && !identifier.includes('@')) {
-                      setIdentifier(formatPfNumber(identifier));
-                    }
-                  }}
-                  placeholder="e.g. PF123456 or 123456"
-                  className="w-full rounded-xl border border-slate-300 py-2.5 pl-9 pr-3 text-slate-800 font-medium focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-white"
-                />
-              </div>
-              <p className="text-[10px] text-slate-400 mt-1">
-                Standard format: PF followed by 6 digits (e.g. PF123456). Default initial password is your PF Number.
-              </p>
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block font-bold text-slate-700">Password</label>
+              <button
+                type="button"
+                onClick={() => {
+                  setForgotInput(identifier);
+                  setResetSuccessMessage(null);
+                  setResetErrorMessage(null);
+                  setIsForgotModalOpen(true);
+                }}
+                className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 transition cursor-pointer"
+              >
+                Forgot Password?
+              </button>
             </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block font-bold text-slate-700">Password</label>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setForgotInput(identifier);
-                    setResetSuccessMessage(null);
-                    setResetErrorMessage(null);
-                    setIsForgotModalOpen(true);
-                  }}
-                  className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 transition cursor-pointer"
-                >
-                  Forgot Password?
-                </button>
-              </div>
-              <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full rounded-xl border border-slate-300 py-2.5 pl-9 pr-3 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-white"
-                />
-              </div>
+            <div className="relative">
+              <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full rounded-xl border border-slate-300 py-2.5 pl-9 pr-3 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-white"
+              />
             </div>
+          </div>
 
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full mt-3 py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-md flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-60"
-            >
-              <span>{isSubmitting ? 'Verifying access...' : 'Sign In'}</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </form>
-        ) : (
-          /* REGISTRATION FORM */
-          <form onSubmit={handleRegister} className="space-y-3 text-xs">
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">Full Name</label>
-              <div className="relative">
-                <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                <input
-                  type="text"
-                  required
-                  value={regName}
-                  onChange={e => setRegName(e.target.value)}
-                  placeholder="e.g. Kasun Fernando"
-                  className="w-full rounded-xl border border-slate-300 py-2 pl-9 pr-3 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-white"
-                />
-              </div>
-            </div>
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full mt-3 py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-md flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-60"
+          >
+            <span>{isSubmitting ? 'Verifying access...' : 'Sign In'}</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </form>
 
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">Company Email</label>
-              <div className="relative">
-                <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                <input
-                  type="email"
-                  required
-                  value={regEmail}
-                  onChange={e => setRegEmail(e.target.value)}
-                  placeholder="name@company.com"
-                  className="w-full rounded-xl border border-slate-300 py-2 pl-9 pr-3 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-white"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">
-                PF Number (6 Digits)
-              </label>
-              <div className="relative">
-                <ShieldCheck className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                <input
-                  type="text"
-                  required
-                  value={regPf}
-                  onChange={e => setRegPf(e.target.value.toUpperCase())}
-                  onBlur={() => setRegPf(formatPfNumber(regPf))}
-                  placeholder="e.g. PF123456"
-                  className="w-full rounded-xl border border-slate-300 py-2 pl-9 pr-3 font-mono font-bold text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-white"
-                />
-              </div>
-              <p className="text-[10px] text-slate-400 mt-0.5">
-                Standard format: PF followed by 6 digits (e.g. PF123456)
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Password</label>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                  <input
-                    type="password"
-                    required
-                    value={regPassword}
-                    onChange={e => setRegPassword(e.target.value)}
-                    placeholder="Min 6 chars"
-                    className="w-full rounded-xl border border-slate-300 py-2 pl-9 pr-3 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-white"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Confirm</label>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                  <input
-                    type="password"
-                    required
-                    value={regConfirmPassword}
-                    onChange={e => setRegConfirmPassword(e.target.value)}
-                    placeholder="Repeat password"
-                    className="w-full rounded-xl border border-slate-300 py-2 pl-9 pr-3 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-white"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full mt-3 py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-md flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-60"
-            >
-              <span>{isSubmitting ? 'Creating account...' : 'Create Account & Sign In'}</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </form>
-        )}
+        <div className="mt-5 pt-4 border-t border-slate-100 text-center">
+          <p className="text-[11px] text-slate-400 leading-relaxed">
+            Need an account? User registration is restricted to system administrators. Contact your branch manager or system administrator to create your employee profile.
+          </p>
+        </div>
       </div>
 
       {/* Forgot Password Modal */}

@@ -16,22 +16,51 @@ export interface Holiday {
   createdAt: string;
 }
 
+export interface Branch {
+  id: string;
+  name: string;
+  branchCode: string;
+  address?: string;
+  telephone?: string;
+  email?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface RoleRate {
+  id: string;
+  name: string;
+  description?: string;
+  hourlyRateWorkingDays: number; // Hourly Rate in Working Days (Rs.)
+  daysPaymentNonWorkingDays: number; // Days Payment in Non-Working Days (Rs.)
+  hourlyRateNonWorkingDays: number; // Hourly Rate in Non-Working Days (Rs.)
+  specialHourlyRate?: number; // Special assignment hourly rate (Rs.)
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface UserProfile {
   id: string; // Firebase Auth UID
   email: string;
   name: string;
   role: UserRole;
+  roleId?: string; // Reference to assigned RoleRate definition
+  roleName?: string; // Assigned role title (e.g. Senior Technical Officer)
   claimType: ClaimType; // 'OT' = Overtime, 'OP' = Out of Pocket
   employeeNumber: string; // PF Number (username)
   pfNumber?: string; // Standard PF Number (e.g. PF1001)
+  photoURL?: string; // Google Profile Picture or custom avatar URL
   mustChangePassword?: boolean; // When true, prompt user to change password on login
   isFirstLogin?: boolean;
   designation: string;
   branch: string;
+  branchCode?: string; // Optional branch code stored with profile
   department: string;
   maxOtHoursPerDay?: number; // e.g. 2.0 means 2 hours maximum per day
-  hourlyRate?: number; // Default hourly OT rate in Rs.
-  daysPay?: number; // Default day's pay in Rs.
+  hourlyRate?: number; // Default hourly OT rate in Rs. (Working Days)
+  daysPay?: number; // Default day's pay in Rs. (Non-Working Days)
+  hourlyRateNonWorkingDays?: number; // Default hourly rate in Non-Working Days in Rs.
   totalRemuneration?: number; // Default salary/remuneration in Rs.
   assignedTemplateIds?: string[]; // Templates assigned by admin; user can only access these
   createdAt: string;
@@ -45,15 +74,20 @@ export interface Employee {
   pfNumber?: string;
   designation: string;
   branch: string;
+  branchCode?: string;
+  roleId?: string;
   department: string;
   createdAt: string;
   maxOtHoursPerDay?: number;
   hourlyRate?: number;
   daysPay?: number;
+  hourlyRateNonWorkingDays?: number;
   totalRemuneration?: number;
   claimType?: ClaimType;
   assignedTemplateIds?: string[]; // Templates assigned by admin
   email?: string;
+  photoURL?: string;
+  role?: UserRole;
 }
 
 export interface OvertimeRow {
@@ -200,6 +234,12 @@ export type AuditActionType =
   | 'USER_CREATE'
   | 'USER_UPDATE'
   | 'USER_DELETE'
+  | 'BRANCH_CREATE'
+  | 'BRANCH_UPDATE'
+  | 'BRANCH_DELETE'
+  | 'ROLE_CREATE'
+  | 'ROLE_UPDATE'
+  | 'ROLE_DELETE'
   | 'PASSWORD_RESET'
   | 'PASSWORD_CHANGE'
   | 'CLAIM_CREATE'
@@ -225,7 +265,7 @@ export interface AuditLogEntry {
   userDepartment?: string;
   userRole?: UserRole;
   // Target Information
-  targetType: 'user' | 'claim' | 'template' | 'holiday' | 'settings' | 'auth';
+  targetType: 'user' | 'claim' | 'template' | 'holiday' | 'settings' | 'auth' | 'branch' | 'role';
   targetId?: string;
   targetDescription: string;
   // Additional metadata & changed fields

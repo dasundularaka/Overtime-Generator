@@ -18,6 +18,8 @@ import {
   X,
   ChevronRight,
   Sparkles,
+  Building2,
+  Briefcase,
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { useAuth } from '../context/AuthContext';
@@ -28,6 +30,8 @@ export type NavigationTab =
   | 'new-claim'
   | 'calendar'
   | 'users'
+  | 'branches'
+  | 'roles'
   | 'employees'
   | 'history'
   | 'designer'
@@ -70,6 +74,8 @@ export const Navbar: React.FC<NavbarProps> = ({
     ...(isAdmin
       ? [
           { id: 'users' as NavigationTab, label: 'User Admin', icon: UserCheck, badge: 'Limits' },
+          { id: 'branches' as NavigationTab, label: 'Branches', icon: Building2, badge: 'Network' },
+          { id: 'roles' as NavigationTab, label: 'Roles & Rates', icon: Briefcase, badge: 'OT Rates' },
           { id: 'audit' as NavigationTab, label: 'Audit Logs', icon: ShieldCheck, badge: 'Trace' },
           {
             id: 'designer' as NavigationTab,
@@ -82,7 +88,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'settings' as NavigationTab, label: 'Settings', icon: Settings },
   ];
 
-  const isMoreTabActive = ['users', 'audit', 'designer', 'settings', 'employees'].includes(activeTab);
+  const isMoreTabActive = ['users', 'branches', 'roles', 'audit', 'designer', 'settings', 'employees'].includes(activeTab);
 
   return (
     <header className="sticky top-0 z-40 bg-slate-900 text-white shadow-md border-b border-slate-800">
@@ -140,9 +146,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* User Profile Capsule */}
             {userProfile && (
               <div className="flex items-center gap-2 bg-slate-800/90 border border-slate-700/80 px-2 sm:px-2.5 py-1 rounded-xl">
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-600 font-bold text-white text-[11px] shrink-0">
-                  {userProfile.name?.slice(0, 2).toUpperCase() || 'U'}
-                </div>
+                {userProfile.photoURL ? (
+                  <img
+                    src={userProfile.photoURL}
+                    alt={userProfile.name}
+                    className="h-7 w-7 rounded-lg object-cover border border-slate-600 shrink-0"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-600 font-bold text-white text-[11px] shrink-0">
+                    {userProfile.name?.slice(0, 2).toUpperCase() || 'U'}
+                  </div>
+                )}
                 <div className="text-left">
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs font-bold text-slate-200 truncate max-w-[80px] sm:max-w-[120px]">
@@ -305,14 +320,23 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mb-2" />
 
             <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 rounded-lg bg-indigo-500/20 text-indigo-400">
-                  <ShieldCheck className="w-4 h-4" />
-                </div>
+              <div className="flex items-center gap-2.5">
+                {userProfile?.photoURL ? (
+                  <img
+                    src={userProfile.photoURL}
+                    alt={userProfile.name}
+                    className="w-8 h-8 rounded-xl object-cover border border-slate-600 shrink-0"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="p-1.5 rounded-lg bg-indigo-500/20 text-indigo-400">
+                    <ShieldCheck className="w-4 h-4" />
+                  </div>
+                )}
                 <div>
                   <h3 className="font-bold text-sm text-white">Application Sections</h3>
                   <p className="text-[10px] text-slate-400">
-                    Logged in as {userProfile?.name} ({userProfile?.employeeNumber})
+                    Logged in as {userProfile?.name} ({userProfile?.employeeNumber || userProfile?.pfNumber})
                   </p>
                 </div>
               </div>
@@ -348,16 +372,52 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                   <button
                     onClick={() => {
+                      onSelectTab('branches');
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={`flex items-center gap-2.5 p-3 rounded-2xl border text-left transition cursor-pointer ${
+                      activeTab === 'branches'
+                        ? 'bg-emerald-900/40 border-emerald-500 text-emerald-200 font-bold'
+                        : 'bg-slate-800/80 border-slate-700/80 text-slate-200 hover:bg-slate-700'
+                    }`}
+                  >
+                    <Building2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <div>
+                      <span className="block font-bold">Branches</span>
+                      <span className="text-[10px] text-slate-400">Branch Network</span>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      onSelectTab('roles');
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={`flex items-center gap-2.5 p-3 rounded-2xl border text-left transition cursor-pointer ${
+                      activeTab === 'roles'
+                        ? 'bg-amber-900/40 border-amber-500 text-amber-200 font-bold'
+                        : 'bg-slate-800/80 border-slate-700/80 text-slate-200 hover:bg-slate-700'
+                    }`}
+                  >
+                    <Briefcase className="w-4 h-4 text-amber-400 shrink-0" />
+                    <div>
+                      <span className="block font-bold">Roles &amp; Rates</span>
+                      <span className="text-[10px] text-slate-400">Overtime Rates</span>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => {
                       onSelectTab('audit');
                       setIsMobileMenuOpen(false);
                     }}
                     className={`flex items-center gap-2.5 p-3 rounded-2xl border text-left transition cursor-pointer ${
                       activeTab === 'audit'
-                        ? 'bg-emerald-900/40 border-emerald-500 text-emerald-200 font-bold'
+                        ? 'bg-blue-900/40 border-blue-500 text-blue-200 font-bold'
                         : 'bg-slate-800/80 border-slate-700/80 text-slate-200 hover:bg-slate-700'
                     }`}
                   >
-                    <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <ShieldCheck className="w-4 h-4 text-blue-400 shrink-0" />
                     <div>
                       <span className="block font-bold">Audit Logs</span>
                       <span className="text-[10px] text-slate-400">Traceability</span>
