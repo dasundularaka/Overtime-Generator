@@ -12,21 +12,37 @@ import {
   AlertCircle,
   HelpCircle,
   Award,
+  Building2,
+  FileText,
+  X,
 } from 'lucide-react';
-import { RoleRate } from '../types';
+import { RoleRate, ClaimType, Department } from '../types';
 import {
   fetchRoleRatesFromFirestore,
   subscribeToRoleRates,
   saveRoleRate,
   deleteRoleRate,
+  fetchDepartmentsFromFirestore,
+  subscribeToDepartments,
+  saveDepartment,
+  deleteDepartment,
 } from '../utils/branchRoleManager';
 import { recordAuditLog } from '../utils/auditLogger';
 import { ConfirmationModal } from './ConfirmationModal';
 
 export const RoleManagement: React.FC = () => {
   const [roles, setRoles] = useState<RoleRate[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Department Modal State
+  const [isDeptModalOpen, setIsDeptModalOpen] = useState(false);
+  const [newDeptName, setNewDeptName] = useState('');
+  const [newDeptDesc, setNewDeptDesc] = useState('');
+  const [deptToDelete, setDeptToDelete] = useState<Department | null>(null);
+  const [isSavingDept, setIsSavingDept] = useState(false);
+  const [deptFormError, setDeptFormError] = useState<string | null>(null);
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -35,6 +51,8 @@ export const RoleManagement: React.FC = () => {
   // Form Fields
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [department, setDepartment] = useState('IT & Infrastructure Operations');
+  const [claimType, setClaimType] = useState<ClaimType>('OT');
   const [hourlyRateWorkingDays, setHourlyRateWorkingDays] = useState<number | ''>('');
   const [daysPaymentNonWorkingDays, setDaysPaymentNonWorkingDays] = useState<number | ''>('');
   const [hourlyRateNonWorkingDays, setHourlyRateNonWorkingDays] = useState<number | ''>('');
@@ -57,13 +75,26 @@ export const RoleManagement: React.FC = () => {
       setRoles(list);
       setLoading(false);
     });
-    return () => unsub();
+
+    fetchDepartmentsFromFirestore().then(dList => {
+      setDepartments(dList);
+    });
+    const unsubDepts = subscribeToDepartments(dList => {
+      setDepartments(dList);
+    });
+
+    return () => {
+      unsub();
+      unsubDepts();
+    };
   }, []);
 
   const openCreateModal = () => {
     setEditingRole(null);
     setName('');
     setDescription('');
+    setDepartment(departments.length > 0 ? departments[0].name : 'IT & Infrastructure Operations');
+    setClaimType('OT');
     setHourlyRateWorkingDays('');
     setDaysPaymentNonWorkingDays('');
     setHourlyRateNonWorkingDays('');
@@ -76,12 +107,72 @@ export const RoleManagement: React.FC = () => {
     setEditingRole(r);
     setName(r.name);
     setDescription(r.description || '');
+    setDepartment(r.department || (departments.length > 0 ? departments[0].name : 'Operations'));
+    setClaimType(r.claimType || 'OT');
     setHourlyRateWorkingDays(r.hourlyRateWorkingDays);
     setDaysPaymentNonWorkingDays(r.daysPaymentNonWorkingDays);
     setHourlyRateNonWorkingDays(r.hourlyRateNonWorkingDays);
     setSpecialHourlyRate(r.specialHourlyRate !== undefined ? r.specialHourlyRate : '');
     setFormError(null);
     setIsModalOpen(true);
+  };
+
+  const handleCreateDepartment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setDeptFormError(null);
+    const clean = newDeptName.trim();
+    if (!clean) {
+      setDeptFormError('Please enter a department name.');
+      return;
+    }
+    if (departments.some(d => d.name.toLowerCase() === clean.toLowerCase())) {
+      setDeptFormError('A department with this name already exists.');
+      return;
+    }
+    setIsSavingDept(true);
+    try {
+      const payload: Department = {
+        id: 'dept_' + Date.now(),
+        name: clean,
+        description: newDeptDesc.trim() || undefined,
+        createdAt: new Date().toISOString(),
+      };
+      await saveDepartment(payload);
+      await recordAuditLog({
+        action: 'DEPARTMENT_CREATE',
+        actionLabel: 'Created bank department',
+        targetType: 'department',
+        targetId: payload.id,
+        targetDescription: payload.name,
+      });
+      setNewDeptName('');
+      setNewDeptDesc('');
+      setActionSuccess(`Department "${payload.name}" added successfully.`);
+      setTimeout(() => setActionSuccess(null), 4000);
+    } catch (err: any) {
+      setDeptFormError(err.message || 'Failed to save department.');
+    } finally {
+      setIsSavingDept(false);
+    }
+  };
+
+  const confirmDeleteDept = async () => {
+    if (!deptToDelete) return;
+    try {
+      await deleteDepartment(deptToDelete.id);
+      await recordAuditLog({
+        action: 'DEPARTMENT_DELETE',
+        actionLabel: 'Deleted bank department',
+        targetType: 'department',
+        targetId: deptToDelete.id,
+        targetDescription: deptToDelete.name,
+      });
+      setActionSuccess(`Department "${deptToDelete.name}" removed.`);
+      setTimeout(() => setActionSuccess(null), 4000);
+      setDeptToDelete(null);
+    } catch (err: any) {
+      console.error('Delete department error', err);
+    }
   };
 
   const handleWorkingRateChange = (val: number | '') => {
@@ -129,6 +220,8 @@ export const RoleManagement: React.FC = () => {
         id: editingRole?.id || `role_${Date.now()}`,
         name: cleanName,
         description: description.trim() || undefined,
+        department: department.trim() || undefined,
+        claimType: claimType,
         hourlyRateWorkingDays: Number(hourlyRateWorkingDays),
         daysPaymentNonWorkingDays: Number(daysPaymentNonWorkingDays),
         hourlyRateNonWorkingDays: Number(hourlyRateNonWorkingDays),
@@ -146,6 +239,8 @@ export const RoleManagement: React.FC = () => {
         targetId: payload.id,
         targetDescription: payload.name,
         details: {
+          department: payload.department,
+          claimType: payload.claimType,
           hourlyRateWorkingDays: payload.hourlyRateWorkingDays,
           daysPaymentNonWorkingDays: payload.daysPaymentNonWorkingDays,
           hourlyRateNonWorkingDays: payload.hourlyRateNonWorkingDays,
@@ -217,13 +312,22 @@ export const RoleManagement: React.FC = () => {
             </p>
           </div>
 
-          <button
-            onClick={openCreateModal}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold shadow-xs transition shrink-0 cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add New Role</span>
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setIsDeptModalOpen(true)}
+              className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border border-purple-300 bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-semibold shadow-xs transition cursor-pointer"
+            >
+              <Building2 className="w-4 h-4" />
+              <span>Departments ({departments.length})</span>
+            </button>
+            <button
+              onClick={openCreateModal}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold shadow-xs transition cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add New Role</span>
+            </button>
+          </div>
         </div>
 
         {/* Search */}
@@ -264,6 +368,24 @@ export const RoleManagement: React.FC = () => {
                     <span className="text-[10px] text-slate-400 uppercase font-mono tracking-wider">
                       Role ID: {role.id}
                     </span>
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                      {role.department && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-semibold text-[10px] border border-slate-200">
+                          <Building2 className="w-3 h-3 text-slate-500" />
+                          <span>{role.department}</span>
+                        </span>
+                      )}
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[10px] border ${
+                          role.claimType === 'OP'
+                            ? 'bg-amber-50 text-amber-700 border-amber-200'
+                            : 'bg-blue-50 text-blue-700 border-blue-200'
+                        }`}
+                      >
+                        <FileText className="w-3 h-3" />
+                        <span>{role.claimType || 'OT'} Claim</span>
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -412,6 +534,55 @@ export const RoleManagement: React.FC = () => {
                 />
               </div>
 
+              {/* Department & Default Claim Type Assignment */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-purple-50/50 border border-purple-200 rounded-2xl">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-bold text-slate-800">
+                      Assigned Department <span className="text-rose-500">*</span>
+                    </label>
+                    <span className="text-[10px] text-purple-700 font-semibold">Auto-links</span>
+                  </div>
+                  <input
+                    type="text"
+                    required
+                    list="role-dept-suggestions"
+                    value={department}
+                    onChange={e => setDepartment(e.target.value)}
+                    placeholder="e.g. IT & Infrastructure Operations"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 font-medium focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+                  />
+                  <datalist id="role-dept-suggestions">
+                    {departments.map(d => (
+                      <option key={d.id} value={d.name} />
+                    ))}
+                  </datalist>
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    Auto-populates user department on selection
+                  </span>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-bold text-slate-800">
+                      Assigned Claim Type <span className="text-rose-500">*</span>
+                    </label>
+                    <span className="text-[10px] text-purple-700 font-semibold">Auto-links</span>
+                  </div>
+                  <select
+                    value={claimType}
+                    onChange={e => setClaimType(e.target.value as ClaimType)}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 font-semibold focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+                  >
+                    <option value="OT">OT (Overtime Claim Sheet)</option>
+                    <option value="OP">OP (Out of Pocket Claim Sheet)</option>
+                  </select>
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    Default claim template type for this designation
+                  </span>
+                </div>
+              </div>
+
               {/* Overtime Rates Matrix */}
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
                 <span className="font-bold text-slate-900 text-xs block">
@@ -525,6 +696,138 @@ export const RoleManagement: React.FC = () => {
         title="Delete Corporate Role"
         message={`Are you sure you want to remove role "${roleToDelete?.name}"? Employees assigned to this role will retain their current custom rates.`}
         confirmText={isDeleting ? 'Deleting...' : 'Delete Role'}
+        variant="danger"
+      />
+
+      {/* Manage Departments Modal */}
+      {isDeptModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-fade-in backdrop-blur-xs">
+          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl border border-slate-100 animate-scale-in max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-purple-50 text-purple-700 rounded-xl">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900">Manage Bank Departments</h2>
+                  <p className="text-xs text-slate-500">
+                    Add or remove departments loaded across role assignments and user profiles.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsDeptModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {deptFormError && (
+              <div className="mt-3 p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{deptFormError}</span>
+              </div>
+            )}
+
+            {/* Add New Department Form */}
+            <form onSubmit={handleCreateDepartment} className="mt-4 p-4 rounded-2xl bg-purple-50/60 border border-purple-200 space-y-3">
+              <span className="font-bold text-purple-950 text-xs block">Add New Department to Database</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Department Name <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newDeptName}
+                    onChange={e => setNewDeptName(e.target.value)}
+                    placeholder="e.g. Card Operations & POS"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-slate-800 text-xs focus:ring-1 focus:ring-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Description (Optional)</label>
+                  <input
+                    type="text"
+                    value={newDeptDesc}
+                    onChange={e => setNewDeptDesc(e.target.value)}
+                    placeholder="e.g. Payment card clearing hub"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-slate-800 text-xs focus:ring-1 focus:ring-purple-500"
+                  />
+                </div>
+              </div>
+              <button
+                type="submit"
+                disabled={isSavingDept}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs shadow-xs cursor-pointer disabled:opacity-60"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>{isSavingDept ? 'Saving...' : 'Add Department'}</span>
+              </button>
+            </form>
+
+            {/* Department List */}
+            <div className="mt-4 flex-1 overflow-y-auto pr-1 space-y-2">
+              <span className="text-xs font-bold text-slate-700 block">
+                Active Departments in Database ({departments.length})
+              </span>
+              <div className="space-y-1.5">
+                {departments.map(d => {
+                  const assignedRolesCount = roles.filter(
+                    r => r.department?.toLowerCase() === d.name.toLowerCase()
+                  ).length;
+                  return (
+                    <div
+                      key={d.id}
+                      className="flex items-center justify-between p-2.5 rounded-xl bg-white border border-slate-200 hover:border-slate-300 transition text-xs"
+                    >
+                      <div className="min-w-0 pr-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-900 truncate">{d.name}</span>
+                          <span className="px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600 font-semibold text-[10px]">
+                            {assignedRolesCount} role{assignedRolesCount === 1 ? '' : 's'}
+                          </span>
+                        </div>
+                        {d.description && (
+                          <span className="text-[11px] text-slate-500 block truncate">{d.description}</span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => setDeptToDelete(d)}
+                        className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg shrink-0 transition cursor-pointer"
+                        title="Delete Department"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="pt-3 mt-3 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsDeptModalOpen(false)}
+                className="px-4 py-2 rounded-xl border border-slate-300 text-slate-600 hover:bg-slate-50 font-semibold text-xs cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Department Confirmation */}
+      <ConfirmationModal
+        isOpen={!!deptToDelete}
+        onClose={() => setDeptToDelete(null)}
+        onConfirm={confirmDeleteDept}
+        title="Delete Department"
+        message={`Are you sure you want to delete department "${deptToDelete?.name}"? Roles assigned to this department will not be deleted.`}
+        confirmText="Delete Department"
         variant="danger"
       />
     </div>

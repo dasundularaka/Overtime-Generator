@@ -1,11 +1,12 @@
 import { collection, doc, getDocs, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase/config';
-import { Branch, RoleRate } from '../types';
+import { Branch, RoleRate, Department } from '../types';
 import { sanitizeFirestoreData } from './firestoreUtils';
 
 const STORAGE_KEYS = {
   BRANCHES: 'ot_manager_branches_v1',
   ROLES: 'ot_manager_roles_v1',
+  DEPARTMENTS: 'ot_manager_departments_v1',
 };
 
 export const DEFAULT_BRANCHES: Branch[] = [
@@ -86,6 +87,8 @@ export const DEFAULT_ROLE_RATES: RoleRate[] = [
     id: 'role_to',
     name: 'Technical Officer',
     description: 'Technical officer responsible for infrastructure & IT maintenance.',
+    department: 'IT & Infrastructure Operations',
+    claimType: 'OT',
     hourlyRateWorkingDays: 1850,
     daysPaymentNonWorkingDays: 12500,
     hourlyRateNonWorkingDays: 2312.5,
@@ -96,6 +99,8 @@ export const DEFAULT_ROLE_RATES: RoleRate[] = [
     id: 'role_sre',
     name: 'Senior Systems Engineer',
     description: 'Core infrastructure, networking, and critical server reliability.',
+    department: 'IT & Infrastructure Operations',
+    claimType: 'OT',
     hourlyRateWorkingDays: 2100,
     daysPaymentNonWorkingDays: 14000,
     hourlyRateNonWorkingDays: 2625,
@@ -106,6 +111,8 @@ export const DEFAULT_ROLE_RATES: RoleRate[] = [
     id: 'role_sysadmin',
     name: 'Lead Systems Administrator',
     description: 'Enterprise systems oversight, security, and administrative duties.',
+    department: 'Core Banking & Systems',
+    claimType: 'OT',
     hourlyRateWorkingDays: 2500,
     daysPaymentNonWorkingDays: 16000,
     hourlyRateNonWorkingDays: 3125,
@@ -116,6 +123,8 @@ export const DEFAULT_ROLE_RATES: RoleRate[] = [
     id: 'role_staff',
     name: 'Staff Member / Operations Assistant',
     description: 'General administrative support and operations execution.',
+    department: 'Branch Operations & Clearing',
+    claimType: 'OT',
     hourlyRateWorkingDays: 1250,
     daysPaymentNonWorkingDays: 8500,
     hourlyRateNonWorkingDays: 1562.5,
@@ -126,6 +135,8 @@ export const DEFAULT_ROLE_RATES: RoleRate[] = [
     id: 'role_officer',
     name: 'Banking Officer / Analyst',
     description: 'Branch operations, account verification, and document auditing.',
+    department: 'Corporate Banking Division',
+    claimType: 'OT',
     hourlyRateWorkingDays: 1550,
     daysPaymentNonWorkingDays: 10500,
     hourlyRateNonWorkingDays: 1937.5,
@@ -320,6 +331,20 @@ export async function saveRoleRate(role: RoleRate): Promise<void> {
   const updated = idx >= 0 ? [...local] : [role, ...local];
   if (idx >= 0) updated[idx] = role;
   saveLocalRoleRates(updated);
+
+  // If role has department, automatically save to departments collection too
+  if (role.department && role.department.trim()) {
+    const deptName = role.department.trim();
+    const depts = getLocalDepartments();
+    if (!depts.some(d => d.name.toLowerCase() === deptName.toLowerCase())) {
+      const newDept: Department = {
+        id: 'dept_' + Date.now(),
+        name: deptName,
+        createdAt: new Date().toISOString(),
+      };
+      saveDepartment(newDept).catch(() => {});
+    }
+  }
 }
 
 export async function deleteRoleRate(roleId: string): Promise<void> {
@@ -327,3 +352,164 @@ export async function deleteRoleRate(roleId: string): Promise<void> {
   const local = getLocalRoleRates().filter(r => r.id !== roleId);
   saveLocalRoleRates(local);
 }
+
+// ---------------- Departments Helpers ----------------
+
+export const DEFAULT_DEPARTMENTS: Department[] = [
+  {
+    id: 'dept_it',
+    name: 'IT & Infrastructure Operations',
+    description: 'Enterprise IT, systems maintenance, hardware & network operations',
+    createdAt: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'dept_core',
+    name: 'Core Banking & Systems',
+    description: 'Core financial transactions and database administration',
+    createdAt: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'dept_branch',
+    name: 'Branch Operations & Clearing',
+    description: 'Branch customer services, teller processing, and cheque clearing',
+    createdAt: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'dept_corp',
+    name: 'Corporate Banking Division',
+    description: 'Corporate client accounts, credit lines, and trade finance',
+    createdAt: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'dept_treasury',
+    name: 'Treasury & Foreign Exchange',
+    description: 'Money market operations, forex desk, and liquidity management',
+    createdAt: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'dept_finance',
+    name: 'Finance & Accounts',
+    description: 'Financial reporting, auditing, ledger reconciliation & tax',
+    createdAt: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'dept_hr',
+    name: 'Human Resources Division',
+    description: 'Staffing, employee welfare, compensation & benefits',
+    createdAt: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'dept_facilities',
+    name: 'Engineering & Facilities',
+    description: 'Premises upkeep, electrical, HVAC & physical infrastructure',
+    createdAt: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'dept_audit',
+    name: 'Audit & Compliance',
+    description: 'Regulatory compliance, internal controls, and inspection',
+    createdAt: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'dept_risk',
+    name: 'Credit & Risk Management',
+    description: 'Risk assessment, loan audit, and credit monitoring',
+    createdAt: '2026-01-01T00:00:00.000Z',
+  },
+];
+
+export function getLocalDepartments(): Department[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.DEPARTMENTS);
+    if (!raw) {
+      localStorage.setItem(STORAGE_KEYS.DEPARTMENTS, JSON.stringify(DEFAULT_DEPARTMENTS));
+      return DEFAULT_DEPARTMENTS;
+    }
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_DEPARTMENTS;
+  } catch {
+    return DEFAULT_DEPARTMENTS;
+  }
+}
+
+export function saveLocalDepartments(departments: Department[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.DEPARTMENTS, JSON.stringify(departments));
+  } catch (e) {
+    console.warn('Could not save local departments', e);
+  }
+}
+
+export async function fetchDepartmentsFromFirestore(): Promise<Department[]> {
+  try {
+    const snap = await getDocs(collection(db, 'departments'));
+    if (!snap.empty) {
+      const list: Department[] = [];
+      snap.forEach(d => {
+        const data = d.data() as Department;
+        list.push({ ...data, id: data.id || d.id });
+      });
+      list.sort((a, b) => a.name.localeCompare(b.name));
+      saveLocalDepartments(list);
+      return list;
+    } else {
+      for (const d of DEFAULT_DEPARTMENTS) {
+        await setDoc(doc(db, 'departments', d.id), sanitizeFirestoreData(d)).catch(() => {});
+      }
+      return DEFAULT_DEPARTMENTS;
+    }
+  } catch (e) {
+    console.warn('Could not fetch departments from Firestore, using local cache', e);
+    return getLocalDepartments();
+  }
+}
+
+export function subscribeToDepartments(callback: (departments: Department[]) => void): () => void {
+  try {
+    return onSnapshot(
+      collection(db, 'departments'),
+      snap => {
+        if (!snap.empty) {
+          const list: Department[] = [];
+          snap.forEach(d => {
+            const data = d.data() as Department;
+            list.push({ ...data, id: data.id || d.id });
+          });
+          list.sort((a, b) => a.name.localeCompare(b.name));
+          saveLocalDepartments(list);
+          callback(list);
+        } else {
+          callback(getLocalDepartments());
+        }
+      },
+      err => {
+        console.warn('Departments snapshot listener error, using local fallback:', err);
+        callback(getLocalDepartments());
+      }
+    );
+  } catch {
+    callback(getLocalDepartments());
+    return () => {};
+  }
+}
+
+export async function saveDepartment(department: Department): Promise<void> {
+  const clean = sanitizeFirestoreData({
+    ...department,
+    updatedAt: new Date().toISOString(),
+  });
+  await setDoc(doc(db, 'departments', department.id), clean);
+  const local = getLocalDepartments();
+  const idx = local.findIndex(d => d.id === department.id);
+  const updated = idx >= 0 ? [...local] : [department, ...local];
+  if (idx >= 0) updated[idx] = department;
+  updated.sort((a, b) => a.name.localeCompare(b.name));
+  saveLocalDepartments(updated);
+}
+
+export async function deleteDepartment(departmentId: string): Promise<void> {
+  await deleteDoc(doc(db, 'departments', departmentId));
+  const local = getLocalDepartments().filter(d => d.id !== departmentId);
+  saveLocalDepartments(local);
+}
+

@@ -28,10 +28,20 @@ export interface Branch {
   updatedAt?: string;
 }
 
+export interface Department {
+  id: string;
+  name: string;
+  description?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface RoleRate {
   id: string;
   name: string;
   description?: string;
+  department?: string; // Assigned department for this role/designation
+  claimType?: ClaimType; // Default claim type for this role ('OT' or 'OP')
   hourlyRateWorkingDays: number; // Hourly Rate in Working Days (Rs.)
   daysPaymentNonWorkingDays: number; // Days Payment in Non-Working Days (Rs.)
   hourlyRateNonWorkingDays: number; // Hourly Rate in Non-Working Days (Rs.)
@@ -240,6 +250,8 @@ export type AuditActionType =
   | 'ROLE_CREATE'
   | 'ROLE_UPDATE'
   | 'ROLE_DELETE'
+  | 'DEPARTMENT_CREATE'
+  | 'DEPARTMENT_DELETE'
   | 'PASSWORD_RESET'
   | 'PASSWORD_CHANGE'
   | 'CLAIM_CREATE'
@@ -265,7 +277,7 @@ export interface AuditLogEntry {
   userDepartment?: string;
   userRole?: UserRole;
   // Target Information
-  targetType: 'user' | 'claim' | 'template' | 'holiday' | 'settings' | 'auth' | 'branch' | 'role';
+  targetType: 'user' | 'claim' | 'template' | 'holiday' | 'settings' | 'auth' | 'branch' | 'role' | 'department';
   targetId?: string;
   targetDescription: string;
   // Additional metadata & changed fields

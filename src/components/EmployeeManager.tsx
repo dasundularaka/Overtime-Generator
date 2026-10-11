@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
-import { Employee, UserProfile, Branch, RoleRate } from '../types';
+import { Employee, UserProfile, Branch, RoleRate, Department } from '../types';
 import { useAuth } from '../context/AuthContext';
 import {
   getEmployees,
@@ -32,6 +32,8 @@ import {
   subscribeToBranches,
   fetchRoleRatesFromFirestore,
   subscribeToRoleRates,
+  fetchDepartmentsFromFirestore,
+  subscribeToDepartments,
 } from '../utils/branchRoleManager';
 import { recordAuditLog } from '../utils/auditLogger';
 import { ConfirmationModal } from './ConfirmationModal';
@@ -47,9 +49,10 @@ export const EmployeeManager: React.FC = () => {
   const [branchFilter, setBranchFilter] = useState<string>('ALL');
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
 
-  // Branches & Roles
+  // Branches, Roles & Departments from database
   const [branches, setBranches] = useState<Branch[]>([]);
   const [roleRates, setRoleRates] = useState<RoleRate[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -129,9 +132,13 @@ export const EmployeeManager: React.FC = () => {
     fetchRoleRatesFromFirestore().then(r => setRoleRates(r));
     const unsubRoles = subscribeToRoleRates(r => setRoleRates(r));
 
+    fetchDepartmentsFromFirestore().then(d => setDepartments(d));
+    const unsubDepts = subscribeToDepartments(d => setDepartments(d));
+
     return () => {
       unsubBranches();
       unsubRoles();
+      unsubDepts();
     };
   }, []);
 
@@ -139,17 +146,29 @@ export const EmployeeManager: React.FC = () => {
     setEditingEmployee(null);
     setName('');
     setEmployeeNumber('');
-    setDesignation('');
+    const firstRole = roleRates.length > 0 ? roleRates[0] : null;
+    const initialDesignation = firstRole ? firstRole.name : 'Staff Member';
+    setDesignation(initialDesignation);
+    setRoleId(firstRole ? firstRole.id : '');
     const userBranch = userProfile?.branch || (branches.length > 0 ? branches[0].name : 'Head Office - Colombo');
     setBranch(userBranch);
     const foundBranch = branches.find(b => b.name === userBranch);
     setBranchCode(foundBranch ? foundBranch.branchCode : '');
-    setDepartment(settings.defaultDepartment || 'IT & Infrastructure Operations');
-    setHourlyRate('');
-    setDaysPay('');
-    setHourlyRateNonWorkingDays('');
+    if (firstRole?.department) {
+      setDepartment(firstRole.department);
+    } else {
+      setDepartment(departments.length > 0 ? departments[0].name : 'IT & Infrastructure Operations');
+    }
+    if (firstRole) {
+      setHourlyRate(firstRole.hourlyRateWorkingDays);
+      setDaysPay(firstRole.daysPaymentNonWorkingDays);
+      setHourlyRateNonWorkingDays(firstRole.hourlyRateNonWorkingDays);
+    } else {
+      setHourlyRate('');
+      setDaysPay('');
+      setHourlyRateNonWorkingDays('');
+    }
     setTotalRemuneration('');
-    setRoleId('');
     setIsModalOpen(true);
   };
 
@@ -169,16 +188,17 @@ export const EmployeeManager: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleRolePreset = (rId: string) => {
-    setRoleId(rId);
-    if (!rId) return;
-    const found = roleRates.find(r => r.id === rId);
+  const handleDesignationSelect = (selectedName: string) => {
+    setDesignation(selectedName);
+    if (!selectedName) return;
+    const found = roleRates.find(r => r.name === selectedName);
     if (found) {
+      setRoleId(found.id);
       setHourlyRate(found.hourlyRateWorkingDays);
       setDaysPay(found.daysPaymentNonWorkingDays);
       setHourlyRateNonWorkingDays(found.hourlyRateNonWorkingDays);
-      if (!designation || designation === 'Staff Member') {
-        setDesignation(found.name);
+      if (found.department) {
+        setDepartment(found.department);
       }
     }
   };
@@ -653,45 +673,60 @@ export const EmployeeManager: React.FC = () => {
                 </select>
               </div>
 
-              {/* Corporate Role Preset */}
+              {/* Designation Dropdown (Sorted A to Z, no payment rates displayed) */}
               <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Corporate Role Overtime Preset
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-bold text-slate-700">
+                    Designation <span className="text-rose-500">*</span>
+                  </label>
+                  <span className="text-[10px] text-indigo-600 font-semibold">Sorted A to Z</span>
+                </div>
                 <select
-                  value={roleId}
-                  onChange={e => handleRolePreset(e.target.value)}
-                  className="w-full rounded-xl border border-purple-300 bg-purple-50/30 px-3 py-2 text-slate-800 font-medium text-xs focus:ring-1 focus:ring-purple-500"
+                  value={designation}
+                  onChange={e => handleDesignationSelect(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 bg-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-medium"
                 >
-                  <option value="">-- Custom Rates or Select Preset --</option>
+                  <option value="">-- Select Designation --</option>
                   {roleRates.map(r => (
-                    <option key={r.id} value={r.id}>
-                      {r.name} (Working: Rs.{r.hourlyRateWorkingDays} | Day: Rs.{r.daysPaymentNonWorkingDays})
+                    <option key={r.id} value={r.name}>
+                      {r.name}
                     </option>
                   ))}
+                  {!roleRates.some(r => r.name === designation) && designation && (
+                    <option value={designation}>{designation}</option>
+                  )}
                 </select>
+                <span className="text-[10px] text-slate-400 mt-0.5 block">
+                  Designation from database. Rates and department load automatically.
+                </span>
               </div>
 
+              {/* Department Dropdown (Auto-loaded with designation) */}
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Designation</label>
-                <input
-                  type="text"
-                  value={designation}
-                  onChange={e => setDesignation(e.target.value)}
-                  placeholder="e.g. Senior Technical Officer"
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Department</label>
-                <input
-                  type="text"
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-bold text-slate-700">
+                    Department <span className="text-rose-500">*</span>
+                  </label>
+                  <span className="text-[10px] text-indigo-600 font-semibold">Auto-loaded with designation</span>
+                </div>
+                <select
                   value={department}
                   onChange={e => setDepartment(e.target.value)}
-                  placeholder="e.g. IT Operations & Infrastructure"
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                />
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 bg-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-medium"
+                >
+                  <option value="">-- Select Department --</option>
+                  {departments.map(d => (
+                    <option key={d.id} value={d.name}>
+                      {d.name}
+                    </option>
+                  ))}
+                  {!departments.some(d => d.name === department) && department && (
+                    <option value={department}>{department}</option>
+                  )}
+                </select>
+                <span className="text-[10px] text-slate-400 mt-0.5 block">
+                  Assigned department. Loads automatically when designation is selected.
+                </span>
               </div>
 
               {/* Overtime Rates Form 10756 Remuneration */}
