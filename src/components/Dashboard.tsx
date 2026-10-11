@@ -246,7 +246,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       </div>
 
       {/* Metric KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         {/* Total Overtime Hours */}
         <div className="rounded-2xl bg-white p-5 shadow-xs border border-slate-200">
           <div className="flex items-center justify-between">
