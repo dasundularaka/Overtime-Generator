@@ -150,14 +150,11 @@ export const DEFAULT_ROLE_RATES: RoleRate[] = [
 export function getLocalBranches(): Branch[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.BRANCHES);
-    if (!raw) {
-      localStorage.setItem(STORAGE_KEYS.BRANCHES, JSON.stringify(DEFAULT_BRANCHES));
-      return DEFAULT_BRANCHES;
-    }
+    if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_BRANCHES;
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
-    return DEFAULT_BRANCHES;
+    return [];
   }
 }
 
@@ -172,23 +169,15 @@ export function saveLocalBranches(branches: Branch[]): void {
 export async function fetchBranchesFromFirestore(): Promise<Branch[]> {
   try {
     const snap = await getDocs(collection(db, 'branches'));
-    if (!snap.empty) {
-      const list: Branch[] = [];
-      snap.forEach(d => {
-        const data = d.data() as Branch;
-        list.push({ ...data, id: data.id || d.id });
-      });
-      // Sort A to Z by name
-      list.sort((a, b) => a.name.localeCompare(b.name));
-      saveLocalBranches(list);
-      return list;
-    } else {
-      // Seed default branches to Firestore
-      for (const b of DEFAULT_BRANCHES) {
-        await setDoc(doc(db, 'branches', b.id), sanitizeFirestoreData(b)).catch(() => {});
-      }
-      return DEFAULT_BRANCHES;
-    }
+    const list: Branch[] = [];
+    snap.forEach(d => {
+      const data = d.data() as Branch;
+      list.push({ ...data, id: data.id || d.id });
+    });
+    // Sort A to Z by name
+    list.sort((a, b) => a.name.localeCompare(b.name));
+    saveLocalBranches(list);
+    return list;
   } catch (e) {
     console.warn('Could not fetch branches from Firestore, using local cache', e);
     return getLocalBranches();
@@ -200,18 +189,14 @@ export function subscribeToBranches(callback: (branches: Branch[]) => void): () 
     return onSnapshot(
       collection(db, 'branches'),
       snap => {
-        if (!snap.empty) {
-          const list: Branch[] = [];
-          snap.forEach(d => {
-            const data = d.data() as Branch;
-            list.push({ ...data, id: data.id || d.id });
-          });
-          list.sort((a, b) => a.name.localeCompare(b.name));
-          saveLocalBranches(list);
-          callback(list);
-        } else {
-          callback(getLocalBranches());
-        }
+        const list: Branch[] = [];
+        snap.forEach(d => {
+          const data = d.data() as Branch;
+          list.push({ ...data, id: data.id || d.id });
+        });
+        list.sort((a, b) => a.name.localeCompare(b.name));
+        saveLocalBranches(list);
+        callback(list);
       },
       err => {
         console.warn('Branches snapshot listener error, using local fallback:', err);
@@ -248,14 +233,11 @@ export async function deleteBranch(branchId: string): Promise<void> {
 export function getLocalRoleRates(): RoleRate[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.ROLES);
-    if (!raw) {
-      localStorage.setItem(STORAGE_KEYS.ROLES, JSON.stringify(DEFAULT_ROLE_RATES));
-      return DEFAULT_ROLE_RATES;
-    }
+    if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_ROLE_RATES;
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
-    return DEFAULT_ROLE_RATES;
+    return [];
   }
 }
 
@@ -270,21 +252,14 @@ export function saveLocalRoleRates(roles: RoleRate[]): void {
 export async function fetchRoleRatesFromFirestore(): Promise<RoleRate[]> {
   try {
     const snap = await getDocs(collection(db, 'roles'));
-    if (!snap.empty) {
-      const list: RoleRate[] = [];
-      snap.forEach(d => {
-        const data = d.data() as RoleRate;
-        list.push({ ...data, id: data.id || d.id });
-      });
-      list.sort((a, b) => a.name.localeCompare(b.name));
-      saveLocalRoleRates(list);
-      return list;
-    } else {
-      for (const r of DEFAULT_ROLE_RATES) {
-        await setDoc(doc(db, 'roles', r.id), sanitizeFirestoreData(r)).catch(() => {});
-      }
-      return DEFAULT_ROLE_RATES;
-    }
+    const list: RoleRate[] = [];
+    snap.forEach(d => {
+      const data = d.data() as RoleRate;
+      list.push({ ...data, id: data.id || d.id });
+    });
+    list.sort((a, b) => a.name.localeCompare(b.name));
+    saveLocalRoleRates(list);
+    return list;
   } catch (e) {
     console.warn('Could not fetch roles from Firestore, using local cache', e);
     return getLocalRoleRates();
@@ -296,18 +271,14 @@ export function subscribeToRoleRates(callback: (roles: RoleRate[]) => void): () 
     return onSnapshot(
       collection(db, 'roles'),
       snap => {
-        if (!snap.empty) {
-          const list: RoleRate[] = [];
-          snap.forEach(d => {
-            const data = d.data() as RoleRate;
-            list.push({ ...data, id: data.id || d.id });
-          });
-          list.sort((a, b) => a.name.localeCompare(b.name));
-          saveLocalRoleRates(list);
-          callback(list);
-        } else {
-          callback(getLocalRoleRates());
-        }
+        const list: RoleRate[] = [];
+        snap.forEach(d => {
+          const data = d.data() as RoleRate;
+          list.push({ ...data, id: data.id || d.id });
+        });
+        list.sort((a, b) => a.name.localeCompare(b.name));
+        saveLocalRoleRates(list);
+        callback(list);
       },
       err => {
         console.warn('Roles snapshot listener error, using local fallback:', err);
@@ -421,14 +392,11 @@ export const DEFAULT_DEPARTMENTS: Department[] = [
 export function getLocalDepartments(): Department[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.DEPARTMENTS);
-    if (!raw) {
-      localStorage.setItem(STORAGE_KEYS.DEPARTMENTS, JSON.stringify(DEFAULT_DEPARTMENTS));
-      return DEFAULT_DEPARTMENTS;
-    }
+    if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_DEPARTMENTS;
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
-    return DEFAULT_DEPARTMENTS;
+    return [];
   }
 }
 
@@ -443,21 +411,14 @@ export function saveLocalDepartments(departments: Department[]): void {
 export async function fetchDepartmentsFromFirestore(): Promise<Department[]> {
   try {
     const snap = await getDocs(collection(db, 'departments'));
-    if (!snap.empty) {
-      const list: Department[] = [];
-      snap.forEach(d => {
-        const data = d.data() as Department;
-        list.push({ ...data, id: data.id || d.id });
-      });
-      list.sort((a, b) => a.name.localeCompare(b.name));
-      saveLocalDepartments(list);
-      return list;
-    } else {
-      for (const d of DEFAULT_DEPARTMENTS) {
-        await setDoc(doc(db, 'departments', d.id), sanitizeFirestoreData(d)).catch(() => {});
-      }
-      return DEFAULT_DEPARTMENTS;
-    }
+    const list: Department[] = [];
+    snap.forEach(d => {
+      const data = d.data() as Department;
+      list.push({ ...data, id: data.id || d.id });
+    });
+    list.sort((a, b) => a.name.localeCompare(b.name));
+    saveLocalDepartments(list);
+    return list;
   } catch (e) {
     console.warn('Could not fetch departments from Firestore, using local cache', e);
     return getLocalDepartments();
@@ -469,18 +430,14 @@ export function subscribeToDepartments(callback: (departments: Department[]) => 
     return onSnapshot(
       collection(db, 'departments'),
       snap => {
-        if (!snap.empty) {
-          const list: Department[] = [];
-          snap.forEach(d => {
-            const data = d.data() as Department;
-            list.push({ ...data, id: data.id || d.id });
-          });
-          list.sort((a, b) => a.name.localeCompare(b.name));
-          saveLocalDepartments(list);
-          callback(list);
-        } else {
-          callback(getLocalDepartments());
-        }
+        const list: Department[] = [];
+        snap.forEach(d => {
+          const data = d.data() as Department;
+          list.push({ ...data, id: data.id || d.id });
+        });
+        list.sort((a, b) => a.name.localeCompare(b.name));
+        saveLocalDepartments(list);
+        callback(list);
       },
       err => {
         console.warn('Departments snapshot listener error, using local fallback:', err);

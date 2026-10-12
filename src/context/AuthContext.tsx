@@ -72,7 +72,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const clearAuthError = () => setAuthError(null);
 
   // Sync profile from Firestore with strict registration verification and real name preservation
-  const fetchProfile = async (user: FirebaseUser): Promise<UserProfile> => {
+  const fetchProfile = async (user: FirebaseUser): Promise<UserProfile | null> => {
     const userDocRef = doc(db, 'users', user.uid);
     const userEmail = (user.email || '').toLowerCase().trim();
     const isBootstrapAdmin = userEmail === BOOTSTRAP_ADMIN_EMAIL.toLowerCase();
@@ -150,24 +150,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    // 2.5 Check stored accounts in localAuthManager
-    const localAcc = findStoredAccount(userEmail) || (userEmail ? findStoredAccount(userEmail.split('@')[0]) : null);
-    if (localAcc) {
-      const linkedProfile: UserProfile = {
-        ...localAcc,
-        id: user.uid,
-        email: userEmail,
-        photoURL: user.photoURL || localAcc.photoURL,
-        updatedAt: new Date().toISOString(),
-      };
-      try {
-        await setDoc(userDocRef, sanitizeFirestoreData(linkedProfile));
-      } catch (err) {
-        console.warn('Could not sync local account to Firestore', err);
-      }
-      return linkedProfile;
-    }
-
     // 3. Special case: Designated Bootstrap Admin first-time sign in
     if (isBootstrapAdmin) {
       const bootstrapProfile: UserProfile = {
@@ -183,6 +165,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         branch: 'Head Office - Colombo',
         department: 'IT & Infrastructure Operations',
         maxOtHoursPerDay: 2.0,
+        shiftStartTime: '08:00',
+        shiftEndTime: '16:45',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -198,29 +182,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return bootstrapProfile;
     }
 
-    // 4. Create standard user profile for newly registered users rather than kicking them out
-    const cleanPf = formatPfNumber(user.displayName || 'PF' + Math.floor(100000 + Math.random() * 900000));
-    const autoProfile: UserProfile = {
-      id: user.uid,
-      email: userEmail,
-      name: user.displayName || 'Staff Member',
-      role: 'user',
-      claimType: 'OT',
-      employeeNumber: cleanPf,
-      pfNumber: cleanPf,
-      photoURL: user.photoURL || undefined,
-      designation: 'Staff Member',
-      branch: 'Head Office - Colombo',
-      department: 'IT & Infrastructure Operations',
-      maxOtHoursPerDay: 2.0,
-      assignedTemplateIds: ['standard-official-template-v1'],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    try {
-      await setDoc(userDocRef, sanitizeFirestoreData(autoProfile));
-    } catch {}
-    return autoProfile;
+    // 4. Do NOT auto-create mock or demo user profiles when deleted from the database.
+    // If not found in Firestore, the account has been removed or does not exist.
+    return null;
   };
 
   useEffect(() => {
@@ -241,18 +205,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (user) {
         try {
           const profile = await fetchProfile(user);
+          if (!profile) {
+            clearActiveSession();
+            setCurrentUser(null);
+            setUserProfile(null);
+            await fbSignOut(auth).catch(() => {});
+            setAuthError('Your user account has been removed or is not registered in the system.');
+            setLoading(false);
+            return;
+          }
           setCurrentUser(user);
           setUserProfile(profile);
           setActiveSession(profile);
           setAuthError(null);
         } catch (e: any) {
           console.warn('Authentication rejected:', e.message);
-          if (!savedSession) {
-            clearActiveSession();
-            setCurrentUser(null);
-            setUserProfile(null);
-            setAuthError(e.message || 'Access Denied: Your email is not registered in the system.');
-          }
+          clearActiveSession();
+          setCurrentUser(null);
+          setUserProfile(null);
+          setAuthError(e.message || 'Access Denied: Your account is not registered in the system.');
         }
       } else {
         if (!savedSession) {
@@ -270,9 +241,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (auth.currentUser) {
       try {
         const p = await fetchProfile(auth.currentUser);
-        setUserProfile(p);
-        setActiveSession(p);
-        return;
+        if (p) {
+          setUserProfile(p);
+          setActiveSession(p);
+          return;
+        }
       } catch (e) {
         console.warn('refreshUserProfile note', e);
       }
@@ -289,6 +262,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const cred = await signInWithPopup(auth, googleProvider);
       const profile = await fetchProfile(cred.user);
+      if (!profile) {
+        await fbSignOut(auth).catch(() => {});
+        clearActiveSession();
+        setCurrentUser(null);
+        setUserProfile(null);
+        const msg = 'Access Denied: Your account has been removed or is not registered in the system.';
+        setAuthError(msg);
+        throw new Error(msg);
+      }
       setCurrentUser(cred.user);
       setUserProfile(profile);
       setActiveSession(profile);
@@ -572,22 +554,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       let finalProfile: UserProfile;
       if (authUser) {
         try {
-          finalProfile = await fetchProfile(authUser);
+          const fetched = await fetchProfile(authUser);
+          if (fetched) {
+            finalProfile = fetched;
+          } else if (candidateProfile) {
+            finalProfile = candidateProfile;
+          } else {
+            throw new Error('User profile does not exist in the database.');
+          }
         } catch {
-          finalProfile = candidateProfile || {
-            id: authUser.uid,
-            email: targetEmail,
-            name: authUser.displayName || 'Staff Member',
-            role: targetEmail === BOOTSTRAP_ADMIN_EMAIL.toLowerCase() ? 'admin' : 'user',
-            claimType: 'OT',
-            employeeNumber: standardPf || cleanUpper || 'PF100000',
-            pfNumber: standardPf || cleanUpper || 'PF100000',
-            designation: 'Staff Member',
-            branch: 'Head Office',
-            department: 'IT & Infrastructure Operations',
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          };
+          if (candidateProfile) {
+            finalProfile = candidateProfile;
+          } else {
+            throw new Error('User account not registered.');
+          }
         }
       } else {
         finalProfile = candidateProfile!;

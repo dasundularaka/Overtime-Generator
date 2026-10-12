@@ -35,7 +35,8 @@ import { sanitizeFirestoreData } from '../utils/firestoreUtils';
 import { adminChangeUserPassword, adminSendUserPasswordResetEmail, adminCreateUserInAuth } from '../utils/adminAuthHelper';
 import { sendUserWelcomeEmail, EmailDispatchResult } from '../utils/emailNotifier';
 import { generateStandardPfNumber, formatPfNumber, isValidPfNumber } from '../utils/pfHelper';
-import { upsertStoredAccount } from '../utils/localAuthManager';
+import { upsertStoredAccount, deleteStoredAccount } from '../utils/localAuthManager';
+import { deleteEmployee } from '../utils/storage';
 import { recordAuditLog } from '../utils/auditLogger';
 import { Branch, RoleRate, Department } from '../types';
 import {
@@ -85,6 +86,8 @@ export const UserManagement: React.FC = () => {
   const [branchCode, setBranchCode] = useState('');
   const [department, setDepartment] = useState('IT & Infrastructure Operations');
   const [maxOtHoursPerDay, setMaxOtHoursPerDay] = useState<number>(2.0);
+  const [shiftStartTime, setShiftStartTime] = useState<string>('08:00');
+  const [shiftEndTime, setShiftEndTime] = useState<string>('16:45');
   const [assignedTemplateIds, setAssignedTemplateIds] = useState<string[]>([]);
   const [hourlyRate, setHourlyRate] = useState<number | ''>('');
   const [daysPay, setDaysPay] = useState<number | ''>('');
@@ -225,6 +228,8 @@ export const UserManagement: React.FC = () => {
     setBranch(firstBranch);
     setBranchCode(firstBranchCode);
     setMaxOtHoursPerDay(2.0);
+    setShiftStartTime('08:00');
+    setShiftEndTime('16:45');
     setTotalRemuneration('');
     // Default to primary template or all available
     const defTpl = availableTemplates.find(t => t.isDefault) || availableTemplates[0];
@@ -247,6 +252,8 @@ export const UserManagement: React.FC = () => {
     setBranchCode(user.branchCode || '');
     setDepartment(user.department || (departments.length > 0 ? departments[0].name : 'IT & Infrastructure Operations'));
     setMaxOtHoursPerDay(user.maxOtHoursPerDay !== undefined ? user.maxOtHoursPerDay : 2.0);
+    setShiftStartTime(user.shiftStartTime || '08:00');
+    setShiftEndTime(user.shiftEndTime || '16:45');
     setAssignedTemplateIds(user.assignedTemplateIds || []);
     setHourlyRate(user.hourlyRate !== undefined ? user.hourlyRate : '');
     setDaysPay(user.daysPay !== undefined ? user.daysPay : '');
@@ -332,6 +339,8 @@ export const UserManagement: React.FC = () => {
           branchCode: branchCode || deleteField(),
           department: department.trim(),
           maxOtHoursPerDay: Number(maxOtHoursPerDay) || 0,
+          shiftStartTime: shiftStartTime || '08:00',
+          shiftEndTime: shiftEndTime || '16:45',
           assignedTemplateIds: assignedTemplateIds || [],
           updatedAt: new Date().toISOString(),
         };
@@ -454,6 +463,8 @@ export const UserManagement: React.FC = () => {
           branchCode: branchCode || undefined,
           department: department.trim(),
           maxOtHoursPerDay: Number(maxOtHoursPerDay) || 0,
+          shiftStartTime: shiftStartTime || '08:00',
+          shiftEndTime: shiftEndTime || '16:45',
           assignedTemplateIds: assignedTemplateIds || [],
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
@@ -548,10 +559,27 @@ export const UserManagement: React.FC = () => {
     if (!userToDelete) return;
     setIsDeletingUser(true);
     try {
+      const cleanPf = formatPfNumber(userToDelete.employeeNumber || userToDelete.pfNumber || '');
+
+      // 1. Delete from Firestore primary collections
       await deleteDoc(doc(db, 'users', userToDelete.id));
       try {
         await deleteDoc(doc(db, 'admins', userToDelete.id));
       } catch {}
+      try {
+        await deleteDoc(doc(db, 'employees', userToDelete.id));
+      } catch {}
+      if (cleanPf) {
+        try {
+          await deleteDoc(doc(db, 'pfDirectory', cleanPf));
+        } catch {}
+      }
+
+      // 2. Purge from local caches to prevent ghost re-appearance
+      deleteEmployee(userToDelete.id);
+      deleteStoredAccount(userToDelete.id);
+      if (userToDelete.email) deleteStoredAccount(userToDelete.email);
+      if (cleanPf) deleteStoredAccount(cleanPf);
 
       // Record administrative audit log
       await recordAuditLog({
@@ -568,7 +596,7 @@ export const UserManagement: React.FC = () => {
         },
       });
 
-      setActionSuccess(`User "${userToDelete.name}" deleted successfully.`);
+      setActionSuccess(`User "${userToDelete.name}" deleted permanently.`);
       setUserToDelete(null);
       fetchUsers();
       setTimeout(() => setActionSuccess(null), 3000);
@@ -950,11 +978,16 @@ export const UserManagement: React.FC = () => {
                         </div>
                       </td>
 
-                      {/* OT Limit */}
+                      {/* OT Limit & Custom Shift */}
                       <td className="py-3.5 px-4 text-center">
-                        <div className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-xl font-bold font-mono text-xs">
-                          <Clock className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>{u.maxOtHoursPerDay !== undefined ? `${u.maxOtHoursPerDay} hrs` : '2.0 hrs'}</span>
+                        <div className="flex flex-col items-center gap-1">
+                          <div className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-0.5 rounded-lg font-bold font-mono text-xs">
+                            <Clock className="w-3 h-3 text-emerald-600" />
+                            <span>{u.maxOtHoursPerDay !== undefined ? `${u.maxOtHoursPerDay} hrs` : '2.0 hrs'}</span>
+                          </div>
+                          <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-sky-700 bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded">
+                            {u.shiftStartTime || '08:00'} - {u.shiftEndTime || '16:45'}
+                          </span>
                         </div>
                       </td>
 
@@ -1190,6 +1223,80 @@ export const UserManagement: React.FC = () => {
                     />
                     <span className="text-[10px] text-emerald-900">hrs</span>
                   </div>
+                </div>
+              </div>
+
+              {/* Custom Shift Schedule Assignment (ADMIN CONTROLLABLE) */}
+              <div className="p-3.5 bg-sky-50/70 border border-sky-200 rounded-2xl">
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <Clock className="w-4 h-4 text-sky-700" />
+                    <span className="font-bold text-sky-950 text-xs">
+                      Custom Shift Working Hours (Start &amp; End Time)
+                    </span>
+                  </div>
+                  <span className="font-mono font-bold text-sky-900 text-xs bg-sky-100 border border-sky-300 px-2 py-0.5 rounded-md">
+                    {shiftStartTime} - {shiftEndTime}
+                  </span>
+                </div>
+                <p className="text-[11px] text-sky-800/80 mb-2.5">
+                  Assigned duty shift for this staff member. Daily overtime is automatically calculated after this shift end time on normal working days.
+                </p>
+
+                {/* Shift Time Inputs */}
+                <div className="grid grid-cols-2 gap-3 mb-2.5">
+                  <div>
+                    <label className="block text-[11px] font-bold text-sky-900 mb-1">
+                      Shift Start Time
+                    </label>
+                    <input
+                      type="time"
+                      value={shiftStartTime}
+                      onChange={e => setShiftStartTime(e.target.value)}
+                      className="w-full rounded-xl border border-sky-300 bg-white px-3 py-1.5 font-mono text-xs text-slate-800 focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-sky-900 mb-1">
+                      Shift End Time
+                    </label>
+                    <input
+                      type="time"
+                      value={shiftEndTime}
+                      onChange={e => setShiftEndTime(e.target.value)}
+                      className="w-full rounded-xl border border-sky-300 bg-white px-3 py-1.5 font-mono text-xs text-slate-800 focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Standard Shift Presets */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[10px] font-semibold text-sky-700 mr-1">Presets:</span>
+                  {[
+                    { label: 'General (08:00 - 16:45)', start: '08:00', end: '16:45' },
+                    { label: 'Morning (07:30 - 16:15)', start: '07:30', end: '16:15' },
+                    { label: 'Regular (08:30 - 17:15)', start: '08:30', end: '17:15' },
+                    { label: 'Late (09:00 - 17:45)', start: '09:00', end: '17:45' },
+                  ].map(preset => {
+                    const isCurrent = shiftStartTime === preset.start && shiftEndTime === preset.end;
+                    return (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => {
+                          setShiftStartTime(preset.start);
+                          setShiftEndTime(preset.end);
+                        }}
+                        className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                          isCurrent
+                            ? 'bg-sky-700 text-white shadow-2xs'
+                            : 'bg-white border border-sky-300 text-sky-900 hover:bg-sky-100'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -1443,6 +1550,7 @@ export const UserManagement: React.FC = () => {
           { label: 'Employee Name', value: userToDelete.name },
           { label: 'Email Address', value: userToDelete.email },
           { label: 'Employee ID', value: userToDelete.employeeNumber || '-' },
+          { label: 'Assigned Shift', value: `${userToDelete.shiftStartTime || '08:00'} - ${userToDelete.shiftEndTime || '16:45'}` },
           { label: 'Daily OT Cap', value: `${userToDelete.maxOtHoursPerDay || 2.0} hrs` },
         ] : []}
       />

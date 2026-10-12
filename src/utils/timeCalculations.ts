@@ -92,7 +92,8 @@ export function calculateShiftOvertime(
   breakMinutes: number = 0,
   maxOtHoursLimit?: number, // e.g. 2.0 hrs
   isOtherDay: boolean = false, // Saturdays, Sundays, or Holidays (not regular weekday working day)
-  shiftEndStr: string = GENERAL_SHIFT_END
+  shiftEndStr: string = GENERAL_SHIFT_END,
+  shiftStartStr: string = GENERAL_SHIFT_START
 ): ShiftOvertimeResult {
   if (!startTime || !endTime) {
     return {
@@ -176,22 +177,22 @@ export function calculateShiftOvertime(
   let isLateDisqualified = false;
   let lateNote = '';
 
-  const morningShiftStartMin = 8 * 60; // 08:00 = 480 min
+  const morningShiftStartMin = timeStringToMinutes(shiftStartStr || GENERAL_SHIFT_START);
   if (startMin > morningShiftStartMin + 30) {
-    // Arrived after 08:30 (e.g. 08:31+)
+    // Arrived after shiftStart + 30m
     isLateDisqualified = true;
     rawOtMinutes = 0;
-    lateNote = 'Late arrival after 08:30 (No OT allocated)';
+    lateNote = `Late arrival after ${formatMinutesToTime(morningShiftStartMin + 30, 'hhmm')} (No OT allocated)`;
   } else if (startMin > morningShiftStartMin + 15) {
-    // Arrived 08:16 - 08:30
+    // Arrived shiftStart + 16m to + 30m
     lateDeductionMinutes = 30;
     rawOtMinutes = Math.max(0, rawOtMinutes - 30);
-    lateNote = 'Late arrival (08:16–08:30): -30 min OT';
+    lateNote = `Late arrival: -30 min OT`;
   } else if (startMin > morningShiftStartMin) {
-    // Arrived 08:01 - 08:15
+    // Arrived shiftStart + 1m to + 15m
     lateDeductionMinutes = 15;
     rawOtMinutes = Math.max(0, rawOtMinutes - 15);
-    lateNote = 'Late arrival (08:01–08:15): -15 min OT';
+    lateNote = `Late arrival: -15 min OT`;
   }
 
   // Step 2: Overtime generation in 15-minute to 15-minute blocks

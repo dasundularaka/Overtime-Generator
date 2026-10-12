@@ -68,6 +68,8 @@ export interface UserProfile {
   branchCode?: string; // Optional branch code stored with profile
   department: string;
   maxOtHoursPerDay?: number; // e.g. 2.0 means 2 hours maximum per day
+  shiftStartTime?: string; // Custom shift start time (e.g. "08:00")
+  shiftEndTime?: string; // Custom shift end time (e.g. "16:45")
   hourlyRate?: number; // Default hourly OT rate in Rs. (Working Days)
   daysPay?: number; // Default day's pay in Rs. (Non-Working Days)
   hourlyRateNonWorkingDays?: number; // Default hourly rate in Non-Working Days in Rs.
@@ -89,6 +91,8 @@ export interface Employee {
   department: string;
   createdAt: string;
   maxOtHoursPerDay?: number;
+  shiftStartTime?: string; // Custom shift start time (e.g. "08:00")
+  shiftEndTime?: string; // Custom shift end time (e.g. "16:45")
   hourlyRate?: number;
   daysPay?: number;
   hourlyRateNonWorkingDays?: number;

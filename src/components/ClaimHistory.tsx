@@ -26,7 +26,7 @@ import { db } from '../firebase/config';
 import { handleFirestoreError, OperationType } from '../firebase/errors';
 import { sanitizeFirestoreData } from '../utils/firestoreUtils';
 import { ClaimRecord, TemplateConfig } from '../types';
-import { getActiveTemplate } from '../utils/storage';
+import { getActiveTemplate, deleteClaim } from '../utils/storage';
 import { recordAuditLog } from '../utils/auditLogger';
 import { generateOvertimePdf, printPdfDocument } from '../utils/pdfGenerator';
 import { PDFPreviewModal } from './PDFPreviewModal';
@@ -206,6 +206,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
     setIsDeleting(true);
     try {
       await deleteDoc(doc(db, 'claims', claimToDelete.id));
+      deleteClaim(claimToDelete.id);
 
       await recordAuditLog({
         action: 'CLAIM_DELETE',

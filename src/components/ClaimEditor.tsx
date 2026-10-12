@@ -142,6 +142,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   const [department, setDepartment] = useState<string>('IT & Infrastructure Operations');
   const [claimType, setClaimType] = useState<ClaimType>('OT');
   const [maxOtLimitHours, setMaxOtLimitHours] = useState<number>(2.0);
+  const [userShiftStartTime, setUserShiftStartTime] = useState<string>(GENERAL_SHIFT_START);
+  const [userShiftEndTime, setUserShiftEndTime] = useState<string>(GENERAL_SHIFT_END);
 
   const currentDate = new Date();
   const [claimMonth, setClaimMonth] = useState<string>(
@@ -274,6 +276,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       setMaxOtLimitHours(
         targetProfile.maxOtHoursPerDay !== undefined ? targetProfile.maxOtHoursPerDay : 2.0
       );
+      setUserShiftStartTime(targetProfile.shiftStartTime || GENERAL_SHIFT_START);
+      setUserShiftEndTime(targetProfile.shiftEndTime || GENERAL_SHIFT_END);
       setHourlyRate(targetProfile.hourlyRate !== undefined ? targetProfile.hourlyRate : '');
       setDaysPay(targetProfile.daysPay !== undefined ? targetProfile.daysPay : '');
       setTotalRemuneration(targetProfile.totalRemuneration !== undefined ? targetProfile.totalRemuneration : '');
@@ -289,14 +293,14 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     ]);
   }, [initialClaim, userProfile, selectedUserId, allUsers]);
 
-  // Create clean blank row with default General Shift 08:00
+  // Create clean blank row with assigned shift start time
   function createBlankRow(defaultDate: string = ''): OvertimeRow {
     const isWk = isWeekendDay(defaultDate);
     return {
       id: 'row_' + Math.random().toString(36).substring(2, 9),
       date: defaultDate,
       dayOfWeek: getDayOfWeek(defaultDate),
-      startTime: GENERAL_SHIFT_START, // 8:00 AM
+      startTime: isWk ? '' : (userShiftStartTime || GENERAL_SHIFT_START),
       endTime: '',
       breakMinutes: 0,
       isOvernight: false,
@@ -309,7 +313,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     };
   }
 
-  // Row update with General Shift and 15-minute generation
+  // Row update with employee shift and 15-minute generation
   const updateRowField = (index: number, field: keyof OvertimeRow, value: any) => {
     setRows(prevRows => {
       const updated = [...prevRows];
@@ -342,7 +346,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         target.endTime,
         Number(target.breakMinutes) || 0,
         maxOtLimitHours,
-        isOther
+        isOther,
+        userShiftEndTime || GENERAL_SHIFT_END,
+        userShiftStartTime || GENERAL_SHIFT_START
       );
 
       target.totalWorkMinutes = calc.totalWorkMinutes;
@@ -362,7 +368,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     });
   };
 
-  // Re-calculate all rows when user OT limit changes
+  // Re-calculate all rows when user OT limit or shift changes
   useEffect(() => {
     setRows(prevRows =>
       prevRows.map(row => {
@@ -374,7 +380,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           row.endTime,
           Number(row.breakMinutes) || 0,
           maxOtLimitHours,
-          isOther
+          isOther,
+          userShiftEndTime || GENERAL_SHIFT_END,
+          userShiftStartTime || GENERAL_SHIFT_START
         );
         return {
           ...row,
@@ -392,7 +400,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         };
       })
     );
-  }, [maxOtLimitHours, otDisplayFormat, holidayMap]);
+  }, [maxOtLimitHours, otDisplayFormat, holidayMap, userShiftEndTime, userShiftStartTime]);
 
   // Auto-Fill Month: Automatically removes holidays and Sundays
   const handleAutoFillMonth = () => {
@@ -411,7 +419,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         id: 'row_' + Math.random().toString(36).substring(2, 9),
         date,
         dayOfWeek: day,
-        startTime: isSat ? '' : GENERAL_SHIFT_START,
+        startTime: isSat ? '' : (userShiftStartTime || GENERAL_SHIFT_START),
         endTime: '',
         breakMinutes: 0,
         isOvernight: false,
@@ -946,7 +954,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
               >
                 {allUsers.map(u => (
                   <option key={u.id} value={u.id}>
-                    {u.name} ({u.email}) &bull; Cap: {u.maxOtHoursPerDay || 2.0}h &bull; Type: {u.claimType || 'OT'}
+                    {u.name} ({u.email}) &bull; Cap: {u.maxOtHoursPerDay || 2.0}h &bull; Shift: {u.shiftStartTime || '08:00'}-{u.shiftEndTime || '16:45'} &bull; Type: {u.claimType || 'OT'}
                   </option>
                 ))}
               </select>
@@ -1074,7 +1082,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             </select>
             <p className="text-[10px] text-slate-500 mt-1">
               {claimType === 'OT'
-                ? 'OT (Overtime): Computes time after 4:45 PM in 15-min intervals'
+                ? `OT (Overtime): Computes time after ${userShiftEndTime} in 15-min intervals (Assigned Shift: ${userShiftStartTime} - ${userShiftEndTime})`
                 : 'OP (Out of Pocket): Company reimbursable expenditure'}
             </p>
           </div>

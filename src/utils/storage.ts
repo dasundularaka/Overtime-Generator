@@ -51,21 +51,6 @@ export function getEmployees(customUserId?: string): Employee[] {
     const key = getUserStorageKey(STORAGE_KEYS.EMPLOYEES, customUserId);
     const raw = localStorage.getItem(key);
     if (!raw) {
-      // Seed employee profile from the active user's session
-      const session = getActiveSession();
-      if (session) {
-        const userEmp: Employee = {
-          id: session.id,
-          name: session.name,
-          employeeNumber: session.employeeNumber || session.pfNumber || 'PF123456',
-          designation: session.designation || 'Staff Member',
-          branch: session.branch || 'Head Office',
-          department: session.department || 'IT & Infrastructure Operations',
-          createdAt: session.createdAt || new Date().toISOString(),
-        };
-        localStorage.setItem(key, JSON.stringify([userEmp]));
-        return [userEmp];
-      }
       return [];
     }
     return JSON.parse(raw);

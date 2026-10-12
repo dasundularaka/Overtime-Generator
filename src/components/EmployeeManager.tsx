@@ -15,11 +15,14 @@ import {
   Shield,
   User,
   Filter,
+  Clock,
 } from 'lucide-react';
 import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { Employee, UserProfile, Branch, RoleRate, Department } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { formatPfNumber } from '../utils/pfHelper';
+import { deleteStoredAccount } from '../utils/localAuthManager';
 import {
   getEmployees,
   saveEmployee,
@@ -70,12 +73,14 @@ export const EmployeeManager: React.FC = () => {
   const [hourlyRateNonWorkingDays, setHourlyRateNonWorkingDays] = useState<number | ''>('');
   const [totalRemuneration, setTotalRemuneration] = useState<number | ''>('');
   const [roleId, setRoleId] = useState<string>('');
+  const [shiftStartTime, setShiftStartTime] = useState<string>('08:00');
+  const [shiftEndTime, setShiftEndTime] = useState<string>('16:45');
 
   // Delete Confirmation State
   const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
   const [isConfirmSaveModalOpen, setIsConfirmSaveModalOpen] = useState(false);
 
-  // Fetch employees and users
+  // Fetch employees and users - strictly real Firestore database data
   const loadEmployeesAndUsers = async () => {
     setLoading(true);
     try {
@@ -98,6 +103,9 @@ export const EmployeeManager: React.FC = () => {
           hourlyRateNonWorkingDays: u.hourlyRateNonWorkingDays,
           totalRemuneration: u.totalRemuneration,
           claimType: u.claimType,
+          shiftStartTime: u.shiftStartTime || '08:00',
+          shiftEndTime: u.shiftEndTime || '16:45',
+          maxOtHoursPerDay: u.maxOtHoursPerDay,
           assignedTemplateIds: u.assignedTemplateIds,
           email: u.email,
           photoURL: u.photoURL,
@@ -106,18 +114,11 @@ export const EmployeeManager: React.FC = () => {
         });
       });
 
-      // Merge local storage profiles if any
-      const local = getEmployees();
-      for (const loc of local) {
-        if (!list.some(l => l.id === loc.id || l.employeeNumber === loc.employeeNumber)) {
-          list.push(loc);
-        }
-      }
-
+      // Pure real database data only - no local resurrecting
       setEmployees(list);
     } catch (e) {
-      console.warn('Could not load from Firestore, using local employees', e);
-      setEmployees(getEmployees());
+      console.warn('Could not load from Firestore', e);
+      setEmployees([]);
     } finally {
       setLoading(false);
     }
@@ -169,6 +170,8 @@ export const EmployeeManager: React.FC = () => {
       setHourlyRateNonWorkingDays('');
     }
     setTotalRemuneration('');
+    setShiftStartTime('08:00');
+    setShiftEndTime('16:45');
     setIsModalOpen(true);
   };
 
@@ -180,6 +183,8 @@ export const EmployeeManager: React.FC = () => {
     setBranch(emp.branch);
     setBranchCode(emp.branchCode || '');
     setDepartment(emp.department);
+    setShiftStartTime(emp.shiftStartTime || '08:00');
+    setShiftEndTime(emp.shiftEndTime || '16:45');
     setHourlyRate(emp.hourlyRate !== undefined ? emp.hourlyRate : '');
     setDaysPay(emp.daysPay !== undefined ? emp.daysPay : '');
     setHourlyRateNonWorkingDays(emp.hourlyRateNonWorkingDays !== undefined ? emp.hourlyRateNonWorkingDays : '');
@@ -221,6 +226,8 @@ export const EmployeeManager: React.FC = () => {
       branchCode: branchCode || undefined,
       department: department.trim(),
       roleId: roleId || undefined,
+      shiftStartTime: shiftStartTime || '08:00',
+      shiftEndTime: shiftEndTime || '16:45',
       hourlyRate: hourlyRate !== '' ? Number(hourlyRate) : undefined,
       daysPay: daysPay !== '' ? Number(daysPay) : undefined,
       hourlyRateNonWorkingDays: hourlyRateNonWorkingDays !== '' ? Number(hourlyRateNonWorkingDays) : undefined,
@@ -255,6 +262,7 @@ export const EmployeeManager: React.FC = () => {
         branch: payload.branch,
         department: payload.department,
         designation: payload.designation,
+        shift: `${shiftStartTime} - ${shiftEndTime}`,
       },
     });
 
@@ -264,23 +272,49 @@ export const EmployeeManager: React.FC = () => {
 
   const confirmDeleteEmployee = async () => {
     if (!employeeToDelete) return;
-    deleteEmployee(employeeToDelete.id);
-    setEmployees(prev => prev.filter(e => e.id !== employeeToDelete.id));
+    try {
+      const cleanPf = formatPfNumber(employeeToDelete.employeeNumber || employeeToDelete.pfNumber || '');
 
-    recordAuditLog({
-      action: 'USER_DELETE',
-      actionLabel: 'Deleted employee profile',
-      targetType: 'user',
-      targetId: employeeToDelete.id,
-      targetDescription: `${employeeToDelete.name} (${employeeToDelete.employeeNumber})`,
-    });
+      // 1. Permanently delete from Firestore collections
+      await deleteDoc(doc(db, 'users', employeeToDelete.id));
+      try {
+        await deleteDoc(doc(db, 'employees', employeeToDelete.id));
+      } catch {}
+      try {
+        await deleteDoc(doc(db, 'admins', employeeToDelete.id));
+      } catch {}
+      if (cleanPf) {
+        try {
+          await deleteDoc(doc(db, 'pfDirectory', cleanPf));
+        } catch {}
+      }
 
-    if (settings.defaultEmployeeId === employeeToDelete.id) {
-      const newSettings = { ...settings, defaultEmployeeId: undefined };
-      saveSettings(newSettings);
-      setSettings(newSettings);
+      // 2. Purge from local caches to prevent ghost re-appearance
+      deleteEmployee(employeeToDelete.id);
+      deleteStoredAccount(employeeToDelete.id);
+      if (employeeToDelete.email) deleteStoredAccount(employeeToDelete.email);
+      if (cleanPf) deleteStoredAccount(cleanPf);
+
+      setEmployees(prev => prev.filter(e => e.id !== employeeToDelete.id));
+
+      recordAuditLog({
+        action: 'USER_DELETE',
+        actionLabel: 'Deleted employee profile',
+        targetType: 'user',
+        targetId: employeeToDelete.id,
+        targetDescription: `${employeeToDelete.name} (${employeeToDelete.employeeNumber})`,
+      });
+
+      if (settings.defaultEmployeeId === employeeToDelete.id) {
+        const newSettings = { ...settings, defaultEmployeeId: undefined };
+        saveSettings(newSettings);
+        setSettings(newSettings);
+      }
+    } catch (err) {
+      console.error('Failed to permanently delete employee', err);
+    } finally {
+      setEmployeeToDelete(null);
     }
-    setEmployeeToDelete(null);
   };
 
   const handleSetDefault = (id: string) => {
@@ -526,6 +560,12 @@ export const EmployeeManager: React.FC = () => {
                       #{emp.branchCode}
                     </span>
                   )}
+                </div>
+                <div className="text-[11px] text-slate-500 flex items-center justify-between pt-0.5">
+                  <span className="inline-flex items-center gap-1 font-mono text-[10px] font-semibold text-sky-700 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded-md">
+                    <Clock className="w-3 h-3 text-sky-600" />
+                    Shift: {emp.shiftStartTime || '08:00'} - {emp.shiftEndTime || '16:45'}
+                  </span>
                 </div>
                 {(emp.hourlyRate || emp.daysPay || emp.hourlyRateNonWorkingDays) && (
                   <div className="pt-1.5 flex flex-col gap-1 text-[11px] font-mono text-indigo-700 bg-indigo-50/50 p-2 rounded-xl">
@@ -777,6 +817,74 @@ export const EmployeeManager: React.FC = () => {
                       className="w-full rounded-lg border border-slate-300 px-2 py-1.5 font-mono text-xs bg-white"
                     />
                   </div>
+                </div>
+              </div>
+
+              {/* Custom Shift Schedule Assignment */}
+              <div className="p-3 bg-sky-50/70 border border-sky-200 rounded-2xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 font-bold text-sky-900 text-[11px]">
+                    <Clock className="w-3.5 h-3.5 text-sky-600" />
+                    <span>Custom Shift Working Hours (Start &amp; End Time)</span>
+                  </div>
+                  <span className="font-mono font-bold text-sky-900 text-xs bg-sky-100 border border-sky-300 px-2 py-0.5 rounded-md">
+                    {shiftStartTime} - {shiftEndTime}
+                  </span>
+                </div>
+                <p className="text-[10px] text-sky-800/80">
+                  Duty hours for this employee. Daily overtime calculations apply after shift end time.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-bold text-sky-900 mb-1">
+                      Start Time
+                    </label>
+                    <input
+                      type="time"
+                      value={shiftStartTime}
+                      onChange={e => setShiftStartTime(e.target.value)}
+                      className="w-full rounded-lg border border-sky-300 bg-white px-2 py-1.5 font-mono text-xs text-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-sky-900 mb-1">
+                      End Time
+                    </label>
+                    <input
+                      type="time"
+                      value={shiftEndTime}
+                      onChange={e => setShiftEndTime(e.target.value)}
+                      className="w-full rounded-lg border border-sky-300 bg-white px-2 py-1.5 font-mono text-xs text-slate-800"
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 flex-wrap pt-0.5">
+                  <span className="text-[9px] font-semibold text-sky-700 mr-1">Presets:</span>
+                  {[
+                    { label: 'General (08:00 - 16:45)', start: '08:00', end: '16:45' },
+                    { label: 'Morning (07:30 - 16:15)', start: '07:30', end: '16:15' },
+                    { label: 'Regular (08:30 - 17:15)', start: '08:30', end: '17:15' },
+                    { label: 'Late (09:00 - 17:45)', start: '09:00', end: '17:45' },
+                  ].map(preset => {
+                    const isCurrent = shiftStartTime === preset.start && shiftEndTime === preset.end;
+                    return (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => {
+                          setShiftStartTime(preset.start);
+                          setShiftEndTime(preset.end);
+                        }}
+                        className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition cursor-pointer ${
+                          isCurrent
+                            ? 'bg-sky-700 text-white'
+                            : 'bg-white border border-sky-300 text-sky-900 hover:bg-sky-100'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 

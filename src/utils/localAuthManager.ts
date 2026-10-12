@@ -44,38 +44,13 @@ export function getStoredAccounts(): StoredAccount[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.ACCOUNTS);
     if (!raw) {
-      localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(DEFAULT_STORED_ACCOUNTS));
-      return DEFAULT_STORED_ACCOUNTS;
+      return [];
     }
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed) || parsed.length === 0) {
-      localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(DEFAULT_STORED_ACCOUNTS));
-      return DEFAULT_STORED_ACCOUNTS;
-    }
-
-    // Ensure seed PF123456 and bootstrap admin are always available if missing
-    let modified = false;
-    for (const def of DEFAULT_STORED_ACCOUNTS) {
-      const exists = parsed.some(
-        a =>
-          a.id === def.id ||
-          formatPfNumber(a.employeeNumber) === def.employeeNumber ||
-          (def.email && a.email?.toLowerCase() === def.email.toLowerCase())
-      );
-      if (!exists) {
-        parsed.push(def);
-        modified = true;
-      }
-    }
-
-    if (modified) {
-      localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(parsed));
-    }
-
-    return parsed;
+    return Array.isArray(parsed) ? parsed : [];
   } catch (e) {
     console.warn('Failed to read local accounts', e);
-    return DEFAULT_STORED_ACCOUNTS;
+    return [];
   }
 }
 
@@ -191,6 +166,31 @@ export function verifyAccountPassword(account: StoredAccount, passwordGuess: str
   }
 
   return false;
+}
+
+/**
+ * Permanently removes a stored account by ID, Email, or PF Number to prevent ghost resurrection.
+ */
+export function deleteStoredAccount(identifier: string): void {
+  try {
+    if (!identifier) return;
+    const clean = identifier.trim().toLowerCase();
+    const cleanPf = formatPfNumber(clean);
+    const accounts = getStoredAccounts().filter(a => {
+      const aId = (a.id || '').toLowerCase();
+      const aEmail = (a.email || '').toLowerCase();
+      const aPf = formatPfNumber(a.employeeNumber || a.pfNumber || '');
+      const aRawPf = (a.employeeNumber || a.pfNumber || '').toLowerCase();
+      if (aId === clean) return false;
+      if (aEmail === clean) return false;
+      if (aRawPf === clean) return false;
+      if (cleanPf && aPf === cleanPf) return false;
+      return true;
+    });
+    localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(accounts));
+  } catch (e) {
+    console.warn('Failed to delete stored account', e);
+  }
 }
 
 /**
