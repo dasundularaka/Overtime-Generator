@@ -8,6 +8,7 @@ import {
   updatePassword,
   sendPasswordResetEmail,
   signOut as fbSignOut,
+  GoogleAuthProvider,
 } from 'firebase/auth';
 import {
   doc,
@@ -33,6 +34,7 @@ import {
   clearActiveSession,
 } from '../utils/localAuthManager';
 import { recordAuditLog } from '../utils/auditLogger';
+import { setCachedGoogleToken } from '../services/googleWorkspaceService';
 
 interface AuthContextType {
   currentUser: FirebaseUser | null;
@@ -261,10 +263,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setAuthError(null);
     try {
       const cred = await signInWithPopup(auth, googleProvider);
+      const googleCredential = GoogleAuthProvider.credentialFromResult(cred);
+      if (googleCredential?.accessToken) {
+        setCachedGoogleToken(googleCredential.accessToken);
+      }
       const profile = await fetchProfile(cred.user);
       if (!profile) {
         await fbSignOut(auth).catch(() => {});
         clearActiveSession();
+        setCachedGoogleToken(null);
         setCurrentUser(null);
         setUserProfile(null);
         const msg = 'Access Denied: Your account has been removed or is not registered in the system.';
@@ -277,6 +284,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err: any) {
       await fbSignOut(auth).catch(() => {});
       clearActiveSession();
+      setCachedGoogleToken(null);
       setCurrentUser(null);
       setUserProfile(null);
       const msg = err.message || 'Google sign-in failed.';
@@ -726,6 +734,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     await fbSignOut(auth).catch(() => {});
     clearActiveSession();
+    setCachedGoogleToken(null);
     setCurrentUser(null);
     setUserProfile(null);
     setAuthError(null);

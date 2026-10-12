@@ -1,3 +1,9 @@
+import {
+  sendWelcomeEmailViaGmail,
+  hasGoogleWorkspaceToken,
+  ensureGoogleAccessToken,
+} from '../services/googleWorkspaceService';
+
 export interface WelcomeEmailData {
   email: string;
   name: string;
@@ -12,12 +18,15 @@ export interface EmailDispatchResult {
   body: string;
   mailtoUrl: string;
   message: string;
+  dispatchedVia?: 'gmail_api' | 'client_mailto';
+  messageId?: string;
+  error?: string;
 }
 
 const DEFAULT_LOGIN_URL = 'https://otclaim.vercel.app/';
 
 /**
- * Generates and prepares the welcome email for a newly created user.
+ * Generates and prepares the welcome email content for a newly created user.
  * Includes Username (PF No), Password (same as PF No), and web link.
  */
 export function generateUserWelcomeEmail(data: WelcomeEmailData): EmailDispatchResult {
@@ -39,7 +48,7 @@ Your user account has been successfully created by the System Administrator. You
 • Web Link: ${webLink}
 
 First-Time Login Security Notice:
-For security purposes, when you log into the system for the first time, you will be prompted to set your new personal password before accessing your account.
+For security purposes, when you log into the system for the first time, you will be prompted to set your new personal password before accessing your account dashboard.
 
 If you have any questions or require assistance, please contact your system administrator.
 
@@ -56,22 +65,53 @@ Overtime Claim Management Team`;
     body,
     mailtoUrl,
     message: `Credentials email prepared for ${recipient}`,
+    dispatchedVia: 'client_mailto',
   };
 }
 
 /**
- * Dispatches or opens the welcome email for a newly created user.
+ * Dispatches the welcome email for a newly created user.
+ * Automatically attempts to dispatch via Gmail API if Google Workspace is connected.
  */
-export async function sendUserWelcomeEmail(data: WelcomeEmailData): Promise<EmailDispatchResult> {
+export async function sendUserWelcomeEmail(
+  data: WelcomeEmailData,
+  forceGmail = false
+): Promise<EmailDispatchResult> {
   const result = generateUserWelcomeEmail(data);
 
-  // In browser environments without a direct SMTP backend, log the dispatch
-  console.log(`[Email Dispatcher] Credentials email dispatched to ${data.email}:`, {
-    to: data.email,
-    subject: result.subject,
-    pfNumber: data.pfNumber,
-    webLink: DEFAULT_LOGIN_URL,
-  });
+  // If forceGmail or Google token is present, dispatch automatically via Gmail API
+  if (forceGmail || hasGoogleWorkspaceToken()) {
+    try {
+      if (forceGmail && !hasGoogleWorkspaceToken()) {
+        await ensureGoogleAccessToken();
+      }
+
+      const gmailResult = await sendWelcomeEmailViaGmail({
+        to: data.email,
+        name: data.name,
+        pfNumber: data.pfNumber,
+        initialPassword: data.initialPassword,
+        loginUrl: data.loginUrl,
+      });
+
+      if (gmailResult.success) {
+        return {
+          ...result,
+          dispatchedVia: 'gmail_api',
+          messageId: gmailResult.messageId,
+          message: `Welcome credentials email automatically dispatched to ${data.email} via Gmail!`,
+        };
+      }
+    } catch (err: any) {
+      console.warn('Gmail API dispatch attempt encountered error, falling back:', err);
+      return {
+        ...result,
+        dispatchedVia: 'client_mailto',
+        error: err.message || 'Gmail dispatch failed',
+        message: `Gmail auto-dispatch unavailable (${err.message || 'auth required'}). Mailto ready.`,
+      };
+    }
+  }
 
   return result;
 }

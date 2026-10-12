@@ -180,6 +180,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   // PDF Preview State
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
+  const [previewPdfBlob, setPreviewPdfBlob] = useState<Blob | null>(null);
   const [previewFilename, setPreviewFilename] = useState<string>('');
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [claimSavedSuccess, setClaimSavedSuccess] = useState(false);
@@ -731,7 +732,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     setValidationError(null);
     try {
       const claim = buildClaimRecord();
-      const { url, filename } = await generateOvertimePdf(
+      const { blob, url, filename } = await generateOvertimePdf(
         claim,
         activeTemplate,
         settings.globalPrinterOffsetX,
@@ -739,6 +740,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       );
 
       setPreviewPdfUrl(url);
+      setPreviewPdfBlob(blob);
       setPreviewFilename(filename);
       setIsPreviewOpen(true);
     } catch (err: any) {
@@ -1841,6 +1843,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         onClose={() => setIsPreviewOpen(false)}
         pdfUrl={previewPdfUrl}
         filename={previewFilename}
+        pdfBlob={previewPdfBlob}
         onSaveClaim={handleSaveClaim}
         isSaved={claimSavedSuccess}
       />

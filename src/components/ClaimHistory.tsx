@@ -74,6 +74,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
   // Preview Modal
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
+  const [previewPdfBlob, setPreviewPdfBlob] = useState<Blob | null>(null);
   const [previewFilename, setPreviewFilename] = useState<string>('');
   const [viewingClaim, setViewingClaim] = useState<ClaimRecord | null>(null);
 
@@ -118,8 +119,9 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
   const handlePreviewPdf = async (claim: ClaimRecord) => {
     try {
       const templateToUse = resolveTemplate(claim);
-      const { url, filename } = await generateOvertimePdf(claim, templateToUse);
+      const { blob, url, filename } = await generateOvertimePdf(claim, templateToUse);
       setPreviewPdfUrl(url);
+      setPreviewPdfBlob(blob);
       setPreviewFilename(filename);
       setIsPreviewOpen(true);
     } catch (err: any) {
@@ -605,6 +607,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
         onClose={() => setIsPreviewOpen(false)}
         pdfUrl={previewPdfUrl}
         filename={previewFilename}
+        pdfBlob={previewPdfBlob}
       />
 
       {/* Delete Confirmation Modal */}

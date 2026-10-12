@@ -27,6 +27,8 @@ const dbId =
 export const db = dbId ? getFirestore(app, dbId) : getFirestore(app);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
+googleProvider.addScope('https://www.googleapis.com/auth/gmail.send');
 
 // Test connection on boot according to skill guidelines
 async function testConnection() {

@@ -99,6 +99,8 @@ export const UserManagement: React.FC = () => {
   const [isDeletingUser, setIsDeletingUser] = useState(false);
   const [isConfirmSaveModalOpen, setIsConfirmSaveModalOpen] = useState(false);
   const [isSavingUser, setIsSavingUser] = useState(false);
+  const [dispatchEmailViaGmail, setDispatchEmailViaGmail] = useState(true);
+  const [isResendingGmail, setIsResendingGmail] = useState(false);
 
   const [formError, setFormError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
@@ -231,6 +233,7 @@ export const UserManagement: React.FC = () => {
     setShiftStartTime('08:00');
     setShiftEndTime('16:45');
     setTotalRemuneration('');
+    setDispatchEmailViaGmail(true);
     // Default to primary template or all available
     const defTpl = availableTemplates.find(t => t.isDefault) || availableTemplates[0];
     setAssignedTemplateIds(defTpl ? [defTpl.id] : availableTemplates.map(t => t.id));
@@ -528,18 +531,29 @@ export const UserManagement: React.FC = () => {
           },
         });
 
-        // 5. Send Welcome Credentials Email
-        const emailDispatch = await sendUserWelcomeEmail({
-          email: cleanEmail,
-          name: name.trim(),
-          pfNumber: cleanPf,
-          initialPassword: cleanPf,
-          loginUrl: 'https://otclaim.vercel.app/',
-        });
+        // 5. Send Welcome Credentials Email via Gmail
+        if (dispatchEmailViaGmail) {
+          const emailDispatch = await sendUserWelcomeEmail(
+            {
+              email: cleanEmail,
+              name: name.trim(),
+              pfNumber: cleanPf,
+              initialPassword: cleanPf,
+              loginUrl: 'https://otclaim.vercel.app/',
+            },
+            true // Automatic dispatch via Gmail API
+          );
 
-        setWelcomeEmailResult(emailDispatch);
-        setIsEmailModalOpen(true);
-        setActionSuccess(`New user ${name} created with PF Number ${cleanPf}! Credentials email prepared.`);
+          setWelcomeEmailResult(emailDispatch);
+          setIsEmailModalOpen(true);
+          if (emailDispatch.dispatchedVia === 'gmail_api') {
+            setActionSuccess(`New user ${name} (${cleanPf}) created! Welcome email automatically dispatched via Gmail.`);
+          } else {
+            setActionSuccess(`New user ${name} created with PF Number ${cleanPf}! Credentials notification ready.`);
+          }
+        } else {
+          setActionSuccess(`New user ${name} created with PF Number ${cleanPf}!`);
+        }
       }
 
       setIsConfirmSaveModalOpen(false);
@@ -1514,6 +1528,34 @@ export const UserManagement: React.FC = () => {
                 </div>
               </div>
 
+              {/* Automatic Gmail Notification Dispatch Option */}
+              {!editingUser && (
+                <div className="p-3.5 bg-gradient-to-r from-blue-50/90 to-indigo-50/60 border border-blue-200 rounded-2xl flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white shadow-xs shrink-0">
+                      <Mail className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-900">
+                        Automatic Gmail Credentials Dispatch
+                      </h4>
+                      <p className="text-[11px] text-slate-500 leading-snug">
+                        Automatically dispatch welcome email with PF login credentials to <strong className="text-slate-700">{email || 'employee email'}</strong> via Gmail upon user creation.
+                      </p>
+                    </div>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={dispatchEmailViaGmail}
+                      onChange={e => setDispatchEmailViaGmail(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-slate-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+              )}
+
               {/* Modal Footer */}
               <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2">
                 <button
@@ -1564,20 +1606,40 @@ export const UserManagement: React.FC = () => {
         message={
           editingUser
             ? `Are you sure you want to save modifications to the profile of "${name}"?`
-            : `Are you sure you want to register and provision this new user account for "${name}" (${email})?`
+            : `Are you sure you want to create and provision this new user account for "${name}" (${email})${
+                dispatchEmailViaGmail
+                  ? ' and automatically dispatch welcome credentials via Gmail?'
+                  : '?'
+              }`
         }
-        confirmText={editingUser ? 'Save Changes' : 'Create User'}
+        confirmText={
+          editingUser
+            ? 'Save Changes'
+            : dispatchEmailViaGmail
+            ? 'Create & Send Email via Gmail'
+            : 'Create User'
+        }
         cancelText="Review Form"
         variant="info"
         isLoading={isSavingUser}
         details={[
           { label: 'Full Name', value: name },
           { label: 'Account Email', value: email },
+          { label: 'PF Username', value: employeeNumber },
+          { label: 'Assigned Shift', value: `${shiftStartTime} - ${shiftEndTime}` },
           { label: 'Role', value: role === 'admin' ? 'Administrator' : 'Standard User' },
           { label: 'Department', value: department },
           { label: 'Branch', value: branch },
           { label: 'Daily OT Cap', value: `${maxOtHoursPerDay} hrs/day` },
           { label: 'Claim Type', value: claimType },
+          ...(!editingUser
+            ? [
+                {
+                  label: 'Dispatch Welcome Email via Gmail',
+                  value: dispatchEmailViaGmail ? `Yes — Automatic to ${email}` : 'No',
+                },
+              ]
+            : []),
         ]}
       />
 
@@ -1819,19 +1881,72 @@ export const UserManagement: React.FC = () => {
             </div>
 
             <div className="mt-4 space-y-3">
-              <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-900 flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-bold">Login Details Dispatched:</p>
-                  <p className="text-[11px] text-blue-800 mt-0.5">
-                    User can log in at <strong className="underline">https://otclaim.vercel.app/</strong> using their <strong>PF Number</strong> and initial password. They will be prompted to reset their password upon first sign-in.
-                  </p>
+              {welcomeEmailResult.dispatchedVia === 'gmail_api' ? (
+                <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 flex items-start gap-2.5">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold text-emerald-950 flex items-center gap-1.5">
+                      <span>Dispatched Automatically via Gmail</span>
+                      {welcomeEmailResult.messageId && (
+                        <span className="text-[10px] bg-emerald-200/80 text-emerald-900 font-mono px-1.5 py-0.5 rounded">
+                          ID: {welcomeEmailResult.messageId.slice(0, 10)}...
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-[11px] text-emerald-800 mt-0.5">
+                      The official welcome credentials email has been dispatched directly through the Gmail API to the employee's registered inbox.
+                    </p>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-900 flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold">Login Details Prepared:</p>
+                      <p className="text-[11px] text-blue-800 mt-0.5">
+                        User can log in at <strong className="underline">https://otclaim.vercel.app/</strong> using their <strong>PF Number</strong> and initial password.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={isResendingGmail}
+                    onClick={async () => {
+                      setIsResendingGmail(true);
+                      try {
+                        const res = await sendUserWelcomeEmail(
+                          {
+                            email,
+                            name,
+                            pfNumber: employeeNumber,
+                            initialPassword: employeeNumber,
+                            loginUrl: 'https://otclaim.vercel.app/',
+                          },
+                          true
+                        );
+                        setWelcomeEmailResult(res);
+                        if (res.dispatchedVia === 'gmail_api') {
+                          setActionSuccess('Credentials email dispatched via Gmail!');
+                          setTimeout(() => setActionSuccess(null), 3000);
+                        }
+                      } catch (err: any) {
+                        setFormError('Gmail dispatch note: ' + err.message);
+                      } finally {
+                        setIsResendingGmail(false);
+                      }
+                    }}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-[11px] shadow-2xs shrink-0 cursor-pointer"
+                  >
+                    <Mail className="w-3 h-3" />
+                    <span>{isResendingGmail ? 'Sending...' : 'Send via Gmail'}</span>
+                  </button>
+                </div>
+              )}
 
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  Email Content (Sent to Employee)
+                  Email Content (Dispatched to Employee)
                 </label>
                 <pre className="p-3.5 rounded-2xl bg-slate-900 text-slate-100 font-mono text-[11px] leading-relaxed whitespace-pre-wrap max-h-56 overflow-y-auto border border-slate-800 selection:bg-indigo-500">
                   {welcomeEmailResult.body}

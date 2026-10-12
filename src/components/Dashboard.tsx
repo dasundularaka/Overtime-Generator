@@ -67,6 +67,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // PDF Preview State
   const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
+  const [previewPdfBlob, setPreviewPdfBlob] = useState<Blob | null>(null);
   const [previewFilename, setPreviewFilename] = useState<string>('');
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [claimToDeleteRecord, setClaimToDeleteRecord] = useState<ClaimRecord | null>(null);
@@ -139,8 +140,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const handlePreview = async (claim: ClaimRecord) => {
     try {
       const templateToUse = resolveTemplate(claim);
-      const { url, filename } = await generateOvertimePdf(claim, templateToUse);
+      const { blob, url, filename } = await generateOvertimePdf(claim, templateToUse);
       setPreviewPdfUrl(url);
+      setPreviewPdfBlob(blob);
       setPreviewFilename(filename);
       setIsPreviewOpen(true);
     } catch {
@@ -520,6 +522,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         onClose={() => setIsPreviewOpen(false)}
         pdfUrl={previewPdfUrl}
         filename={previewFilename}
+        pdfBlob={previewPdfBlob}
       />
 
       {/* Confirmation Modal for Claim Deletion */}

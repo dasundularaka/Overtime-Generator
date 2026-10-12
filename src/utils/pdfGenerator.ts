@@ -260,13 +260,13 @@ export async function generateOvertimePdf(
       const rowValues = [
         { col: cols.date, val: row.date ? row.date.split('-').slice(1).join('/') : '' },
         { col: cols.day, val: row.dayOfWeek || '' },
-        { col: cols.reason, val: row.reason || (isOtherDay ? "Day's Pay Allocation" : '') },
+        { col: cols.reason, val: row.reason || (isOtherDay && !row.startTime ? "Day's Pay Allocation" : '') },
         { col: cols.approvedBy, val: row.approvedBy || '' },
-        // Do not show shift on other days (Saturdays, non-working days)
-        { col: cols.startTime, val: isOtherDay ? '' : (row.startTime || '') },
-        { col: cols.endTime, val: isOtherDay ? '' : (row.endTime ? `${row.endTime}${row.isOvernight ? '*' : ''}` : '') },
-        { col: cols.totalHours, val: isOtherDay ? '' : (row.totalWorkMinutes > 0 ? formatMinutesToTime(row.totalWorkMinutes, 'hhmm') : '') },
-        // Do not show OT hours on other days (Saturdays, non-working days)
+        // Keep the in out times and working time for all days (including Saturdays and other days)
+        { col: cols.startTime, val: row.startTime || '' },
+        { col: cols.endTime, val: row.endTime ? `${row.endTime}${row.isOvernight ? '*' : ''}` : '' },
+        { col: cols.totalHours, val: row.totalWorkMinutes > 0 ? formatMinutesToTime(row.totalWorkMinutes, 'hhmm') : '' },
+        // No need to add hourly ot time for the saturdays and other days
         { col: cols.otHoursClaimed || (cols.breakMinutes ? undefined : cols.totalHours), val: isOtherDay ? '' : (row.totalFormatted || '') },
         { col: cols.specialHoursClaimed, val: row.specialAssignmentHours || '' },
       ];
