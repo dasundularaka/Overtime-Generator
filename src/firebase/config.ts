@@ -11,26 +11,20 @@ export const firebaseConfig = {
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || bundledConfig.messagingSenderId,
   appId: import.meta.env.VITE_FIREBASE_APP_ID || bundledConfig.appId,
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || bundledConfig.measurementId,
-  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || bundledConfig.firestoreDatabaseId,
+  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || bundledConfig.firestoreDatabaseId || 'ai-studio-overtimeclaimaut-8a35a644-c6e5-425b-b8cc-dbe3c5654abc',
 };
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-// Connect to (default) or named database on overtimerequest-prod
-const dbId =
-  firebaseConfig.firestoreDatabaseId &&
-  firebaseConfig.firestoreDatabaseId !== '(default)' &&
-  firebaseConfig.firestoreDatabaseId.trim() !== ''
-    ? firebaseConfig.firestoreDatabaseId
-    : undefined;
-
-export const db = dbId ? getFirestore(app, dbId) : getFirestore(app);
+export const db = firebaseConfig.firestoreDatabaseId
+  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
+  : getFirestore(app);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
 googleProvider.addScope('https://www.googleapis.com/auth/gmail.send');
 
-// Test connection on boot according to skill guidelines
+// Validate Connection to Firestore per skill requirements
 async function testConnection() {
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));

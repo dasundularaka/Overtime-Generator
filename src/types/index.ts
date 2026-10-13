@@ -75,6 +75,10 @@ export interface UserProfile {
   hourlyRateNonWorkingDays?: number; // Default hourly rate in Non-Working Days in Rs.
   totalRemuneration?: number; // Default salary/remuneration in Rs.
   assignedTemplateIds?: string[]; // Templates assigned by admin; user can only access these
+  welcomeEmailDispatched?: boolean;
+  welcomeEmailDispatchedAt?: string;
+  welcomeEmailSubject?: string;
+  welcomeEmailMessageId?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -265,6 +269,8 @@ export type AuditActionType =
   | 'TEMPLATE_DELETE'
   | 'HOLIDAY_IMPORT'
   | 'SETTINGS_UPDATE'
+  | 'EMAIL_DISPATCH'
+  | 'CLOUD_FUNCTION_EMAIL_DISPATCH'
   | 'USER_LOGIN'
   | 'USER_LOGOUT';
 

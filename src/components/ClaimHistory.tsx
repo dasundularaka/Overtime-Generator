@@ -85,6 +85,12 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
   const [isDuplicating, setIsDuplicating] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Bulk Selection State
+  const [selectedClaimIds, setSelectedClaimIds] = useState<string[]>([]);
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [isBulkPrinting, setIsBulkPrinting] = useState(false);
+
   // Fetch claims from Firestore (Admins see all; Users see only their own)
   const fetchClaims = async () => {
     if (!currentUser) return;
@@ -254,6 +260,82 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
     return matchesSearch && matchesMonth && matchesYear;
   });
 
+  const isAllSelected = filtered.length > 0 && filtered.every(c => selectedClaimIds.includes(c.id));
+  const isSomeSelected = filtered.some(c => selectedClaimIds.includes(c.id)) && !isAllSelected;
+
+  const toggleSelectAll = () => {
+    if (isAllSelected) {
+      setSelectedClaimIds([]);
+    } else {
+      setSelectedClaimIds(filtered.map(c => c.id));
+    }
+  };
+
+  const toggleSelectClaim = (id: string) => {
+    setSelectedClaimIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleBulkPrint = async () => {
+    const selectedClaims = claims.filter(c => selectedClaimIds.includes(c.id));
+    if (selectedClaims.length === 0) return;
+    setIsBulkPrinting(true);
+    setToastMessage(`Processing batch print for ${selectedClaims.length} claims...`);
+    try {
+      for (let i = 0; i < selectedClaims.length; i++) {
+        const c = selectedClaims[i];
+        const templateToUse = resolveTemplate(c);
+        const { url } = await generateOvertimePdf(c, templateToUse);
+        printPdfDocument(url);
+        if (i < selectedClaims.length - 1) {
+          await new Promise(r => setTimeout(r, 600));
+        }
+      }
+      setToastMessage(`Batch print dialog sent for ${selectedClaims.length} claims.`);
+      setTimeout(() => setToastMessage(null), 3500);
+    } catch (err: any) {
+      setToastMessage('Error printing claims: ' + err.message);
+      setTimeout(() => setToastMessage(null), 4000);
+    } finally {
+      setIsBulkPrinting(false);
+    }
+  };
+
+  const confirmBulkDelete = async () => {
+    if (selectedClaimIds.length === 0) return;
+    setIsBulkDeleting(true);
+    try {
+      const count = selectedClaimIds.length;
+      for (const id of selectedClaimIds) {
+        await deleteDoc(doc(db, 'claims', id));
+        deleteClaim(id);
+      }
+
+      await recordAuditLog({
+        action: 'CLAIM_DELETE',
+        actionLabel: `Bulk deleted ${count} overtime claims`,
+        targetType: 'claim',
+        targetId: `bulk_${Date.now()}`,
+        targetDescription: `${count} selected overtime claims`,
+        details: {
+          count,
+          deletedClaimIds: selectedClaimIds,
+        },
+      });
+
+      setSelectedClaimIds([]);
+      setIsBulkDeleteModalOpen(false);
+      fetchClaims();
+      setToastMessage(`Successfully deleted ${count} selected claims.`);
+      setTimeout(() => setToastMessage(null), 3500);
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.DELETE, 'claims/bulk');
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
   return (
     <div className="space-y-6 pb-16">
       {/* Header */}
@@ -324,6 +406,54 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
         </div>
       </div>
 
+      {/* Bulk Action Toolbar */}
+      {selectedClaimIds.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-indigo-50 border border-indigo-200 rounded-2xl shadow-xs animate-scale-in">
+          <div className="flex items-center gap-2">
+            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-600 text-white font-bold text-xs">
+              {selectedClaimIds.length}
+            </span>
+            <span className="text-xs font-semibold text-indigo-950">
+              {selectedClaimIds.length} {selectedClaimIds.length === 1 ? 'claim' : 'claims'} selected
+            </span>
+            <span className="text-xs text-indigo-500 font-medium hidden sm:inline">
+              (out of {filtered.length} total)
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleBulkPrint}
+              disabled={isBulkPrinting}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-indigo-300 text-indigo-700 hover:bg-indigo-100/70 text-xs font-semibold shadow-xs transition disabled:opacity-50"
+              title="Print all selected claims"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>{isBulkPrinting ? 'Printing...' : 'Print Selected'}</span>
+            </button>
+
+            {isAdmin && (
+              <button
+                onClick={() => setIsBulkDeleteModalOpen(true)}
+                disabled={isBulkDeleting}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-xs transition disabled:opacity-50"
+                title="Delete all selected claims"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Selected</span>
+              </button>
+            )}
+
+            <button
+              onClick={() => setSelectedClaimIds([])}
+              className="px-2.5 py-1.5 text-xs text-slate-500 hover:text-slate-800 transition font-medium"
+            >
+              Deselect All
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Table */}
       <div className="rounded-2xl bg-white shadow-xs border border-slate-200 overflow-hidden">
         {loading ? (
@@ -341,6 +471,18 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
             <table className="w-full text-left border-collapse min-w-[800px]">
               <thead>
                 <tr className="bg-slate-50 text-slate-700 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200">
+                  <th className="py-3 px-3 w-10 text-center">
+                    <input
+                      type="checkbox"
+                      checked={isAllSelected}
+                      ref={el => {
+                        if (el) el.indeterminate = isSomeSelected;
+                      }}
+                      onChange={toggleSelectAll}
+                      title="Select all filtered claims"
+                      className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 cursor-pointer"
+                    />
+                  </th>
                   <th className="py-3 px-4">Claim Ref</th>
                   <th className="py-3 px-4">Claimant</th>
                   <th className="py-3 px-4">Period</th>
@@ -353,8 +495,23 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
-                {filtered.map(claim => (
-                  <tr key={claim.id} className="hover:bg-slate-50/80 transition-colors">
+                {filtered.map(claim => {
+                  const isSelected = selectedClaimIds.includes(claim.id);
+                  return (
+                  <tr
+                    key={claim.id}
+                    className={`transition-colors ${
+                      isSelected ? 'bg-indigo-50/60' : 'hover:bg-slate-50/80'
+                    }`}
+                  >
+                    <td className="py-3.5 px-3 text-center">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleSelectClaim(claim.id)}
+                        className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 cursor-pointer"
+                      />
+                    </td>
                     <td className="py-3.5 px-4 font-mono font-bold text-slate-600 text-[11px]">
                       {claim.claimNumber}
                     </td>
@@ -467,7 +624,8 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                       </div>
                     </td>
                   </tr>
-                ))}
+                );
+              })}
               </tbody>
             </table>
           </div>
@@ -627,6 +785,23 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
           { label: 'Total Hours', value: claimToDelete.totalHoursFormatted },
           { label: 'Total Payment', value: `Rs. ${(claimToDelete.totalOtPayment || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
         ] : []}
+      />
+
+      {/* Bulk Delete Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={isBulkDeleteModalOpen}
+        onClose={() => setIsBulkDeleteModalOpen(false)}
+        onConfirm={confirmBulkDelete}
+        title={`Delete ${selectedClaimIds.length} Selected Claims`}
+        message={`Are you sure you want to permanently delete the ${selectedClaimIds.length} selected overtime claims? This action cannot be undone.`}
+        confirmText={`Delete ${selectedClaimIds.length} Claims`}
+        cancelText="Cancel"
+        variant="danger"
+        isLoading={isBulkDeleting}
+        details={[
+          { label: 'Selected Claims', value: `${selectedClaimIds.length} records` },
+          { label: 'Action', value: 'Permanent deletion from database' },
+        ]}
       />
 
       {/* Duplicate Confirmation Modal */}

@@ -19,6 +19,7 @@ import { PasswordResetModal } from './components/PasswordResetModal';
 import { AuditLogViewer } from './components/AuditLogViewer';
 import { ClaimRecord } from './types';
 import { getSettings, saveSettings } from './utils/storage';
+import { initAutomatedUserCreationListener } from './services/automatedDispatchTrigger';
 
 function AppContent() {
   const { currentUser, userProfile, isAdmin, loading, refreshUserProfile } = useAuth();
@@ -33,6 +34,14 @@ function AppContent() {
       saveSettings({ ...settings, hasSeenOnboarding: true });
     }
   }, []);
+
+  // Initialize automated user creation email dispatch trigger for admins
+  useEffect(() => {
+    if (isAdmin) {
+      const unsub = initAutomatedUserCreationListener(isAdmin);
+      return () => unsub();
+    }
+  }, [isAdmin]);
 
   // Safeguard: non-admins cannot stay on designer, users, audit, branches, or roles tabs
   useEffect(() => {
