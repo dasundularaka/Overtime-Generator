@@ -13,7 +13,7 @@ interface ConfirmationModalProps {
   cancelText?: string;
   variant?: ConfirmationVariant;
   isLoading?: boolean;
-  details?: { label: string; value: string }[];
+  details?: { label: string; value: string; showCaution?: boolean }[];
 }
 
 export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
@@ -90,9 +90,14 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
         {details && details.length > 0 && (
           <div className="mt-4 rounded-2xl bg-slate-50 border border-slate-100 p-3.5 space-y-1.5 text-xs">
             {details.map((item, idx) => (
-              <div key={idx} className="flex items-center justify-between">
-                <span className="text-slate-500 font-medium">{item.label}</span>
-                <span className="font-semibold text-slate-800 font-mono">{item.value}</span>
+              <div key={idx} className="flex items-center justify-between gap-2">
+                <span className="text-slate-500 font-medium flex items-center gap-1.5">
+                  {item.showCaution && (
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" title="Holiday/Sunday Overridden" />
+                  )}
+                  <span>{item.label}</span>
+                </span>
+                <span className="font-semibold text-slate-800 font-mono text-right">{item.value}</span>
               </div>
             ))}
           </div>

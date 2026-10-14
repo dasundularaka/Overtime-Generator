@@ -35,7 +35,7 @@ import { subscribeToTemplates } from '../services/templateService';
 interface DashboardProps {
   onNavigate: (tab: NavigationTab) => void;
   onEditClaim: (claim: ClaimRecord) => void;
-  onOpenHelp: () => void;
+  onOpenHelp?: () => void;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({

@@ -122,7 +122,25 @@ export async function uploadClaimPdfToGoogleDrive(
 
   if (!uploadResponse.ok) {
     const errorText = await uploadResponse.text();
-    throw new Error(`Google Drive upload failed (${uploadResponse.status}): ${errorText}`);
+    let friendlyMessage = `Google Drive upload failed (${uploadResponse.status})`;
+    try {
+      const parsed = JSON.parse(errorText);
+      if (parsed.error?.message) {
+        if (
+          parsed.error.message.includes('has not been used in project') ||
+          parsed.error.message.includes('disabled') ||
+          parsed.error.code === 403 ||
+          parsed.error.status === 'PERMISSION_DENIED'
+        ) {
+          friendlyMessage = 'Preview through Google Drive is supported for self-registered Google accounts with Google Drive API enabled. Standard built-in PDF viewer is active.';
+        } else {
+          friendlyMessage = parsed.error.message;
+        }
+      }
+    } catch {
+      friendlyMessage = `${friendlyMessage}: ${errorText.slice(0, 160)}`;
+    }
+    throw new Error(friendlyMessage);
   }
 
   const uploadData = await uploadResponse.json();
@@ -168,6 +186,7 @@ export interface WelcomeEmailDispatchPayload {
 
 /**
  * Dispatches a welcome email with credentials to a user directly via the Gmail API.
+ * Uses "OT Claim" as the sender branding.
  */
 export async function sendWelcomeEmailViaGmail(
   payload: WelcomeEmailDispatchPayload
@@ -178,30 +197,32 @@ export async function sendWelcomeEmailViaGmail(
   const pass = payload.initialPassword || cleanPf;
   const webLink = payload.loginUrl || 'https://otclaim.vercel.app/';
   const recipient = payload.to.trim();
-  const subject = `Your Overtime Claim System Login Credentials [${cleanPf}]`;
+  const subject = `OT Claim - Your Login Credentials [${cleanPf}]`;
 
-  const bodyText = `Dear ${payload.name || 'User'},
+  const bodyText = `Dear ${payload.name || 'Staff Member'},
 
-Welcome to the Overtime Claim Management System.
+Welcome to OT Claim - Overtime Claim Management System.
 
 Your user account has been successfully created by the System Administrator. You can now access the system using your PF Number credentials:
 
 • Username (PF No): ${cleanPf}
-• Password: ${pass}
+• Initial Password: ${pass}
 • System Link: ${webLink}
 
 First-Time Login Security Notice:
-For security purposes, when you log into the system for the first time, you will be prompted to change your password before accessing your account dashboard.
+For security purposes, when you log into the system for the first time, you will be prompted to set your new personal password before accessing your account dashboard.
 
 If you have any questions or require assistance, please contact your system administrator.
 
 Best regards,
+OT Claim
 Overtime Claim Management Team`;
 
   // Encode subject to UTF-8 RFC 2047
   const utf8Subject = `=?utf-8?B?${btoa(unescape(encodeURIComponent(subject)))}?=`;
 
   const emailLines = [
+    'From: "OT Claim" <me>',
     `To: ${recipient}`,
     `Subject: ${utf8Subject}`,
     'MIME-Version: 1.0',

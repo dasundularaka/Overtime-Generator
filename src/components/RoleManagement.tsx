@@ -220,7 +220,7 @@ export const RoleManagement: React.FC = () => {
         id: editingRole?.id || `role_${Date.now()}`,
         name: cleanName,
         description: description.trim() || undefined,
-        department: department.trim() || undefined,
+        department: editingRole?.department || undefined,
         claimType: claimType,
         hourlyRateWorkingDays: Number(hourlyRateWorkingDays),
         daysPaymentNonWorkingDays: Number(daysPaymentNonWorkingDays),
@@ -320,13 +320,6 @@ export const RoleManagement: React.FC = () => {
               <Building2 className="w-4 h-4" />
               <span>Departments ({departments.length})</span>
             </button>
-            <button
-              onClick={openCreateModal}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold shadow-xs transition cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add New Role</span>
-            </button>
           </div>
         </div>
 
@@ -369,12 +362,6 @@ export const RoleManagement: React.FC = () => {
                       Role ID: {role.id}
                     </span>
                     <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                      {role.department && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-semibold text-[10px] border border-slate-200">
-                          <Building2 className="w-3 h-3 text-slate-500" />
-                          <span>{role.department}</span>
-                        </span>
-                      )}
                       <span
                         className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[10px] border ${
                           role.claimType === 'OP'
@@ -511,16 +498,17 @@ export const RoleManagement: React.FC = () => {
             <form onSubmit={handleSave} className="mt-4 space-y-3.5 text-xs">
               <div>
                 <label className="block font-bold text-slate-700 mb-1">
-                  Role Title / Designation <span className="text-rose-500">*</span>
+                  Designation (Corporate Standard)
                 </label>
                 <input
                   type="text"
-                  required
+                  readOnly
                   value={name}
-                  onChange={e => setName(e.target.value)}
-                  placeholder="e.g. Senior Technical Officer"
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 font-semibold focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-slate-700 font-bold cursor-not-allowed"
                 />
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  Designations in the database are fixed corporate standards. You can configure overtime rates below.
+                </span>
               </div>
 
               <div>
@@ -534,53 +522,25 @@ export const RoleManagement: React.FC = () => {
                 />
               </div>
 
-              {/* Department & Default Claim Type Assignment */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-purple-50/50 border border-purple-200 rounded-2xl">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block font-bold text-slate-800">
-                      Assigned Department <span className="text-rose-500">*</span>
-                    </label>
-                    <span className="text-[10px] text-purple-700 font-semibold">Auto-links</span>
-                  </div>
-                  <input
-                    type="text"
-                    required
-                    list="role-dept-suggestions"
-                    value={department}
-                    onChange={e => setDepartment(e.target.value)}
-                    placeholder="e.g. IT & Infrastructure Operations"
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 font-medium focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
-                  />
-                  <datalist id="role-dept-suggestions">
-                    {departments.map(d => (
-                      <option key={d.id} value={d.name} />
-                    ))}
-                  </datalist>
-                  <span className="text-[10px] text-slate-400 mt-0.5 block">
-                    Auto-populates user department on selection
-                  </span>
+              {/* Default Claim Type Assignment */}
+              <div className="p-3 bg-purple-50/50 border border-purple-200 rounded-2xl">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-bold text-slate-800">
+                    Assigned Claim Type <span className="text-rose-500">*</span>
+                  </label>
+                  <span className="text-[10px] text-purple-700 font-semibold">Overtime / Out of Pocket</span>
                 </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block font-bold text-slate-800">
-                      Assigned Claim Type <span className="text-rose-500">*</span>
-                    </label>
-                    <span className="text-[10px] text-purple-700 font-semibold">Auto-links</span>
-                  </div>
-                  <select
-                    value={claimType}
-                    onChange={e => setClaimType(e.target.value as ClaimType)}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 font-semibold focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
-                  >
-                    <option value="OT">OT (Overtime Claim Sheet)</option>
-                    <option value="OP">OP (Out of Pocket Claim Sheet)</option>
-                  </select>
-                  <span className="text-[10px] text-slate-400 mt-0.5 block">
-                    Default claim template type for this designation
-                  </span>
-                </div>
+                <select
+                  value={claimType}
+                  onChange={e => setClaimType(e.target.value as ClaimType)}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 font-semibold focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+                >
+                  <option value="OT">OT (Overtime Claim Sheet)</option>
+                  <option value="OP">OP (Out of Pocket Claim Sheet)</option>
+                </select>
+                <span className="text-[10px] text-slate-400 mt-0.5 block">
+                  Default claim template type for this designation
+                </span>
               </div>
 
               {/* Overtime Rates Matrix */}

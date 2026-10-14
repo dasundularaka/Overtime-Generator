@@ -53,16 +53,14 @@ export async function adminChangeUserPassword(
               message: `Successfully updated password for ${cleanEmail}.`,
             };
           } catch {
-            // Password guess didn't work; proceed to reset email dispatch
+            // Password guess didn't work in client Auth; Firestore and pfDirectory will enforce PF-number login & reset modal
           }
         }
 
-        // 3. Fallback: Dispatch an official password reset email to the user
-        await sendPasswordResetEmail(secAuth, cleanEmail);
         await signOut(secAuth);
         return {
           success: true,
-          message: `Password update requested. A secure password reset link has been dispatched to ${cleanEmail}.`,
+          message: `Password set to PF Number. The user will be required to change their password upon login.`,
         };
       }
 

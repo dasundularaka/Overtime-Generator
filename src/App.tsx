@@ -12,28 +12,17 @@ import { EmployeeManager } from './components/EmployeeManager';
 import { ClaimHistory } from './components/ClaimHistory';
 import { TemplateDesigner } from './components/TemplateDesigner';
 import { SettingsPage } from './components/SettingsPage';
-import { OnboardingModal } from './components/OnboardingModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { LoadingScreen } from './components/LoadingScreen';
 import { PasswordResetModal } from './components/PasswordResetModal';
 import { AuditLogViewer } from './components/AuditLogViewer';
 import { ClaimRecord } from './types';
-import { getSettings, saveSettings } from './utils/storage';
 import { initAutomatedUserCreationListener } from './services/automatedDispatchTrigger';
 
 function AppContent() {
   const { currentUser, userProfile, isAdmin, loading, refreshUserProfile } = useAuth();
   const [activeTab, setActiveTab] = useState<NavigationTab>('dashboard');
   const [editingClaim, setEditingClaim] = useState<ClaimRecord | null>(null);
-  const [showHelpModal, setShowHelpModal] = useState<boolean>(false);
-
-  useEffect(() => {
-    const settings = getSettings();
-    if (!settings.hasSeenOnboarding) {
-      setShowHelpModal(true);
-      saveSettings({ ...settings, hasSeenOnboarding: true });
-    }
-  }, []);
 
   // Initialize automated user creation email dispatch trigger for admins
   useEffect(() => {
@@ -92,7 +81,6 @@ function AppContent() {
           }
           setActiveTab(tab);
         }}
-        onOpenHelp={() => setShowHelpModal(true)}
       />
 
       {/* Main Content Area */}
@@ -105,7 +93,6 @@ function AppContent() {
               else setActiveTab(tab);
             }}
             onEditClaim={handleEditClaim}
-            onOpenHelp={() => setShowHelpModal(true)}
           />
         )}
 
@@ -144,35 +131,13 @@ function AppContent() {
       <footer className="mt-auto border-t border-slate-200 bg-white py-4 text-center text-xs text-slate-500 hidden md:block">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <div>
-            <strong>Overtime Claim Manager</strong> &bull; Official A4 Timesheet &amp; Claim System
+            <strong>OT Claim</strong> &bull; Official A4 Timesheet &amp; Claim System
           </div>
           <div className="flex items-center gap-3 text-[11px] text-slate-400">
             <span>Signed in as: <strong className="text-slate-700">{userProfile?.name || currentUser.email}</strong> ({isAdmin ? 'Admin' : 'User'})</span>
-            <span>&bull;</span>
-            <button
-              onClick={() => setShowHelpModal(true)}
-              className="hover:text-indigo-600 underline"
-            >
-              Shift Rules
-            </button>
           </div>
         </div>
       </footer>
-
-      {/* First-Run Experience / Help Modal */}
-      <OnboardingModal
-        isOpen={showHelpModal}
-        onClose={() => setShowHelpModal(false)}
-        isAdmin={isAdmin}
-        onGoToDesigner={() => {
-          setShowHelpModal(false);
-          if (isAdmin) setActiveTab('designer');
-        }}
-        onGoToNewClaim={() => {
-          setShowHelpModal(false);
-          handleStartFreshClaim();
-        }}
-      />
 
       {/* Force Password Change Modal on First Login or Admin Reset */}
       {currentUser && (userProfile?.mustChangePassword || userProfile?.isFirstLogin) && (

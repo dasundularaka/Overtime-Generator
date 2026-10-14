@@ -19,6 +19,8 @@ import {
   FileText,
   Lock,
   Banknote,
+  AlertTriangle,
+  Check,
 } from 'lucide-react';
 import {
   collection,
@@ -166,8 +168,12 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   const [daysPay, setDaysPay] = useState<number | ''>(
     initialClaim?.daysPay !== undefined ? initialClaim.daysPay : ''
   );
+  const [hourlyRateNonWorkingDays, setHourlyRateNonWorkingDays] = useState<number | ''>('');
   const [otPaymentDueB, setOtPaymentDueB] = useState<number | ''>(
     initialClaim?.otPaymentDueB !== undefined ? initialClaim.otPaymentDueB : ''
+  );
+  const [isSpecialAssignedOt, setIsSpecialAssignedOt] = useState<boolean>(
+    initialClaim?.rows?.some(r => r.isSpecialAssignment) || false
   );
   const [isConfirmResetOpen, setIsConfirmResetOpen] = useState(false);
   const [isConfirmSaveClaimOpen, setIsConfirmSaveClaimOpen] = useState(false);
@@ -281,6 +287,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       setUserShiftEndTime(targetProfile.shiftEndTime || GENERAL_SHIFT_END);
       setHourlyRate(targetProfile.hourlyRate !== undefined ? targetProfile.hourlyRate : '');
       setDaysPay(targetProfile.daysPay !== undefined ? targetProfile.daysPay : '');
+      setHourlyRateNonWorkingDays(targetProfile.hourlyRateNonWorkingDays !== undefined ? targetProfile.hourlyRateNonWorkingDays : '');
       setTotalRemuneration(targetProfile.totalRemuneration !== undefined ? targetProfile.totalRemuneration : '');
     }
 
@@ -295,24 +302,76 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   }, [initialClaim, userProfile, selectedUserId, allUsers]);
 
   // Create clean blank row with assigned shift start time
+  // Create clean blank row with assigned shift start time
   function createBlankRow(defaultDate: string = ''): OvertimeRow {
     const isWk = isWeekendDay(defaultDate);
+    const isHol = holidayMap.has(defaultDate);
+    const isSun = getDayOfWeek(defaultDate) === 'Sun';
+    const isOff = isWk || isHol || isSun;
     return {
       id: 'row_' + Math.random().toString(36).substring(2, 9),
       date: defaultDate,
       dayOfWeek: getDayOfWeek(defaultDate),
-      startTime: isWk ? '' : (userShiftStartTime || GENERAL_SHIFT_START),
+      startTime: isOff ? '' : (userShiftStartTime || GENERAL_SHIFT_START),
       endTime: '',
       breakMinutes: 0,
       isOvernight: false,
-      isWeekend: isWk,
+      isWeekend: isWk || isSun,
+      isHoliday: isHol || isSun,
+      holidayName: holidayMap.get(defaultDate)?.name || (isSun ? 'Sunday' : undefined),
+      isHolidayOverride: false,
+      isSpecialAssignment: isSpecialAssignedOt,
       totalWorkMinutes: 0,
       rawOtMinutes: 0,
       totalMinutes: 0,
       totalFormatted: '00:00',
-      reason: '',
+      reason: isHol ? (holidayMap.get(defaultDate)?.name || 'Holiday') : (isSun ? 'Sunday' : ''),
     };
   }
+
+  // Toggle holiday override to enter In/Out times and claim overtime
+  const toggleHolidayOverride = (index: number) => {
+    setRows(prevRows => {
+      const updated = [...prevRows];
+      const target = { ...updated[index] };
+      const nextOverride = !target.isHolidayOverride;
+      target.isHolidayOverride = nextOverride;
+
+      if (nextOverride) {
+        if (!target.startTime) target.startTime = userShiftStartTime || GENERAL_SHIFT_START;
+      } else {
+        target.startTime = '';
+        target.endTime = '';
+        target.totalWorkMinutes = 0;
+        target.rawOtMinutes = 0;
+        target.totalMinutes = 0;
+        target.totalFormatted = '00:00';
+      }
+
+      if (target.startTime && target.endTime) {
+        const isSpecial = isSpecialAssignedOt || !!target.isSpecialAssignment;
+        const calc = calculateShiftOvertime(
+          target.startTime,
+          target.endTime,
+          0,
+          maxOtLimitHours,
+          true,
+          userShiftEndTime || GENERAL_SHIFT_END,
+          userShiftStartTime || GENERAL_SHIFT_START,
+          isSpecial,
+          nextOverride
+        );
+        target.totalWorkMinutes = calc.totalWorkMinutes;
+        target.rawOtMinutes = calc.rawOtMinutes;
+        target.totalMinutes = calc.totalMinutes;
+        target.totalFormatted = formatMinutesToTime(calc.totalMinutes, otDisplayFormat);
+        target.isDaysPayment = true;
+      }
+
+      updated[index] = target;
+      return updated;
+    });
+  };
 
   // Row update with employee shift and 15-minute generation
   const updateRowField = (index: number, field: keyof OvertimeRow, value: any) => {
@@ -326,36 +385,42 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         if (holidayMap.has(value) || target.dayOfWeek === 'Sun') {
           target.isHoliday = true;
           target.holidayName = holidayMap.get(value)?.name || 'Sunday';
+          if (!target.isHolidayOverride) {
+            target.startTime = '';
+            target.endTime = '';
+          }
+        }
+      }
+
+      if (field === 'isHoliday' && value) {
+        if (!target.isHolidayOverride) {
           target.startTime = '';
           target.endTime = '';
         }
       }
 
-      if (field === 'isHoliday' && value) {
-        target.startTime = '';
-        target.endTime = '';
-      }
-
-      const isHoliday = !!target.isHoliday || holidayMap.has(target.date);
+      const isHoliday = !!target.isHoliday || holidayMap.has(target.date) || target.dayOfWeek === 'Sun';
       const isOther = target.dayOfWeek === 'Sat' || target.dayOfWeek === 'Sun' || isHoliday;
+      const isSpecial = isSpecialAssignedOt || !!target.isSpecialAssignment;
+      const isHolOverride = !!target.isHolidayOverride;
 
       // Calculate shift overtime according to company rules
-      // For other days (Saturdays, non-working days), isOtherDay is true:
-      // No late conditions apply, no hourly overtime rate allocated, earns Day's Payment!
       const calc = calculateShiftOvertime(
         target.startTime,
         target.endTime,
-        Number(target.breakMinutes) || 0,
+        0,
         maxOtLimitHours,
         isOther,
         userShiftEndTime || GENERAL_SHIFT_END,
-        userShiftStartTime || GENERAL_SHIFT_START
+        userShiftStartTime || GENERAL_SHIFT_START,
+        isSpecial,
+        isHolOverride
       );
 
       target.totalWorkMinutes = calc.totalWorkMinutes;
       target.rawOtMinutes = calc.rawOtMinutes;
       target.totalMinutes = calc.totalMinutes;
-      target.totalFormatted = isOther ? '' : formatMinutesToTime(calc.totalMinutes, otDisplayFormat);
+      target.totalFormatted = (isOther && !isHolOverride) ? '' : formatMinutesToTime(calc.totalMinutes, otDisplayFormat);
       target.isOvernight = calc.isOvernight;
       target.isCapped = calc.isCapped;
       target.uncappedMinutes = calc.uncappedMinutes;
@@ -374,23 +439,27 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     setRows(prevRows =>
       prevRows.map(row => {
         if (!row.startTime || !row.endTime) return row;
-        const isHoliday = !!row.isHoliday || holidayMap.has(row.date);
+        const isHoliday = !!row.isHoliday || holidayMap.has(row.date) || row.dayOfWeek === 'Sun';
         const isOther = row.dayOfWeek === 'Sat' || row.dayOfWeek === 'Sun' || isHoliday;
+        const isSpecial = isSpecialAssignedOt || !!row.isSpecialAssignment;
+        const isHolOverride = !!row.isHolidayOverride;
         const calc = calculateShiftOvertime(
           row.startTime,
           row.endTime,
-          Number(row.breakMinutes) || 0,
+          0,
           maxOtLimitHours,
           isOther,
           userShiftEndTime || GENERAL_SHIFT_END,
-          userShiftStartTime || GENERAL_SHIFT_START
+          userShiftStartTime || GENERAL_SHIFT_START,
+          isSpecial,
+          isHolOverride
         );
         return {
           ...row,
           totalWorkMinutes: calc.totalWorkMinutes,
           rawOtMinutes: calc.rawOtMinutes,
           totalMinutes: calc.totalMinutes,
-          totalFormatted: isOther ? '' : formatMinutesToTime(calc.totalMinutes, otDisplayFormat),
+          totalFormatted: (isOther && !isHolOverride) ? '' : formatMinutesToTime(calc.totalMinutes, otDisplayFormat),
           isOvernight: calc.isOvernight,
           isCapped: calc.isCapped,
           uncappedMinutes: calc.uncappedMinutes,
@@ -401,35 +470,44 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         };
       })
     );
-  }, [maxOtLimitHours, otDisplayFormat, holidayMap, userShiftEndTime, userShiftStartTime]);
+  }, [maxOtLimitHours, otDisplayFormat, holidayMap, userShiftEndTime, userShiftStartTime, isSpecialAssignedOt]);
 
-  // Auto-Fill Month: Automatically removes holidays and Sundays
+  // Auto-Fill Month: Loads ALL dates in the selected month with holidays & Sundays shown
   const handleAutoFillMonth = () => {
     const monthIndex = MONTH_NAMES.indexOf(claimMonth);
     if (monthIndex < 0) return;
 
     const holidayDatesSet = new Set(calendarHolidays.map(h => h.date));
-    const monthDates = generateMonthDates(claimYear, monthIndex, holidayDatesSet, true);
+    // Load ALL dates in the month (do NOT exclude holidays or Sundays)
+    const monthDates = generateMonthDates(claimYear, monthIndex, holidayDatesSet, false);
     const existingDateMap = new Map(rows.map(r => [r.date, r]));
 
-    const newRows: OvertimeRow[] = monthDates.map(({ date, day }) => {
+    const newRows: OvertimeRow[] = monthDates.map(({ date, day, isHoliday }) => {
       const existing = existingDateMap.get(date);
       if (existing) return existing;
       const isSat = day === 'Sat';
+      const isSun = day === 'Sun';
+      const isHol = isHoliday || isSun || holidayDatesSet.has(date);
+      const holidayInfo = holidayMap.get(date);
+
       return {
         id: 'row_' + Math.random().toString(36).substring(2, 9),
         date,
         dayOfWeek: day,
-        startTime: isSat ? '' : (userShiftStartTime || GENERAL_SHIFT_START),
+        startTime: isHol || isSat ? '' : (userShiftStartTime || GENERAL_SHIFT_START),
         endTime: '',
         breakMinutes: 0,
         isOvernight: false,
-        isWeekend: isSat,
+        isWeekend: isSat || isSun,
+        isHoliday: isHol,
+        holidayName: holidayInfo?.name || (isSun ? 'Sunday' : isHol ? 'Public Holiday' : undefined),
+        isHolidayOverride: false,
+        isSpecialAssignment: isSpecialAssignedOt,
         totalWorkMinutes: 0,
         rawOtMinutes: 0,
         totalMinutes: 0,
         totalFormatted: '00:00',
-        reason: isSat ? "Saturday Duty (Day's Pay)" : '',
+        reason: isHol ? (holidayInfo?.name || (isSun ? 'Sunday' : 'Holiday')) : (isSat ? "Saturday Duty (Day's Pay)" : ''),
       };
     });
 
@@ -486,6 +564,34 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     return Math.round(weekdayDecimalHours * Number(hourlyRate) * 100) / 100;
   }, [weekdayDecimalHours, hourlyRate]);
 
+  // Overridden Holiday Overtime: time worked on holidays earns Day's Pay AND Non-Working Days Hourly Rate
+  const holidayOverriddenRows = useMemo(() => {
+    return rows.filter(r => r.isHolidayOverride && (r.totalMinutes > 0 || r.totalWorkMinutes > 0));
+  }, [rows]);
+
+  const holidayOtMinutes = useMemo(() => {
+    return holidayOverriddenRows.reduce((acc, r) => acc + (r.totalMinutes || 0), 0);
+  }, [holidayOverriddenRows]);
+
+  const holidayDecimalHours = useMemo(() => {
+    return parseFloat((holidayOtMinutes / 60).toFixed(2));
+  }, [holidayOtMinutes]);
+
+  const effectiveNonWorkingHourlyRate = useMemo(() => {
+    if (hourlyRateNonWorkingDays !== '' && !isNaN(Number(hourlyRateNonWorkingDays))) {
+      return Number(hourlyRateNonWorkingDays);
+    }
+    if (hourlyRate !== '' && !isNaN(Number(hourlyRate))) {
+      return Math.round(Number(hourlyRate) * 1.5 * 100) / 100;
+    }
+    return 0;
+  }, [hourlyRateNonWorkingDays, hourlyRate]);
+
+  const holidayHourlyPayment = useMemo(() => {
+    if (effectiveNonWorkingHourlyRate <= 0) return 0;
+    return Math.round(holidayDecimalHours * effectiveNonWorkingHourlyRate * 100) / 100;
+  }, [holidayDecimalHours, effectiveNonWorkingHourlyRate]);
+
   // Other days (Saturdays, Sundays, non-working days, holidays)
   // Condition: Saturday requires minimum 6 hours (360 mins) to earn a Day's Payment; Sundays and holidays earn Day's payment if worked.
   const otherDaysWorkedRows = useMemo(() => {
@@ -508,15 +614,15 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
   const totalOtPayment = useMemo(() => {
     const b = otPaymentDueB !== '' ? Number(otPaymentDueB) : 0;
-    return Math.round((otPaymentDueA + daysPayTotal + (isNaN(b) ? 0 : b)) * 100) / 100;
-  }, [otPaymentDueA, daysPayTotal, otPaymentDueB]);
+    return Math.round((otPaymentDueA + daysPayTotal + holidayHourlyPayment + (isNaN(b) ? 0 : b)) * 100) / 100;
+  }, [otPaymentDueA, daysPayTotal, holidayHourlyPayment, otPaymentDueB]);
 
   const summary = useMemo(() => {
-    const totalMin = weekdayOtMinutes;
-    const otDays = weekdayWorkingRows.length;
-    const cappedCount = weekdayWorkingRows.filter(r => r.isCapped).length;
+    const totalMin = weekdayOtMinutes + holidayOtMinutes;
+    const otDays = weekdayWorkingRows.length + holidayOverriddenRows.length;
+    const cappedCount = rows.filter(r => r.isCapped).length;
     const totalHoursFormatted = formatMinutesToTime(totalMin, 'hhmm');
-    const totalDecimalHours = weekdayDecimalHours;
+    const totalDecimalHours = parseFloat((totalMin / 60).toFixed(2));
 
     return {
       totalMinutes: totalMin,
@@ -526,8 +632,11 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       cappedCount,
       daysPayCount,
       daysPayTotal,
+      holidayOtMinutes,
+      holidayDecimalHours,
+      holidayHourlyPayment,
     };
-  }, [weekdayOtMinutes, weekdayWorkingRows, weekdayDecimalHours, daysPayCount, daysPayTotal]);
+  }, [weekdayOtMinutes, holidayOtMinutes, weekdayWorkingRows, holidayOverriddenRows, rows, daysPayCount, daysPayTotal, holidayDecimalHours, holidayHourlyPayment]);
 
   const handleRemunerationChange = (val: string) => {
     if (val === '') {
@@ -544,6 +653,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       const calculatedHourlyRate = Math.round((calculatedDayPay / 8) * 100) / 100;
       if (daysPay === '') setDaysPay(calculatedDayPay);
       if (hourlyRate === '') setHourlyRate(calculatedHourlyRate);
+      if (hourlyRateNonWorkingDays === '') setHourlyRateNonWorkingDays(Math.round(calculatedHourlyRate * 1.5 * 100) / 100);
     }
   };
 
@@ -620,17 +730,33 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     }
   };
 
+  // Helper to identify claimed rows (non-claimed days are removed automatically in generation)
+  const isClaimedRow = (r: OvertimeRow): boolean => {
+    if (!r.endTime || r.endTime.trim() === '') return false;
+    return (
+      (r.totalMinutes || 0) > 0 ||
+      (r.totalWorkMinutes || 0) > 0 ||
+      !!r.isDaysPayment ||
+      !!r.isHolidayOverride ||
+      (!!r.specialAssignmentHours && r.specialAssignmentHours.trim() !== '')
+    );
+  };
+
   const buildClaimRecord = (customRows?: OvertimeRow[]): ClaimRecord => {
     const claimId = initialClaim?.id || 'clm_' + Date.now();
-    const activeRows = (customRows || rows).filter(r => r.totalMinutes > 0 || r.totalWorkMinutes > 0 || r.startTime || r.endTime);
-    const totalMinutes = activeRows.filter(r => isWeekdayWorkingDay(r)).reduce((acc, r) => acc + (r.totalMinutes || 0), 0);
-    const otDaysCount = activeRows.filter(r => isWeekdayWorkingDay(r) && r.totalMinutes > 0).length;
+    const sourceRows = customRows || rows;
+    // Automatically remove non-claimed days in generation
+    const claimedRows = sourceRows.filter(isClaimedRow);
+    const activeRows = claimedRows.length > 0 ? claimedRows : sourceRows.filter(r => r.startTime || r.endTime);
+
+    const totalMinutes = activeRows.reduce((acc, r) => acc + (r.totalMinutes || 0), 0);
+    const otDaysCount = activeRows.filter(r => (r.totalMinutes || 0) > 0).length;
     const totalDecimalHours = parseFloat((totalMinutes / 60).toFixed(2));
     const totalHoursFormatted = formatMinutesToTime(totalMinutes, otDisplayFormat);
 
     const calculatedPaymentA =
       hourlyRate !== '' && !isNaN(Number(hourlyRate))
-        ? Math.round(totalDecimalHours * Number(hourlyRate) * 100) / 100
+        ? Math.round(activeRows.filter(r => isWeekdayWorkingDay(r)).reduce((acc, r) => acc + (r.totalMinutes || 0), 0) / 60 * Number(hourlyRate) * 100) / 100
         : 0;
 
     const currentDaysPayCount = activeRows.filter(r => isOtherDayRow(r) && r.totalWorkMinutes > 0).length;
@@ -639,8 +765,13 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         ? Math.round(currentDaysPayCount * Number(daysPay) * 100) / 100
         : 0;
 
+    const currentHolidayOtMin = activeRows.filter(r => r.isHolidayOverride).reduce((acc, r) => acc + (r.totalMinutes || 0), 0);
+    const currentHolidayPayment = effectiveNonWorkingHourlyRate > 0
+      ? Math.round((currentHolidayOtMin / 60) * effectiveNonWorkingHourlyRate * 100) / 100
+      : 0;
+
     const b = otPaymentDueB !== '' ? Number(otPaymentDueB) : 0;
-    const calculatedTotalPayment = Math.round((calculatedPaymentA + currentDaysPayTotal + (isNaN(b) ? 0 : b)) * 100) / 100;
+    const calculatedTotalPayment = Math.round((calculatedPaymentA + currentDaysPayTotal + currentHolidayPayment + (isNaN(b) ? 0 : b)) * 100) / 100;
 
     return {
       id: claimId,
@@ -1343,7 +1474,23 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Special Assigned Overtime Modern Tick Option */}
+            <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50/80 hover:bg-indigo-100/70 text-indigo-900 text-xs font-semibold cursor-pointer transition select-none">
+              <input
+                type="checkbox"
+                checked={isSpecialAssignedOt}
+                onChange={e => {
+                  const val = e.target.checked;
+                  setIsSpecialAssignedOt(val);
+                  setRows(prev => prev.map(r => ({ ...r, isSpecialAssignment: val })));
+                }}
+                className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 border-indigo-300 cursor-pointer"
+              />
+              <Sparkles className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+              <span>Special Assigned OT (No Limit)</span>
+            </label>
+
             {/* View Mode Toggle (Mobile) */}
             <div className="flex md:hidden items-center rounded-xl bg-slate-200/80 p-0.5 text-xs">
               <button
@@ -1396,12 +1543,13 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
               const isSun = row.dayOfWeek === 'Sun' || getDayOfWeek(row.date) === 'Sun';
               const isHol = !!row.isHoliday || holidayMap.has(row.date) || isSun || /holiday|poya|mercantile|off\s*day|leave/i.test(row.reason || '');
               const isOther = isSat || isSun || isHol;
+              const isRowSpecial = row.isSpecialAssignment ?? isSpecialAssignedOt;
 
               return (
                 <div key={row.id} className="p-3.5 space-y-2.5 bg-white">
-                  {/* Card Header: #, Date, Day, Holiday button, Actions */}
+                  {/* Card Header: #, Date, Day, Holiday & Override, Caution Icon, Actions */}
                   <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="font-mono text-xs font-bold text-slate-400">#{index + 1}</span>
                       <input
                         type="date"
@@ -1422,6 +1570,27 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       >
                         {row.isHoliday ? 'Holiday' : row.dayOfWeek || '-'}
                       </span>
+
+                      {/* Next to holiday, show modern override option to add in/out times and claim holiday overtime */}
+                      {isHol && (
+                        <button
+                          type="button"
+                          onClick={() => toggleHolidayOverride(index)}
+                          className={`text-[10px] px-2 py-0.5 rounded font-bold transition flex items-center gap-1 cursor-pointer ${
+                            row.isHolidayOverride
+                              ? 'bg-amber-500 text-white shadow-xs border border-amber-600'
+                              : 'text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200'
+                          }`}
+                          title="Override to add in/out times and claim holiday overtime & day's pay"
+                        >
+                          {row.isHolidayOverride ? 'Override ✓' : 'Override OT'}
+                        </button>
+                      )}
+
+                      {/* Caution icon (only icon) for relevant day if override is ticked */}
+                      {row.isHolidayOverride && (
+                        <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" title="Holiday Overridden" />
+                      )}
                     </div>
 
                     <div className="flex items-center gap-1.5">
@@ -1455,68 +1624,68 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       type="text"
                       value={row.reason}
                       onChange={e => updateRowField(index, 'reason', e.target.value)}
-                      placeholder={isOther ? (isHol ? "Holiday / Off Day" : "Weekend Duty...") : "Duties performed..."}
+                      placeholder={isOther && !row.isHolidayOverride ? (isHol ? "Holiday / Off Day" : "Weekend Duty...") : "Duties performed..."}
                       className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-800 placeholder:text-slate-300"
                     />
                   </div>
 
-                  {/* Time Inputs: Start, End, Break */}
-                  <div className="grid grid-cols-3 gap-2">
+                  {/* Time Inputs: Start and End (Break option removed) */}
+                  <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Start</label>
+                      <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Start Time</label>
                       <input
                         type="time"
-                        disabled={isHol}
-                        value={isHol ? '' : row.startTime}
+                        disabled={isHol && !row.isHolidayOverride}
+                        value={(isHol && !row.isHolidayOverride) ? '' : row.startTime}
                         onChange={e => updateRowField(index, 'startTime', e.target.value)}
                         className={`w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs ${
-                          isHol ? 'bg-slate-100 text-slate-400' : 'bg-white text-slate-800'
+                          (isHol && !row.isHolidayOverride) ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white text-slate-800'
                         }`}
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-500 mb-0.5">End</label>
+                      <label className="block text-[10px] font-bold text-slate-500 mb-0.5">End Time</label>
                       <input
                         type="time"
-                        disabled={isHol}
-                        value={isHol ? '' : row.endTime}
+                        disabled={isHol && !row.isHolidayOverride}
+                        value={(isHol && !row.isHolidayOverride) ? '' : row.endTime}
                         onChange={e => updateRowField(index, 'endTime', e.target.value)}
                         className={`w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs ${
-                          isHol ? 'bg-slate-100 text-slate-400' : 'bg-white text-slate-800'
+                          (isHol && !row.isHolidayOverride) ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white text-slate-800'
                         }`}
                       />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Break</label>
-                      <select
-                        disabled={isHol}
-                        value={row.breakMinutes || 0}
-                        onChange={e => updateRowField(index, 'breakMinutes', parseInt(e.target.value, 10))}
-                        className={`w-full rounded-lg border border-slate-200 px-1 py-1.5 text-xs text-center ${
-                          isHol ? 'bg-slate-100 text-slate-400' : 'bg-white'
-                        }`}
-                      >
-                        <option value="0">0m</option>
-                        <option value="15">15m</option>
-                        <option value="30">30m</option>
-                        <option value="45">45m</option>
-                        <option value="60">60m</option>
-                      </select>
                     </div>
                   </div>
 
-                  {/* Outcome summary bar */}
+                  {/* Special Assigned OT Modern Tick Option & Outcome Summary */}
                   <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => updateRowField(index, 'isSpecialAssignment', !isRowSpecial)}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                        isRowSpecial
+                          ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
+                          : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                      title="Tick if assigned to special overtime (No limit)"
+                    >
+                      <Check className={`w-3.5 h-3.5 ${isRowSpecial ? 'text-white' : 'text-slate-400'}`} />
+                      <span>{isRowSpecial ? 'Special OT (No Limit) ✓' : 'Special Assigned OT'}</span>
+                    </button>
+
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[10px] text-slate-400 font-bold uppercase">Result:</span>
-                      {isOther ? (
+                      {row.isHolidayOverride && row.totalWorkMinutes > 0 ? (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
+                          Day&apos;s Pay + OT Rate
+                        </span>
+                      ) : isOther ? (
                         row.totalWorkMinutes > 0 ? (
                           <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded border ${
                             isSat && row.totalWorkMinutes < 360
                               ? 'bg-rose-50 text-rose-800 border-rose-200'
                               : 'bg-amber-50 text-amber-800 border-amber-200'
                           }`}>
-                            Day's Pay {isSat && row.totalWorkMinutes < 360 ? '(Sat < 6h)' : ''}
+                            Day&apos;s Pay {isSat && row.totalWorkMinutes < 360 ? '(Sat < 6h)' : ''}
                           </span>
                         ) : (
                           <span className="text-slate-300 text-xs">-</span>
@@ -1534,16 +1703,6 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                         </div>
                       )}
                     </div>
-
-                    <div>
-                      <input
-                        type="text"
-                        value={row.approvedBy || ''}
-                        onChange={e => updateRowField(index, 'approvedBy', e.target.value)}
-                        placeholder="Mgr Initials"
-                        className="rounded-lg border border-slate-200 px-2 py-1 text-[11px] text-center w-24 placeholder:text-slate-300 font-medium"
-                      />
-                    </div>
                   </div>
                 </div>
               );
@@ -1553,20 +1712,18 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
         {/* Desktop Table View */}
         <div className={`overflow-x-auto ${mobileViewMode === 'cards' ? 'hidden md:block' : 'block'}`}>
-          <table className="w-full text-left border-collapse min-w-[980px]">
+          <table className="w-full text-left border-collapse min-w-[880px]">
             <thead>
               <tr className="bg-slate-100 text-slate-700 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200">
                 <th className="py-2.5 px-2 w-10 text-center">#</th>
                 <th className="py-2.5 px-2 w-32">Date</th>
-                <th className="py-2.5 px-2 w-16 text-center">Day</th>
+                <th className="py-2.5 px-2 w-28 text-center">Day &amp; Holiday</th>
                 <th className="py-2.5 px-2 min-w-[180px]">Reason / Duties</th>
-                <th className="py-2.5 px-2 w-28 text-center">Approved by Mgr</th>
                 <th className="py-2.5 px-2 w-24 text-center">Time Started</th>
                 <th className="py-2.5 px-2 w-24 text-center">Time Left</th>
-                <th className="py-2.5 px-2 w-20 text-center">Break</th>
                 <th className="py-2.5 px-2 w-24 text-center">Total Worked</th>
-                <th className="py-2.5 px-2 w-28 text-center">Overtime (A)</th>
-                <th className="py-2.5 px-2 w-28 text-center">Special Assgn (B)</th>
+                <th className="py-2.5 px-2 w-24 text-center">Overtime (A)</th>
+                <th className="py-2.5 px-2 w-32 text-center">Special OT</th>
                 <th className="py-2.5 px-2 w-16 text-center">Actions</th>
               </tr>
             </thead>
@@ -1577,6 +1734,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                 const isSun = row.dayOfWeek === 'Sun' || getDayOfWeek(row.date) === 'Sun';
                 const isHol = !!row.isHoliday || holidayMap.has(row.date) || isSun || /holiday|poya|mercantile|off\s*day|leave/i.test(row.reason || '');
                 const isOther = isSat || isSun || isHol;
+                const isRowSpecial = row.isSpecialAssignment ?? isSpecialAssignedOt;
 
                 return (
                   <tr
@@ -1589,130 +1747,128 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       {index + 1}
                     </td>
 
-                    {/* 1. Date */}
+                    {/* 1. Date & Caution Icon (if holiday is overridden) */}
                     <td className="py-2.5 px-2">
-                      <input
-                        type="date"
-                        value={row.date}
-                        onChange={e => updateRowField(index, 'date', e.target.value)}
-                        className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800"
-                      />
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="date"
+                          value={row.date}
+                          onChange={e => updateRowField(index, 'date', e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800"
+                        />
+                        {/* Caution Icon (only icon) for relevant day if override is ticked */}
+                        {row.isHolidayOverride && (
+                          <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" title="Holiday Overridden" />
+                        )}
+                      </div>
                     </td>
 
-                    {/* 2. Day & Holiday Indicator */}
+                    {/* 2. Day & Holiday Indicator with Modern Override Option */}
                     <td className="py-2.5 px-2 text-center">
                       <div className="flex flex-col items-center gap-1">
-                        <span
-                          className={`inline-block px-1.5 py-0.5 rounded text-[11px] font-semibold ${
-                            row.isHoliday || isHol
-                              ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                              : isSun
-                              ? 'bg-purple-100 text-purple-800 border border-purple-200'
-                              : isSat
-                              ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                              : 'bg-slate-100 text-slate-700'
-                          }`}
-                        >
-                          {row.isHoliday ? 'Holiday' : row.dayOfWeek || '-'}
-                        </span>
-                        {!isSun && (
+                        <div className="flex items-center gap-1 justify-center">
+                          <span
+                            className={`inline-block px-1.5 py-0.5 rounded text-[11px] font-semibold ${
+                              row.isHoliday || isHol
+                                ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                                : isSun
+                                ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                                : isSat
+                                ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                : 'bg-slate-100 text-slate-700'
+                            }`}
+                          >
+                            {row.isHoliday ? 'Holiday' : row.dayOfWeek || '-'}
+                          </span>
+                        </div>
+
+                        {/* Next to holiday, show a modern override option to add in/out times and get claims in holidays */}
+                        {isHol && (
+                          <button
+                            type="button"
+                            onClick={() => toggleHolidayOverride(index)}
+                            className={`text-[10px] px-2 py-0.5 rounded font-bold transition flex items-center gap-1 cursor-pointer ${
+                              row.isHolidayOverride
+                                ? 'bg-amber-500 text-white shadow-xs border border-amber-600'
+                                : 'text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200'
+                            }`}
+                            title="Override to add in/out times and get claims in holidays"
+                          >
+                            <span>{row.isHolidayOverride ? 'Override ✓' : 'Override OT'}</span>
+                          </button>
+                        )}
+                        {!isHol && !isSun && (
                           <button
                             type="button"
                             onClick={() => updateRowField(index, 'isHoliday', !row.isHoliday)}
-                            className={`text-[9px] px-1 py-0.2 rounded font-bold cursor-pointer transition ${
-                              row.isHoliday
-                                ? 'bg-rose-200 text-rose-900 border border-rose-300'
-                                : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
-                            }`}
-                            title="Toggle Holiday / Off-Day status for this date"
+                            className="text-[9px] px-1 py-0.2 rounded font-bold text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer transition"
+                            title="Toggle Holiday status for this date"
                           >
-                            {row.isHoliday ? 'Holiday ✓' : '+ Holiday'}
+                            + Holiday
                           </button>
                         )}
                       </div>
                     </td>
 
-                    {/* 3. Reason / Nature of Duties (Position 3 as in Overtime Sheet) */}
+                    {/* 3. Reason / Nature of Duties */}
                     <td className="py-2.5 px-2">
                       <input
                         type="text"
                         value={row.reason}
                         onChange={e => updateRowField(index, 'reason', e.target.value)}
-                        placeholder={isOther ? (isHol ? "Holiday / Off Day" : "Weekend Duty...") : "Duties performed..."}
+                        placeholder={isOther && !row.isHolidayOverride ? (isHol ? "Holiday / Off Day" : "Weekend Duty...") : "Duties performed..."}
                         className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 placeholder:text-slate-300"
                       />
                     </td>
 
-                    {/* 4. Approved by Manager (Position 4 as in Overtime Sheet) */}
-                    <td className="py-2.5 px-2">
-                      <input
-                        type="text"
-                        value={row.approvedBy || ''}
-                        onChange={e => updateRowField(index, 'approvedBy', e.target.value)}
-                        placeholder="Mgr Initials"
-                        className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-center text-slate-800 placeholder:text-slate-300 font-medium"
-                      />
-                    </td>
-
-                    {/* 5. Starting Time (Disabled on Holidays) */}
+                    {/* 4. Starting Time (Enabled when Holiday is Overridden) */}
                     <td className="py-2.5 px-2">
                       <input
                         type="time"
-                        disabled={isHol}
-                        value={isHol ? '' : row.startTime}
+                        disabled={isHol && !row.isHolidayOverride}
+                        value={(isHol && !row.isHolidayOverride) ? '' : row.startTime}
                         onChange={e => updateRowField(index, 'startTime', e.target.value)}
-                        title={isHol ? "Holidays / Sundays cannot have in/out times" : "Starting Time"}
-                        placeholder={isHol ? "Holiday" : ""}
+                        title={(isHol && !row.isHolidayOverride) ? "Tick 'Override OT' to enter times on holidays" : "Starting Time"}
+                        placeholder={(isHol && !row.isHolidayOverride) ? "Holiday" : ""}
                         className={`w-full rounded-lg border border-slate-200 px-1.5 py-1.5 text-xs ${
-                          isHol
+                          (isHol && !row.isHolidayOverride)
                             ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                             : 'bg-white text-slate-800'
                         }`}
                       />
                     </td>
 
-                    {/* 6. Ending Time (Left) (Disabled on Holidays) */}
+                    {/* 5. Ending Time (Enabled when Holiday is Overridden) */}
                     <td className="py-2.5 px-2">
                       <input
                         type="time"
-                        disabled={isHol}
-                        value={isHol ? '' : row.endTime}
+                        disabled={isHol && !row.isHolidayOverride}
+                        value={(isHol && !row.isHolidayOverride) ? '' : row.endTime}
                         onChange={e => updateRowField(index, 'endTime', e.target.value)}
-                        title={isHol ? "Holidays / Sundays cannot have in/out times" : "Ending Time"}
-                        placeholder={isHol ? "Holiday" : ""}
+                        title={(isHol && !row.isHolidayOverride) ? "Tick 'Override OT' to enter times on holidays" : "Ending Time"}
+                        placeholder={(isHol && !row.isHolidayOverride) ? "Holiday" : ""}
                         className={`w-full rounded-lg border border-slate-200 px-1.5 py-1.5 text-xs ${
-                          isHol
+                          (isHol && !row.isHolidayOverride)
                             ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                             : 'bg-white text-slate-800'
                         }`}
                       />
                     </td>
 
-                    {/* 7. Break */}
-                    <td className="py-2.5 px-2 text-center">
-                      <select
-                        disabled={isHol}
-                        value={row.breakMinutes || 0}
-                        onChange={e => updateRowField(index, 'breakMinutes', parseInt(e.target.value, 10))}
-                        className={`w-full rounded-lg border border-slate-200 px-1 py-1 text-xs text-center ${
-                          isHol ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white'
-                        }`}
-                      >
-                        <option value="0">0m</option>
-                        <option value="15">15m</option>
-                        <option value="30">30m</option>
-                        <option value="45">45m</option>
-                        <option value="60">60m</option>
-                      </select>
-                    </td>
-
-                    {/* 8. Total Working Time (Do NOT show shift / working hours on other days; show Day's Pay badge if worked) */}
+                    {/* 6. Total Working Time */}
                     <td className="py-2.5 px-2 text-center font-mono text-slate-600">
-                      {isOther ? (
+                      {row.isHolidayOverride && row.totalWorkMinutes > 0 ? (
+                        <div className="flex flex-col items-center">
+                          <span className="font-bold text-slate-800">{formatMinutesToTime(row.totalWorkMinutes, 'hhmm')}</span>
+                          <span className="inline-block text-[9px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200 mt-0.5 whitespace-nowrap">
+                            Day&apos;s Pay + OT
+                          </span>
+                        </div>
+                      ) : isOther ? (
                         row.totalWorkMinutes > 0 ? (
                           <div className="flex flex-col items-center">
                             <span className="inline-block text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 whitespace-nowrap">
-                              Day's Pay
+                              Day&apos;s Pay
                             </span>
                             {isSat && row.totalWorkMinutes < 360 && (
                               <span
@@ -1733,9 +1889,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       )}
                     </td>
 
-                    {/* 9. Generated Overtime (A) (Do NOT show OT hours on other days) */}
+                    {/* 7. Generated Overtime (A) (Shown on regular days & overridden holidays) */}
                     <td className="py-2.5 px-2 text-center">
-                      {isOther ? (
+                      {isOther && !row.isHolidayOverride ? (
                         <span className="text-slate-300">-</span>
                       ) : (
                         <div className="flex flex-col items-center">
@@ -1774,30 +1930,45 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       )}
                     </td>
 
-                    {/* 10. Special Assignment Hours (B) */}
-                    <td className="py-2.5 px-2">
-                      <input
-                        type="text"
-                        value={row.specialAssignmentHours || ''}
-                        onChange={e => updateRowField(index, 'specialAssignmentHours', e.target.value)}
-                        placeholder="e.g. 01:30"
-                        className="w-full rounded-lg border border-slate-200 bg-white px-1.5 py-1.5 text-xs font-mono text-center text-slate-800 placeholder:text-slate-300"
-                      />
+                    {/* 8. Special Assigned OT (Modern tick option: users can tick if assigned to special OT; no limit) */}
+                    <td className="py-2.5 px-2 text-center">
+                      <div className="flex flex-col items-center justify-center gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => updateRowField(index, 'isSpecialAssignment', !isRowSpecial)}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                            isRowSpecial
+                              ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
+                              : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-800'
+                          }`}
+                          title="Tick if assigned to special overtime (No limit)"
+                        >
+                          <Check className={`w-3.5 h-3.5 ${isRowSpecial ? 'text-white' : 'text-slate-400'}`} />
+                          <span>{isRowSpecial ? 'Special OT ✓' : 'Special OT'}</span>
+                        </button>
+                        {isRowSpecial && (
+                          <span className="text-[9px] font-bold text-emerald-700">
+                            No Limit
+                          </span>
+                        )}
+                      </div>
                     </td>
 
-                    {/* 11. Actions */}
+                    {/* 9. Actions */}
                     <td className="py-2.5 px-2 text-center">
                       <div className="flex items-center justify-center gap-1">
                         <button
+                          type="button"
                           onClick={() => handleDuplicateRow(index)}
-                          className="p-1 text-slate-400 hover:text-indigo-600 rounded"
+                          className="p-1 text-slate-400 hover:text-indigo-600 rounded cursor-pointer"
                           title="Duplicate row"
                         >
                           <Copy className="w-3.5 h-3.5" />
                         </button>
                         <button
+                          type="button"
                           onClick={() => handleDeleteRow(index)}
-                          className="p-1 text-slate-400 hover:text-rose-600 rounded"
+                          className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
                           title="Delete row"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -1887,6 +2058,13 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             label: 'Total Payment Due',
             value: `Rs. ${totalOtPayment.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
           },
+          ...rows
+            .filter(r => r.isHolidayOverride && (r.startTime || r.endTime || r.totalWorkMinutes > 0))
+            .map(r => ({
+              label: `Holiday Overridden (${r.date})`,
+              value: `${r.totalFormatted || '00:00'} OT + Day's Pay`,
+              showCaution: true,
+            })),
         ]}
       />
 
@@ -1905,6 +2083,13 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           { label: 'Claim Period', value: `${claimMonth} ${claimYear}` },
           { label: 'Total Claimable OT', value: `${summary.totalHoursFormatted} (${summary.totalDecimalHours} hrs)` },
           { label: 'Days with Overtime', value: `${summary.otDaysCount} Days` },
+          ...rows
+            .filter(r => r.isHolidayOverride && (r.startTime || r.endTime || r.totalWorkMinutes > 0))
+            .map(r => ({
+              label: `Holiday Overridden (${r.date})`,
+              value: `${r.totalFormatted || '00:00'} OT + Day's Pay`,
+              showCaution: true,
+            })),
         ]}
       />
 

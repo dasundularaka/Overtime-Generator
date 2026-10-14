@@ -91,9 +91,11 @@ export function calculateShiftOvertime(
   endTime: string,
   breakMinutes: number = 0,
   maxOtHoursLimit?: number, // e.g. 2.0 hrs
-  isOtherDay: boolean = false, // Saturdays, Sundays, or Holidays (not regular weekday working day)
+  isOtherDay: boolean = false, // Saturdays, Sundays, or Holidays
   shiftEndStr: string = GENERAL_SHIFT_END,
-  shiftStartStr: string = GENERAL_SHIFT_START
+  shiftStartStr: string = GENERAL_SHIFT_START,
+  isSpecialAssignment: boolean = false,
+  isHolidayOverride: boolean = false
 ): ShiftOvertimeResult {
   if (!startTime || !endTime) {
     return {
@@ -119,7 +121,7 @@ export function calculateShiftOvertime(
   let totalWorkDiff = 0;
 
   if (endMin < startMin) {
-    // Crosses midnight (e.g. 08:00 to 02:00 next day = (1440 - 480) + 120 = 1080 min)
+    // Crosses midnight (e.g. 08:00 to 02:00 next day)
     totalWorkDiff = (1440 - startMin) + endMin;
     isOvernight = true;
   } else {
@@ -129,39 +131,64 @@ export function calculateShiftOvertime(
   // Deduct break from work diff
   const netWorkDuration = Math.max(0, totalWorkDiff - (breakMinutes || 0));
 
-  // Policy: Other days instead of working days of weekdays (Saturdays, Sundays, Holidays)
-  // - No shift or late arrival conditions apply
-  // - No hourly overtime rate allocated
-  // - Allocated as Day's Payment (Day's Pay)
-  // - Shift and OT hours are not shown on those days
+  // Policy: Non-working days (Saturdays, Sundays, Holidays)
+  // If NOT overridden: earn Day's Payment with 0 regular weekday OT
+  // If OVERRIDDEN: users can claim overtime in holidays (Day's Pay + non-working days hourly rate)
   if (isOtherDay) {
+    if (!isHolidayOverride) {
+      return {
+        totalWorkMinutes: netWorkDuration,
+        rawOtMinutes: 0,
+        totalMinutes: 0,
+        totalFormatted: '00:00',
+        isOvernight,
+        isCapped: false,
+        uncappedMinutes: 0,
+        lateDeductionMinutes: 0,
+        isLateDisqualified: false,
+        lateNote: netWorkDuration > 0 ? "Day's Pay (Non-working day)" : '',
+        isDaysPayment: netWorkDuration > 0,
+      };
+    }
+
+    // Holiday Overridden: Time worked earns Day's Pay + non-working day hourly rate!
+    // Overtime calculated in 15-minute stepped blocks
+    const steppedHolidayOt = Math.floor(netWorkDuration / OT_INCREMENT_STEP) * OT_INCREMENT_STEP;
+    let finalHolidayOt = steppedHolidayOt;
+    let isCapped = false;
+
+    // Special overtime has no limit
+    if (!isSpecialAssignment && maxOtHoursLimit !== undefined && maxOtHoursLimit !== null && maxOtHoursLimit > 0) {
+      const maxAllowed = Math.round(maxOtHoursLimit * 60);
+      if (steppedHolidayOt > maxAllowed) {
+        finalHolidayOt = maxAllowed;
+        isCapped = true;
+      }
+    }
+
     return {
       totalWorkMinutes: netWorkDuration,
-      rawOtMinutes: 0,
-      totalMinutes: 0,
-      totalFormatted: '00:00',
+      rawOtMinutes: netWorkDuration,
+      totalMinutes: finalHolidayOt,
+      totalFormatted: formatMinutesToTime(finalHolidayOt, 'hhmm'),
       isOvernight,
-      isCapped: false,
-      uncappedMinutes: 0,
+      isCapped,
+      uncappedMinutes: steppedHolidayOt,
       lateDeductionMinutes: 0,
       isLateDisqualified: false,
-      lateNote: netWorkDuration > 0 ? "Day's Pay (Non-working day)" : '',
-      isDaysPayment: netWorkDuration > 0,
+      lateNote: "Holiday Overridden: Day's Pay + Non-Working Rate",
+      isDaysPayment: true,
     };
   }
 
   let rawOtMinutes = 0;
-  // Normal Shift Day: Only time worked strictly AFTER 4:45 PM (16:45)
+  // Normal Shift Day: Only time worked strictly AFTER shift end (16:45)
   if (isOvernight) {
-    // Worked from afternoon/evening past midnight
-    // From 16:45 to midnight (1440 - 1005 = 435 mins) + minutes after midnight
     const eveningAfterShift = Math.max(0, 1440 - Math.max(startMin, shiftEndMin));
     const nextDayOt = endMin;
     rawOtMinutes = Math.max(0, eveningAfterShift + nextDayOt - (breakMinutes || 0));
   } else {
-    // Same day shift:
     if (endMin > shiftEndMin) {
-      // Only count minutes past 16:45
       const effectiveStartForOt = Math.max(startMin, shiftEndMin);
       rawOtMinutes = Math.max(0, endMin - effectiveStartForOt - (breakMinutes || 0));
     } else {
@@ -169,41 +196,34 @@ export function calculateShiftOvertime(
     }
   }
 
-  // Step 1.5: Late attendance deduction policy (between 8:00 AM and 8:30 AM on weekdays)
-  // - 8:00 to 8:15 -> deduct 15 mins from OT
-  // - 8:16 to 8:30 -> deduct 30 mins from OT
-  // - After 8:30   -> 0 OT allowance for that date
+  // Late attendance deduction policy (between 8:00 AM and 8:30 AM on regular weekdays)
   let lateDeductionMinutes = 0;
   let isLateDisqualified = false;
   let lateNote = '';
 
   const morningShiftStartMin = timeStringToMinutes(shiftStartStr || GENERAL_SHIFT_START);
   if (startMin > morningShiftStartMin + 30) {
-    // Arrived after shiftStart + 30m
     isLateDisqualified = true;
     rawOtMinutes = 0;
     lateNote = `Late arrival after ${formatMinutesToTime(morningShiftStartMin + 30, 'hhmm')} (No OT allocated)`;
   } else if (startMin > morningShiftStartMin + 15) {
-    // Arrived shiftStart + 16m to + 30m
     lateDeductionMinutes = 30;
     rawOtMinutes = Math.max(0, rawOtMinutes - 30);
-    lateNote = `Late arrival: -30 min OT`;
+    lateNote = 'Late arrival: -30 min OT';
   } else if (startMin > morningShiftStartMin) {
-    // Arrived shiftStart + 1m to + 15m
     lateDeductionMinutes = 15;
     rawOtMinutes = Math.max(0, rawOtMinutes - 15);
-    lateNote = `Late arrival: -15 min OT`;
+    lateNote = 'Late arrival: -15 min OT';
   }
 
-  // Step 2: Overtime generation in 15-minute to 15-minute blocks
-  // e.g. 14 mins -> 0 mins; 15 mins -> 15 mins; 29 mins -> 15 mins; 30 mins -> 30 mins
+  // Overtime generation in 15-minute stepped blocks
   const steppedOtMinutes = Math.floor(rawOtMinutes / OT_INCREMENT_STEP) * OT_INCREMENT_STEP;
 
-  // Step 3: Apply assigned User Overtime Limit
+  // Apply assigned User Overtime Limit (unless Special Assignment is ticked: Special OT has NO limit!)
   let finalOtMinutes = steppedOtMinutes;
   let isCapped = false;
 
-  if (maxOtHoursLimit !== undefined && maxOtHoursLimit !== null && maxOtHoursLimit > 0) {
+  if (!isSpecialAssignment && maxOtHoursLimit !== undefined && maxOtHoursLimit !== null && maxOtHoursLimit > 0) {
     const maxAllowedMinutes = Math.round(maxOtHoursLimit * 60);
     if (steppedOtMinutes > maxAllowedMinutes) {
       finalOtMinutes = maxAllowedMinutes;

@@ -35,11 +35,11 @@ export function generateUserWelcomeEmail(data: WelcomeEmailData): EmailDispatchR
   const webLink = data.loginUrl || DEFAULT_LOGIN_URL;
   const recipient = data.email.trim();
 
-  const subject = `Your Overtime Claim System Login Credentials [${cleanPf}]`;
+  const subject = `OT Claim - Your Login Credentials [${cleanPf}]`;
 
   const body = `Dear ${data.name || 'User'},
 
-Welcome to the Overtime Claim Management System.
+Welcome to OT Claim - Overtime Claim Management System.
 
 Your user account has been successfully created by the System Administrator. You can now access the system using your PF Number credentials:
 
@@ -53,6 +53,7 @@ For security purposes, when you log into the system for the first time, you will
 If you have any questions or require assistance, please contact your system administrator.
 
 Best regards,
+OT Claim
 Overtime Claim Management Team`;
 
   const mailtoUrl = `mailto:${encodeURIComponent(recipient)}?subject=${encodeURIComponent(

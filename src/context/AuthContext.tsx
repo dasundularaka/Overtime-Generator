@@ -581,6 +581,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         finalProfile = candidateProfile!;
       }
 
+      // Check if user's entered password is the same as their PF Number or initial password
+      const candidatePf = (finalProfile.employeeNumber || finalProfile.pfNumber || '').toUpperCase().trim();
+      const passUpper = cleanPass.toUpperCase().trim();
+      const candidateDigits = candidatePf.replace(/\D/g, '');
+      const passDigits = cleanPass.replace(/\D/g, '');
+      const isPasswordSameAsPf =
+        passUpper === candidatePf ||
+        passUpper === formatPfNumber(candidatePf) ||
+        passUpper === standardPf ||
+        (candidateDigits && candidateDigits.length >= 4 && passDigits === candidateDigits) ||
+        (finalProfile.initialPassword && cleanPass.toUpperCase() === finalProfile.initialPassword.toUpperCase());
+
+      // If user's password is the same as PF number, flag mustChangePassword to display reset panel immediately
+      if (isPasswordSameAsPf || finalProfile.mustChangePassword || finalProfile.isFirstLogin) {
+        finalProfile = {
+          ...finalProfile,
+          mustChangePassword: true,
+          isFirstLogin: true,
+        };
+      }
+
       // Cache locally and establish persistent session
       upsertStoredAccount({
         ...finalProfile,
@@ -710,6 +731,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       } catch (e) {
         console.warn('Firestore updateDoc note:', e);
+      }
+
+      const cleanPf = formatPfNumber(userProfile.employeeNumber || userProfile.pfNumber || '');
+      if (cleanPf) {
+        try {
+          await updateDoc(doc(db, 'pfDirectory', cleanPf), {
+            mustChangePassword: false,
+            updatedAt: new Date().toISOString(),
+          });
+        } catch {}
       }
 
       upsertStoredAccount({

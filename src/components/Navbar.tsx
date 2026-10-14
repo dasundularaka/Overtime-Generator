@@ -42,7 +42,7 @@ export type NavigationTab =
 interface NavbarProps {
   activeTab: NavigationTab;
   onSelectTab: (tab: NavigationTab) => void;
-  onOpenHelp: () => void;
+  onOpenHelp?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -471,17 +471,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                       <button
                         onClick={() => {
                           setIsProfileMenuOpen(false);
-                          onOpenHelp();
-                        }}
-                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 transition text-left cursor-pointer"
-                      >
-                        <HelpCircle className="w-4 h-4 text-amber-400" />
-                        <span>Shift &amp; Overtime Rules Guide</span>
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setIsProfileMenuOpen(false);
                           setIsLogoutConfirmOpen(true);
                         }}
                         className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-rose-300 hover:text-rose-200 hover:bg-rose-950/40 border border-transparent hover:border-rose-900/50 transition text-left cursor-pointer"
@@ -494,15 +483,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                 )}
               </div>
             )}
-
-            {/* Quick Help button */}
-            <button
-              onClick={onOpenHelp}
-              className="p-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-xl transition cursor-pointer"
-              title="Shift & Overtime Rules"
-            >
-              <HelpCircle className="w-4 h-4" />
-            </button>
 
             {/* PWA Install Button */}
             <PWAInstallButton />

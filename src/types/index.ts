@@ -132,6 +132,9 @@ export interface OvertimeRow {
   daysPaymentAmount?: number; // amount paid for this day
   reason: string;
   specialAssignmentHours?: string;
+  isSpecialAssignment?: boolean; // When ticked, special assigned OT has no limit
+  isHolidayOverride?: boolean; // When ticked, user can enter in/out times and claim OT on holidays
+  nonWorkingDayOtMinutes?: number;
   approvedBy?: string;
 }
 

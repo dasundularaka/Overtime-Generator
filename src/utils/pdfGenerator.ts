@@ -244,17 +244,32 @@ export async function generateOvertimePdf(
   if (template.tableConfig && template.tableConfig.enabled) {
     const tbl = template.tableConfig;
     const font = await getFont(tbl.fontFamily, tbl.isBold);
-    const maxRowsToRender = Math.min(claim.rows.length, tbl.maxRows);
+
+    // Non-claimed days are removed automatically in generation
+    const claimedRows = claim.rows.filter(r => {
+      if (r.endTime && r.endTime.trim()) {
+        return (
+          (r.totalMinutes || 0) > 0 ||
+          (r.totalWorkMinutes || 0) > 0 ||
+          !!r.isDaysPayment ||
+          !!r.isHolidayOverride ||
+          (!!r.specialAssignmentHours && r.specialAssignmentHours.trim() !== '')
+        );
+      }
+      return false;
+    });
+    const effectiveRows = claimedRows.length > 0 ? claimedRows : claim.rows.filter(r => r.startTime || r.endTime);
+    const maxRowsToRender = Math.min(effectiveRows.length, tbl.maxRows);
 
     for (let i = 0; i < maxRowsToRender; i++) {
-      const row = claim.rows[i];
+      const row = effectiveRows[i];
       const rowYMm = tbl.startY + i * tbl.rowHeight;
 
       // Columns mapping matching Overtime Sheet: date, day, reason, approvedBy, startTime, endTime, totalHours, otHoursClaimed, specialHoursClaimed
       const cols = tbl.columns;
 
-      const isSat = row.dayOfWeek === 'Sat' || row.date && new Date(row.date).getDay() === 6;
-      const isSun = row.dayOfWeek === 'Sun' || row.date && new Date(row.date).getDay() === 0;
+      const isSat = row.dayOfWeek === 'Sat' || (row.date && new Date(row.date).getDay() === 6);
+      const isSun = row.dayOfWeek === 'Sun' || (row.date && new Date(row.date).getDay() === 0);
       const isOtherDay = isSat || isSun || !!row.isHoliday || !!row.isDaysPayment;
 
       const rowValues = [
@@ -266,8 +281,8 @@ export async function generateOvertimePdf(
         { col: cols.startTime, val: row.startTime || '' },
         { col: cols.endTime, val: row.endTime ? `${row.endTime}${row.isOvernight ? '*' : ''}` : '' },
         { col: cols.totalHours, val: row.totalWorkMinutes > 0 ? formatMinutesToTime(row.totalWorkMinutes, 'hhmm') : '' },
-        // No need to add hourly ot time for the saturdays and other days
-        { col: cols.otHoursClaimed || (cols.breakMinutes ? undefined : cols.totalHours), val: isOtherDay ? '' : (row.totalFormatted || '') },
+        // On regular days or overridden holidays, print claimed OT hours
+        { col: cols.otHoursClaimed || (cols.breakMinutes ? undefined : cols.totalHours), val: (isOtherDay && !row.isHolidayOverride) ? '' : (row.totalFormatted || '') },
         { col: cols.specialHoursClaimed, val: row.specialAssignmentHours || '' },
       ];
 

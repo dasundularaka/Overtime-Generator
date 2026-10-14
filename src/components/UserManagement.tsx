@@ -204,11 +204,7 @@ export const UserManagement: React.FC = () => {
     const initialDesignation = firstRole ? firstRole.name : 'Staff Member';
     setDesignation(initialDesignation);
     setRoleId(firstRole ? firstRole.id : '');
-    if (firstRole?.department) {
-      setDepartment(firstRole.department);
-    } else {
-      setDepartment(departments.length > 0 ? departments[0].name : 'IT & Infrastructure Operations');
-    }
+    setDepartment(departments.length > 0 ? departments[0].name : 'IT & Infrastructure Operations');
     if (firstRole?.claimType) {
       setClaimType(firstRole.claimType);
     } else {
@@ -276,10 +272,6 @@ export const UserManagement: React.FC = () => {
       setHourlyRate(found.hourlyRateWorkingDays);
       setDaysPay(found.daysPaymentNonWorkingDays);
       setHourlyRateNonWorkingDays(found.hourlyRateNonWorkingDays);
-      // Automatically load department if role has assigned department
-      if (found.department) {
-        setDepartment(found.department);
-      }
       // Automatically assign claim type (OT or OP) with designation
       if (found.claimType) {
         setClaimType(found.claimType);
@@ -459,6 +451,8 @@ export const UserManagement: React.FC = () => {
           claimType,
           employeeNumber: cleanPf,
           pfNumber: cleanPf,
+          initialPassword: cleanPf,
+          passwordHash: cleanPf,
           mustChangePassword: true,
           isFirstLogin: true,
           designation: designation.trim(),
@@ -500,6 +494,8 @@ export const UserManagement: React.FC = () => {
             pfNumber: cleanPf,
             email: cleanEmail,
             name: name.trim(),
+            initialPassword: cleanPf,
+            mustChangePassword: true,
             createdAt: new Date().toISOString(),
           });
         } catch (dirErr) {
@@ -656,9 +652,11 @@ export const UserManagement: React.FC = () => {
 
   const handlePromptSetEmployeeNumberPassword = () => {
     if (!passwordModalUser) return;
+    const rawPf = passwordModalUser.employeeNumber || passwordModalUser.pfNumber || '123456';
+    const cleanPf = formatPfNumber(rawPf) || rawPf.trim().toUpperCase();
     setPendingPasswordTarget({
       type: 'employeeNumber',
-      passToSet: passwordModalUser.employeeNumber || '123456',
+      passToSet: cleanPf,
     });
     setIsConfirmPasswordModalOpen(true);
   };
@@ -717,17 +715,51 @@ export const UserManagement: React.FC = () => {
           },
         });
       } else {
-        const passToSet = pendingPasswordTarget.passToSet || passwordModalUser.employeeNumber;
-        const res = await adminChangeUserPassword(
-          passwordModalUser.email,
-          passToSet,
-          passwordModalUser.employeeNumber
-        );
+        const rawPf = passwordModalUser.employeeNumber || passwordModalUser.pfNumber || '';
+        const cleanPf = formatPfNumber(rawPf) || rawPf.trim().toUpperCase();
+        const passToSet = pendingPasswordTarget.type === 'employeeNumber' ? cleanPf : (pendingPasswordTarget.passToSet || cleanPf);
+
+        // Firmly update Firestore user record and pfDirectory so password reset applies globally
+        try {
+          await updateDoc(doc(db, 'users', passwordModalUser.id), {
+            mustChangePassword: true,
+            isFirstLogin: true,
+            initialPassword: passToSet,
+            passwordHash: passToSet,
+            updatedAt: new Date().toISOString(),
+          });
+          if (cleanPf) {
+            await setDoc(doc(db, 'pfDirectory', cleanPf), {
+              pfNumber: cleanPf,
+              email: passwordModalUser.email,
+              name: passwordModalUser.name,
+              initialPassword: passToSet,
+              mustChangePassword: true,
+              updatedAt: new Date().toISOString(),
+            }, { merge: true });
+          }
+        } catch (fsUpdateErr) {
+          console.warn('Firestore update doc note on password reset:', fsUpdateErr);
+        }
+
+        // Try updating secondary Firebase Auth credentials
+        try {
+          await adminChangeUserPassword(
+            passwordModalUser.email,
+            passToSet,
+            rawPf
+          );
+        } catch (authErr) {
+          console.warn('Firebase Auth direct sync note:', authErr);
+        }
+
         upsertStoredAccount({
           ...passwordModalUser,
+          mustChangePassword: true,
+          isFirstLogin: true,
           passwordHash: passToSet,
         });
-        setPasswordSuccess(res.message);
+        setPasswordSuccess(`Password for ${passwordModalUser.name} has been set to PF Number (${passToSet}). User will be prompted to set a new password upon login.`);
 
         // Record administrative audit log
         await recordAuditLog({

@@ -56,7 +56,7 @@ export const PDFPreviewModal: React.FC<PDFPreviewModalProps> = ({
   isSaved,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [viewMode, setViewMode] = useState<'gdrive' | 'embedded' | 'canvas'>('gdrive');
+  const [viewMode, setViewMode] = useState<'embedded' | 'gdrive' | 'canvas'>('embedded');
   const [numPages, setNumPages] = useState<number>(1);
   const [pageNumber, setPageNumber] = useState<number>(1);
   const [scale, setScale] = useState<number>(1.25);
@@ -67,6 +67,7 @@ export const PDFPreviewModal: React.FC<PDFPreviewModalProps> = ({
   // Google Drive State
   const [driveResult, setDriveResult] = useState<GoogleDriveUploadResult | null>(null);
   const [isDriveUploading, setIsDriveUploading] = useState<boolean>(false);
+  const [driveNotice, setDriveNotice] = useState<string | null>(null);
   const [driveError, setDriveError] = useState<string | null>(null);
   const [isConnectingGoogle, setIsConnectingGoogle] = useState<boolean>(false);
 
@@ -82,14 +83,21 @@ export const PDFPreviewModal: React.FC<PDFPreviewModalProps> = ({
   const handleUploadToGoogleDrive = async () => {
     setIsDriveUploading(true);
     setDriveError(null);
+    setDriveNotice(null);
     try {
       const blob = await getBlob();
       const result = await uploadClaimPdfToGoogleDrive(blob, filename);
       setDriveResult(result);
       setViewMode('gdrive');
     } catch (err: any) {
-      console.warn('Google Drive preview upload error:', err);
-      setDriveError(err.message || 'Failed to upload document to Google Drive.');
+      console.warn('Google Drive preview upload note:', err?.message);
+      const is403 = err?.message?.includes('403') || err?.message?.includes('not been used') || err?.message?.includes('disabled');
+      const friendlyMsg = is403
+        ? 'Preview through Google Drive is supported for self-registered Google accounts with Drive API enabled. Showing built-in PDF viewer.'
+        : (err.message || 'Drive preview unavailable. Showing built-in PDF viewer.');
+      setDriveNotice(friendlyMsg);
+      // Seamlessly fall back to embedded viewer so the user is never blocked!
+      setViewMode('embedded');
     } finally {
       setIsDriveUploading(false);
     }
@@ -375,12 +383,29 @@ export const PDFPreviewModal: React.FC<PDFPreviewModalProps> = ({
               <strong>Crucial Printing Requirement:</strong> When printing this PDF, set Paper Size to <strong>A4</strong> and Scaling to <strong>"100% / Actual Size"</strong>.
             </span>
           </div>
-          <div className="flex items-center gap-3 text-[11px] text-amber-800">
+          <div className="hidden sm:flex items-center gap-3 text-[11px] text-amber-800">
             <span className="bg-amber-100/80 px-2 py-0.5 rounded font-mono">Paper: A4</span>
             <span className="bg-amber-100/80 px-2 py-0.5 rounded font-mono">Scale: 100%</span>
             <span className="bg-amber-100/80 px-2 py-0.5 rounded font-mono">Portrait</span>
           </div>
         </div>
+
+        {/* Informative Google Drive Notice Banner */}
+        {driveNotice && (
+          <div className="px-4 py-2 bg-blue-50 border-b border-blue-200 flex items-center justify-between gap-2 text-xs text-blue-900 shrink-0 animate-fade-in">
+            <div className="flex items-center gap-2">
+              <Cloud className="w-4 h-4 text-blue-600 shrink-0" />
+              <span>{driveNotice}</span>
+            </div>
+            <button
+              onClick={() => setDriveNotice(null)}
+              className="text-blue-500 hover:text-blue-800 p-0.5 rounded hover:bg-blue-100"
+              title="Dismiss"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* Main Viewer Body */}
         <div className="flex-1 bg-slate-200/90 relative p-3 sm:p-4 overflow-hidden flex items-center justify-center">
@@ -429,19 +454,28 @@ export const PDFPreviewModal: React.FC<PDFPreviewModalProps> = ({
                 </div>
               ) : driveError ? (
                 /* Drive Error State */
-                <div className="flex flex-col items-center justify-center gap-4 p-8 bg-white rounded-2xl shadow-xl border border-rose-200 max-w-md text-center">
-                  <div className="w-12 h-12 rounded-full bg-rose-50 flex items-center justify-center text-rose-600">
-                    <AlertTriangle className="w-6 h-6" />
+                <div className="flex flex-col items-center justify-center gap-4 p-6 sm:p-8 bg-white rounded-2xl shadow-xl border border-blue-200 max-w-md text-center">
+                  <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
+                    <Cloud className="w-6 h-6" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-bold text-rose-900">Google Drive Facility Required</h3>
-                    <p className="text-xs text-slate-600 mt-1.5">{driveError}</p>
+                    <h3 className="text-sm font-bold text-slate-900">Google Drive Facility</h3>
+                    <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                      Preview through Google Drive is supported for self-registered Google accounts with Drive permissions enabled. You can continue viewing via the high-fidelity built-in PDF viewer.
+                    </p>
                   </div>
                   <div className="flex flex-col sm:flex-row items-center gap-2 w-full pt-2">
                     <button
+                      onClick={() => setViewMode('embedded')}
+                      className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition cursor-pointer"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>Use Built-in PDF Viewer</span>
+                    </button>
+                    <button
                       onClick={handleConnectGoogle}
                       disabled={isConnectingGoogle}
-                      className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition cursor-pointer"
+                      className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition cursor-pointer"
                     >
                       {isConnectingGoogle ? (
                         <>
@@ -451,16 +485,9 @@ export const PDFPreviewModal: React.FC<PDFPreviewModalProps> = ({
                       ) : (
                         <>
                           <Cloud className="w-3.5 h-3.5" />
-                          <span>Connect Google Drive Facility</span>
+                          <span>Retry Account Sign-in</span>
                         </>
                       )}
-                    </button>
-                    <button
-                      onClick={() => setViewMode('embedded')}
-                      className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition cursor-pointer"
-                    >
-                      <FileText className="w-3.5 h-3.5" />
-                      <span>Use Standard Viewer</span>
                     </button>
                   </div>
                 </div>

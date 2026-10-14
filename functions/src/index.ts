@@ -40,10 +40,10 @@ export const onNewUserProfileCreated = functions.firestore
 
     functions.logger.info(`Triggering automated welcome email for user ${name} (${pfNumber}) at ${email}`);
 
-    const subject = `Your Overtime Claim System Login Credentials [${pfNumber}]`;
+    const subject = `OT Claim - Your Login Credentials [${pfNumber}]`;
     const bodyText = `Dear ${name},
 
-Welcome to the Overtime Claim Management System.
+Welcome to OT Claim - Overtime Claim Management System.
 
 Your user account has been successfully registered and provisioned in the system. You can now log into your account using your PF Number credentials:
 
@@ -57,6 +57,7 @@ For security purposes, when you log into the system for the first time, you will
 If you have any questions or require assistance, please contact your system administrator.
 
 Best regards,
+OT Claim
 Overtime Claim Management Team`;
 
     try {

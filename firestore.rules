@@ -85,16 +85,22 @@ service cloud.firestore {
       allow update, delete: if isSuperAdmin();
     }
 
-    // Branch network: readable by all users, managed by admins
+    // Branch network: readable by all users, managed by authenticated staff/admins
     match /branches/{branchId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isSignedIn();
     }
 
-    // Roles and overtime rates: readable by all users, managed by admins
+    // Roles and designations: readable by all users, managed by authenticated staff/admins
     match /roles/{roleId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isSignedIn();
+    }
+
+    // Departments: readable by all users, managed by authenticated staff/admins
+    match /departments/{departmentId} {
+      allow read: if true;
+      allow write: if isSignedIn();
     }
   }
 }
