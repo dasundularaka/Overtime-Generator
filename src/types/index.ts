@@ -76,9 +76,10 @@ export interface UserProfile {
   totalRemuneration?: number; // Default salary/remuneration in Rs.
   assignedTemplateIds?: string[]; // Templates assigned by admin; user can only access these
   welcomeEmailDispatched?: boolean;
-  welcomeEmailDispatchedAt?: string;
   welcomeEmailSubject?: string;
   welcomeEmailMessageId?: string | null;
+  initialPassword?: string;
+  passwordHash?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -106,6 +107,8 @@ export interface Employee {
   email?: string;
   photoURL?: string;
   role?: UserRole;
+  initialPassword?: string;
+  passwordHash?: string;
 }
 
 export interface OvertimeRow {

@@ -767,20 +767,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 onClick={() => {
                   setIsMobileMenuOpen(false);
-                  onOpenHelp();
-                }}
-                className="flex items-center gap-2.5 p-3 rounded-2xl bg-slate-800/80 border border-slate-700/80 text-slate-200 hover:bg-slate-700 text-left transition cursor-pointer"
-              >
-                <HelpCircle className="w-4 h-4 text-amber-400 shrink-0" />
-                <div>
-                  <span className="block font-bold">Shift Rules</span>
-                  <span className="text-[10px] text-slate-400">Late &amp; OT rules</span>
-                </div>
-              </button>
-
-              <button
-                onClick={() => {
-                  setIsMobileMenuOpen(false);
                   setIsLogoutConfirmOpen(true);
                 }}
                 className="flex items-center gap-2.5 p-3 rounded-2xl bg-rose-950/40 border border-rose-800/50 text-rose-300 hover:bg-rose-900/50 text-left transition cursor-pointer"

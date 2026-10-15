@@ -93,7 +93,9 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
               <div key={idx} className="flex items-center justify-between gap-2">
                 <span className="text-slate-500 font-medium flex items-center gap-1.5">
                   {item.showCaution && (
-                    <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" title="Holiday/Sunday Overridden" />
+                    <span title="Holiday/Sunday Overridden" className="inline-flex items-center">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    </span>
                   )}
                   <span>{item.label}</span>
                 </span>

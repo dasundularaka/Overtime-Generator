@@ -1589,7 +1589,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
                       {/* Caution icon (only icon) for relevant day if override is ticked */}
                       {row.isHolidayOverride && (
-                        <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" title="Holiday Overridden" />
+                        <span title="Holiday Overridden" className="inline-flex items-center">
+                          <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+                        </span>
                       )}
                     </div>
 
@@ -1758,7 +1760,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                         />
                         {/* Caution Icon (only icon) for relevant day if override is ticked */}
                         {row.isHolidayOverride && (
-                          <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" title="Holiday Overridden" />
+                          <span title="Holiday Overridden" className="inline-flex items-center">
+                            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+                          </span>
                         )}
                       </div>
                     </td>
