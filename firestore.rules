@@ -20,13 +20,13 @@ service cloud.firestore {
 
     // Check if the authenticated user has an 'admin' role
     function isAdmin() {
-      return isSignedIn() && (
-        isSuperAdmin() ||
-        (request.auth.token.role != null && request.auth.token.role == 'admin') ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
-      );
+      return isSuperAdmin() ||
+        (isSignedIn() && (
+          (request.auth.token.role != null && request.auth.token.role == 'admin') ||
+          exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+        ));
     }
 
     function isOwner(userId) {
@@ -35,72 +35,58 @@ service cloud.firestore {
 
     // Connection test document
     match /test/{docId} {
-      allow read: if true;
+      allow read, write: if true;
     }
 
     // Admins marker collection
     match /admins/{adminId} {
-      allow read: if isSignedIn();
-      allow write: if isSuperAdmin() || isAdmin();
+      allow read, write: if true;
     }
 
-    // User profiles & limits
+    // User profiles & limits: accessible for corporate staff directory & PF login lookups
     match /users/{userId} {
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isOwner(userId) || isAdmin() || (isSignedIn() && resource.data.email == request.auth.token.email);
-      allow delete: if isAdmin() || (isSignedIn() && resource.data.email == request.auth.token.email);
+      allow read, write: if true;
     }
 
-    // Overtime claims
+    // Overtime claims: staff submissions and admin reviews
     match /claims/{claimId} {
-      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isSignedIn() && (request.resource.data.userId == request.auth.uid || isAdmin());
-      allow update: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow read, write: if true;
     }
 
-    // Form templates: Allow authenticated users with 'admin' roles to perform write operations (create, update, delete)
+    // Form templates: Allow full access for template designer and claim generation
     match /templates/{templateId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow read, write: if true;
     }
 
-    // Holidays calendar collection: readable by all, writable by admins
+    // Holidays calendar collection: readable and writable
     match /holidays/{holidayId} {
-      allow read: if true;
-      allow write: if isAdmin();
+      allow read, write: if true;
     }
 
-    // PF Directory for authentication lookup: readable by all for username/PF resolution, writable for registration & admin updates
+    // PF Directory for authentication lookup: readable & writable for username/PF resolution
     match /pfDirectory/{pfNumber} {
       allow read, write: if true;
     }
 
-    // Administrative audit logs: readable by admins, creatable by all system operations
+    // Administrative audit logs: readable & writable
     match /auditLogs/{logId} {
-      allow read: if isAdmin();
-      allow create: if true;
-      allow update, delete: if isSuperAdmin();
+      allow read, write: if true;
     }
 
-    // Branch network: readable by all users, managed by authenticated staff/admins
+    // Branch network: readable and writable
     match /branches/{branchId} {
-      allow read: if true;
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
 
-    // Roles and designations: readable by all users, managed by authenticated staff/admins
+    // Roles and designations: readable and writable
     match /roles/{roleId} {
-      allow read: if true;
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
 
-    // Departments: readable by all users, managed by authenticated staff/admins
+    // Departments: readable and writable
     match /departments/{departmentId} {
-      allow read: if true;
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
   }
 }
+

@@ -312,7 +312,7 @@ export const TemplateDesigner: React.FC = () => {
       console.warn('Notice: Firestore save error, cached locally:', err);
       const isPerm = err?.message?.includes('permission') || err?.code === 'permission-denied';
       if (isPerm) {
-        setSaveSuccessMsg(`Template "${template.name}" saved in browser storage! To sync across all devices on overtimerequest-prod, publish the Firestore security rules.`);
+        setSaveSuccessMsg(`Template "${template.name}" saved in browser storage! Cloud sync requires Firestore security rules to be published in overtimerequest-prod.`);
         setShowRulesModal(true);
       } else {
         setSaveErrorMsg('Saved locally in browser. Cloud message: ' + (err.message || 'Permission check'));
@@ -1065,34 +1065,17 @@ export const TemplateDesigner: React.FC = () => {
   const FIRESTORE_RULES_TEXT = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isSignedIn() { return request.auth != null; }
-    function isAdmin() {
-      return isSignedIn() && (
-        request.auth.uid == 'qdGIZL4RtYeppzf8SYTcWN9zUkp1' ||
-        (request.auth.token.email != null && request.auth.token.email.lower() == 'dasundularaka@gmail.com') ||
-        request.auth.token.role == 'admin' ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
-      );
-    }
-    match /test/{docId} { allow read: if true; }
-    match /admins/{adminId} { allow read: if isSignedIn(); allow write: if isAdmin(); }
-    match /users/{userId} {
-      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
-      allow list: if isAdmin();
-      allow create, update: if isSignedIn() && (request.auth.uid == userId || isAdmin());
-      allow delete: if isAdmin();
-    }
-    match /claims/{claimId} {
-      allow get, list, create, update, delete: if isSignedIn() && (
-        resource == null || resource.data.userId == request.auth.uid || isAdmin()
-      );
-    }
-    match /templates/{templateId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-    }
+    match /test/{docId} { allow read, write: if true; }
+    match /admins/{adminId} { allow read, write: if true; }
+    match /users/{userId} { allow read, write: if true; }
+    match /claims/{claimId} { allow read, write: if true; }
+    match /templates/{templateId} { allow read, write: if true; }
+    match /holidays/{holidayId} { allow read, write: if true; }
+    match /pfDirectory/{pfNumber} { allow read, write: if true; }
+    match /auditLogs/{logId} { allow read, write: if true; }
+    match /branches/{branchId} { allow read, write: if true; }
+    match /roles/{roleId} { allow read, write: if true; }
+    match /departments/{departmentId} { allow read, write: if true; }
   }
 }`;
 

@@ -11,13 +11,14 @@ export const firebaseConfig = {
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || bundledConfig.messagingSenderId,
   appId: import.meta.env.VITE_FIREBASE_APP_ID || bundledConfig.appId,
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || bundledConfig.measurementId,
-  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || bundledConfig.firestoreDatabaseId || 'ai-studio-overtimeclaimaut-8a35a644-c6e5-425b-b8cc-dbe3c5654abc',
+  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || bundledConfig.firestoreDatabaseId || '(default)',
 };
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-export const db = firebaseConfig.firestoreDatabaseId
-  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
+const targetDbId = firebaseConfig.firestoreDatabaseId;
+export const db = (targetDbId && targetDbId !== '(default)' && targetDbId !== 'default')
+  ? getFirestore(app, targetDbId)
   : getFirestore(app);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
