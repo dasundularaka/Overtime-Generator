@@ -32,7 +32,7 @@ function AppContent() {
     }
   }, [isAdmin]);
 
-  // Safeguard: non-admins cannot stay on designer, users, audit, branches, or roles tabs
+  // Safeguard: non-admins cannot stay on designer, users, audit, branches, roles, or employees tabs
   useEffect(() => {
     if (
       !loading &&
@@ -41,7 +41,8 @@ function AppContent() {
         activeTab === 'users' ||
         activeTab === 'audit' ||
         activeTab === 'branches' ||
-        activeTab === 'roles')
+        activeTab === 'roles' ||
+        activeTab === 'employees')
     ) {
       setActiveTab('dashboard');
     }
@@ -54,6 +55,20 @@ function AppContent() {
   // If not logged in, show Auth screen
   if (!currentUser) {
     return <AuthScreen />;
+  }
+
+  // Force Password Reset Screen if password matches PF number or first-time setup
+  if (userProfile?.mustChangePassword || userProfile?.isFirstLogin || userProfile?.passwordMatchesPf) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 flex flex-col justify-center items-center p-4">
+        <PasswordResetModal
+          isOpen={true}
+          onPasswordChanged={() => {
+            refreshUserProfile();
+          }}
+        />
+      </div>
+    );
   }
 
   const handleEditClaim = (claim: ClaimRecord) => {
@@ -113,7 +128,7 @@ function AppContent() {
         {activeTab === 'roles' && isAdmin && <RoleManagement />}
         {activeTab === 'audit' && isAdmin && <AuditLogViewer />}
 
-        {activeTab === 'employees' && <EmployeeManager />}
+        {activeTab === 'employees' && isAdmin && <EmployeeManager />}
 
         {activeTab === 'history' && (
           <ClaimHistory

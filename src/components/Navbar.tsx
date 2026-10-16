@@ -204,8 +204,8 @@ export const Navbar: React.FC<NavbarProps> = ({
               onSelectTab('dashboard');
             }}
           >
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-blue-600 shadow-md group-hover:scale-105 transition-transform">
-              <Clock className="w-5 h-5 text-white" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl overflow-hidden shadow-md group-hover:scale-105 transition-transform border border-indigo-400/30">
+              <img src="/infinite-clock.gif" alt="OT Logo" className="w-full h-full object-cover" />
             </div>
             <div>
               <div className="flex items-center gap-2">

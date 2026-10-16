@@ -21,8 +21,8 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
         {/* Animated Icon Container */}
         <div className="relative">
           <div className="absolute -inset-3 bg-gradient-to-r from-indigo-500 to-blue-500 rounded-3xl blur-md opacity-40 animate-pulse" />
-          <div className="relative flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-tr from-indigo-600 to-blue-500 shadow-2xl border border-indigo-400/30">
-            <Clock className="w-10 h-10 text-white animate-spin-slow" />
+          <div className="relative flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-tr from-indigo-600 to-blue-500 shadow-2xl border border-indigo-400/30 overflow-hidden">
+            <img src="/infinite-clock.gif" alt="Clock Engine" className="w-full h-full object-cover" />
           </div>
 
           {/* Mini badge */}

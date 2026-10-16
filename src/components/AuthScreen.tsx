@@ -98,8 +98,8 @@ export const AuthScreen: React.FC = () => {
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 flex flex-col justify-center items-center px-4 py-8 sm:py-12">
       {/* App Brand Header */}
       <div className="text-center mb-6 sm:mb-8">
-        <div className="inline-flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-2xl bg-gradient-to-tr from-indigo-500 to-blue-600 shadow-xl mb-3">
-          <Clock className="w-6 h-6 sm:w-7 sm:h-7 text-white" />
+        <div className="inline-flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-2xl overflow-hidden shadow-xl mb-3 border border-indigo-400/30">
+          <img src="/infinite-clock.gif" alt="Clock Logo" className="w-full h-full object-cover" />
         </div>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
           Overtime Claim Manager

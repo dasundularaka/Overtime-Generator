@@ -217,10 +217,14 @@ export const EmployeeManager: React.FC = () => {
   };
 
   const confirmCommitSaveEmployee = async () => {
-    const payload: Employee = {
+    const cleanPf = formatPfNumber(employeeNumber.trim()) || ('PF' + String(Math.floor(100000 + Math.random() * 900000)));
+    const isNew = !editingEmployee;
+
+    const payload: Employee & Record<string, any> = {
       id: editingEmployee?.id || 'emp_' + Date.now(),
       name: name.trim(),
-      employeeNumber: employeeNumber.trim() || 'EMP-' + Math.floor(1000 + Math.random() * 9000),
+      employeeNumber: cleanPf,
+      pfNumber: cleanPf,
       designation: designation.trim(),
       branch: branch.trim(),
       branchCode: branchCode || undefined,
@@ -234,6 +238,13 @@ export const EmployeeManager: React.FC = () => {
       totalRemuneration: totalRemuneration !== '' ? Number(totalRemuneration) : undefined,
       createdAt: editingEmployee?.createdAt || new Date().toISOString(),
       role: editingEmployee?.role || 'user',
+      ...(isNew ? {
+        initialPassword: cleanPf,
+        passwordHash: cleanPf,
+        mustChangePassword: true,
+        isFirstLogin: true,
+        passwordMatchesPf: true,
+      } : {}),
     };
 
     const updated = saveEmployee(payload);
@@ -250,6 +261,13 @@ export const EmployeeManager: React.FC = () => {
 
     try {
       await setDoc(doc(db, 'users', payload.id), sanitizeFirestoreData(payload), { merge: true });
+      if (cleanPf) {
+        await setDoc(doc(db, 'pfDirectory', cleanPf), {
+          pfNumber: cleanPf,
+          name: payload.name,
+          updatedAt: new Date().toISOString(),
+        }, { merge: true });
+      }
     } catch {}
 
     recordAuditLog({

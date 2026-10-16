@@ -455,6 +455,7 @@ export const UserManagement: React.FC = () => {
           passwordHash: cleanPf,
           mustChangePassword: true,
           isFirstLogin: true,
+          passwordMatchesPf: true,
           designation: designation.trim(),
           branch: branch.trim(),
           branchCode: branchCode || undefined,

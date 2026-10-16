@@ -45,7 +45,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
   onEditClaim,
   onNavigateToNewClaim,
 }) => {
-  const { currentUser, isAdmin } = useAuth();
+  const { currentUser, userProfile, isAdmin } = useAuth();
   const [claims, setClaims] = useState<ClaimRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [templates, setTemplates] = useState<TemplateConfig[]>([getActiveTemplate()]);
@@ -96,21 +96,59 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
     if (!currentUser) return;
     setLoading(true);
     try {
-      let q;
       if (isAdmin) {
-        q = collection(db, 'claims');
+        const q = collection(db, 'claims');
+        const snap = await getDocs(q);
+        const list: ClaimRecord[] = [];
+        snap.forEach(d => {
+          list.push(d.data() as ClaimRecord);
+        });
+        list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+        setClaims(list);
       } else {
-        q = query(collection(db, 'claims'), where('userId', '==', currentUser.uid));
-      }
+        const myUid = currentUser.uid;
+        const myProfileId = userProfile?.id;
+        const myPf = (userProfile?.employeeNumber || userProfile?.pfNumber || '').toUpperCase().trim();
 
-      const snap = await getDocs(q);
-      const list: ClaimRecord[] = [];
-      snap.forEach(d => {
-        list.push(d.data() as ClaimRecord);
-      });
-      // Sort newest first
-      list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-      setClaims(list);
+        const claimMap = new Map<string, ClaimRecord>();
+
+        // 1. Query by UID
+        try {
+          const snapUid = await getDocs(query(collection(db, 'claims'), where('userId', '==', myUid)));
+          snapUid.forEach(d => claimMap.set(d.id, d.data() as ClaimRecord));
+        } catch {}
+
+        // 2. Query by userProfile.id if different
+        if (myProfileId && myProfileId !== myUid) {
+          try {
+            const snapProf = await getDocs(query(collection(db, 'claims'), where('userId', '==', myProfileId)));
+            snapProf.forEach(d => claimMap.set(d.id, d.data() as ClaimRecord));
+          } catch {}
+        }
+
+        // 3. Query by PF Number
+        if (myPf) {
+          try {
+            const snapPf = await getDocs(query(collection(db, 'claims'), where('employeeNumber', '==', myPf)));
+            snapPf.forEach(d => {
+              const c = d.data() as ClaimRecord;
+              if (c.employeeNumber?.toUpperCase().trim() === myPf) {
+                claimMap.set(d.id, c);
+              }
+            });
+          } catch {}
+        }
+
+        // Strict isolation filter: ensure regular user never sees anyone else's claims
+        const list = Array.from(claimMap.values()).filter(c => {
+          const matchUid = c.userId === myUid || (myProfileId && c.userId === myProfileId);
+          const matchPf = myPf && c.employeeNumber?.toUpperCase().trim() === myPf;
+          return matchUid || matchPf;
+        });
+
+        list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+        setClaims(list);
+      }
     } catch (err) {
       handleFirestoreError(err, OperationType.LIST, 'claims');
     } finally {
@@ -120,7 +158,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
 
   useEffect(() => {
     fetchClaims();
-  }, [currentUser, isAdmin]);
+  }, [currentUser, userProfile, isAdmin]);
 
   const handlePreviewPdf = async (claim: ClaimRecord) => {
     try {

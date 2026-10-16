@@ -13,7 +13,12 @@ import {
   HardDrive,
   Lock,
   Mail,
+  ShieldCheck,
+  KeyRound,
 } from 'lucide-react';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { db } from '../firebase/config';
+import { PasswordResetModal } from './PasswordResetModal';
 import { AppSettings, FontFamily, OTDisplayFormat, TemplateConfig, TimeFormat } from '../types';
 import {
   getSettings,
@@ -35,7 +40,7 @@ import {
 } from '../services/googleWorkspaceService';
 
 export const SettingsPage: React.FC = () => {
-  const { isAdmin } = useAuth();
+  const { currentUser, userProfile, isAdmin, refreshUserProfile } = useAuth();
   const employees = getEmployees();
   const [settings, setSettings] = useState<AppSettings>(getSettings());
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -125,6 +130,207 @@ export const SettingsPage: React.FC = () => {
     setIsResetConfirmOpen(false);
     window.location.reload();
   };
+
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [personalBackupStatus, setPersonalBackupStatus] = useState<string | null>(null);
+
+  const handleExportMyPersonalData = async () => {
+    try {
+      const myUid = currentUser?.uid;
+      const myPf = (userProfile?.employeeNumber || userProfile?.pfNumber || '').toUpperCase().trim();
+
+      // Strictly isolate: fetch ONLY current user's claims
+      const myClaims: any[] = [];
+      if (myUid) {
+        const snap = await getDocs(query(collection(db, 'claims'), where('userId', '==', myUid)));
+        snap.forEach(d => myClaims.push(d.data()));
+      }
+      if (myPf) {
+        const snapPf = await getDocs(query(collection(db, 'claims'), where('employeeNumber', '==', myPf)));
+        snapPf.forEach(d => {
+          const c = d.data();
+          if (!myClaims.some(existing => existing.id === c.id)) {
+            myClaims.push(c);
+          }
+        });
+      }
+
+      const personalExport = {
+        exportedAt: new Date().toISOString(),
+        profile: {
+          name: userProfile?.name,
+          employeeNumber: userProfile?.employeeNumber || userProfile?.pfNumber,
+          designation: userProfile?.designation,
+          branch: userProfile?.branch,
+          department: userProfile?.department,
+          claimType: userProfile?.claimType,
+        },
+        claims: myClaims,
+      };
+
+      const jsonString = JSON.stringify(personalExport, null, 2);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `My_Personal_Claims_${(myPf || 'Personal')}_${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setPersonalBackupStatus('Your personal claims and profile data were downloaded successfully.');
+      setTimeout(() => setPersonalBackupStatus(null), 4000);
+    } catch (err: any) {
+      setPersonalBackupStatus('Export note: ' + err.message);
+    }
+  };
+
+  // For regular staff users: show ONLY Privacy & Data Security!
+  if (!isAdmin) {
+    return (
+      <div className="space-y-6 pb-16 max-w-4xl mx-auto">
+        {/* Header */}
+        <div className="rounded-2xl bg-white p-5 sm:p-6 shadow-xs border border-slate-200">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+              <Shield className="w-5 h-5" />
+            </div>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+                Privacy &amp; Data Security
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-500">
+                Your personal overtime claims and timesheet records are strictly confidential and protected.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Section 1: Personal Data Isolation & Protection */}
+        <div className="rounded-2xl bg-white p-5 sm:p-6 shadow-xs border border-slate-200 space-y-4">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-5 h-5 text-emerald-600" />
+            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider text-emerald-700">
+              Personal Data Protection &amp; Access Isolation
+            </h2>
+          </div>
+          <p className="text-xs text-slate-600 leading-relaxed">
+            In compliance with corporate data protection standards, all timesheet submissions and overtime calculations are strictly private to your account. <strong>Regular staff members cannot access, view, or search other employees&apos; claims or records.</strong>
+          </p>
+
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div>
+              <span className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">
+                Staff Name
+              </span>
+              <span className="font-bold text-slate-900">{userProfile?.name || 'Staff Member'}</span>
+            </div>
+            <div>
+              <span className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">
+                PF Number (Username)
+              </span>
+              <span className="font-bold text-indigo-700 font-mono">
+                {userProfile?.employeeNumber || userProfile?.pfNumber || 'PF Number'}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">
+                Designation &amp; Department
+              </span>
+              <span className="font-semibold text-slate-700">
+                {userProfile?.designation || 'Staff Member'} &bull; {userProfile?.department || 'Operations'}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">
+                Branch / Office
+              </span>
+              <span className="font-semibold text-slate-700">{userProfile?.branch || 'Head Office'}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Section 2: Account Password Management */}
+        <div className="rounded-2xl bg-white p-5 sm:p-6 shadow-xs border border-slate-200 space-y-4">
+          <div className="flex items-center gap-2">
+            <KeyRound className="w-5 h-5 text-indigo-600" />
+            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider text-indigo-700">
+              Account Security &amp; Password
+            </h2>
+          </div>
+          <p className="text-xs text-slate-600 leading-relaxed">
+            Protect your account by maintaining a strong, private password. You can change your password at any time.
+          </p>
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl bg-indigo-50/60 border border-indigo-200">
+            <div>
+              <h3 className="text-xs font-bold text-indigo-900">Personal Password Management</h3>
+              <p className="text-[11px] text-indigo-700/80 mt-0.5">
+                Update your login password to maintain strict access control over your overtime records.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsPasswordModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs transition cursor-pointer shrink-0"
+            >
+              <KeyRound className="w-3.5 h-3.5" />
+              <span>Change Password</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Section 3: My Personal Data Export */}
+        <div className="rounded-2xl bg-white p-5 sm:p-6 shadow-xs border border-slate-200 space-y-4">
+          <div className="flex items-center gap-2">
+            <HardDrive className="w-5 h-5 text-blue-600" />
+            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider text-blue-700">
+              My Personal Data Export
+            </h2>
+          </div>
+          <p className="text-xs text-slate-600 leading-relaxed">
+            Download an encrypted JSON export of your personal claim submissions and user particulars. <strong>This export contains strictly your personal data and no other staff records.</strong>
+          </p>
+
+          <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                <Download className="w-4 h-4 text-blue-600" />
+                <span>Export My Personal Claims Data</span>
+              </h3>
+              <p className="text-[11px] text-slate-500 mt-1">
+                Downloads a JSON file containing all overtime claims created by {userProfile?.name || 'you'}.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleExportMyPersonalData}
+              className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition shrink-0 cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export My Data</span>
+            </button>
+          </div>
+
+          {personalBackupStatus && (
+            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{personalBackupStatus}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Password Reset Modal */}
+        <PasswordResetModal
+          isOpen={isPasswordModalOpen}
+          onPasswordChanged={() => {
+            setIsPasswordModalOpen(false);
+            refreshUserProfile();
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 pb-16 max-w-4xl mx-auto">

@@ -22,7 +22,7 @@ export const PasswordResetModal: React.FC<PasswordResetModalProps> = ({
   isOpen,
   onPasswordChanged,
 }) => {
-  const { userProfile, updateUserPassword } = useAuth();
+  const { userProfile, updateUserPassword, logout } = useAuth();
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -89,16 +89,29 @@ export const PasswordResetModal: React.FC<PasswordResetModalProps> = ({
         </div>
 
         {/* Title */}
-        <div className="text-center mb-6">
+        <div className="text-center mb-5">
           <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-            Set Your New Password
+            Security Verification: Set New Password
           </h2>
           <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
-            {userProfile?.isFirstLogin
-              ? 'This is your first time signing in. For security, please change your default PF Number password before continuing.'
-              : 'A password change has been required for your account. Please enter your new password.'}
+            {userProfile?.passwordMatchesPf || userProfile?.isFirstLogin
+              ? 'Your account is currently using your PF Number as the default password. You must establish a secure private password before accessing the dashboard.'
+              : 'A mandatory password change is required for your account. Please set a new password.'}
           </p>
         </div>
+
+        {/* Mandatory PF Number Password Detected Alert */}
+        {(userProfile?.passwordMatchesPf || userProfile?.isFirstLogin) && (
+          <div className="mb-4 p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-xs text-amber-900 flex items-start gap-2.5 shadow-xs">
+            <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold text-amber-950 block">Initial PF Number Password Detected</span>
+              <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
+                Initial password matched your PF Number (<strong>{userProfile?.employeeNumber || userProfile?.pfNumber}</strong>). For corporate compliance and data security, you cannot proceed to the dashboard until you create a private password.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* User Particulars Badge */}
         <div className="mb-5 p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
@@ -112,7 +125,7 @@ export const PasswordResetModal: React.FC<PasswordResetModalProps> = ({
           </div>
           <div className="text-right">
             <span className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">
-              Account
+              Staff Member
             </span>
             <span className="font-semibold text-slate-700">
               {userProfile?.name || 'Staff Member'}
@@ -203,6 +216,16 @@ export const PasswordResetModal: React.FC<PasswordResetModalProps> = ({
                 </>
               )}
             </button>
+
+            <div className="pt-2 text-center">
+              <button
+                type="button"
+                onClick={() => logout()}
+                className="text-[11px] text-slate-400 hover:text-slate-600 font-medium transition cursor-pointer"
+              >
+                Sign in with a different account
+              </button>
+            </div>
           </form>
         )}
       </div>

@@ -359,8 +359,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         claimType: 'OT',
         employeeNumber: cleanPf,
         pfNumber: cleanPf,
-        mustChangePassword: false,
-        isFirstLogin: false,
+        initialPassword: cleanPf,
+        passwordHash: cleanPass || cleanPf,
+        mustChangePassword: true,
+        isFirstLogin: true,
+        passwordMatchesPf: true,
         designation: data.designation?.trim() || 'Staff Member',
         branch: data.branch?.trim() || 'Head Office',
         department: data.department?.trim() || 'IT & Infrastructure Operations',
@@ -599,6 +602,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ...finalProfile,
           mustChangePassword: true,
           isFirstLogin: true,
+          passwordMatchesPf: Boolean(
+            isPasswordSameAsPf ||
+            finalProfile.passwordMatchesPf ||
+            (finalProfile.initialPassword ? cleanPass.toUpperCase() === finalProfile.initialPassword.toUpperCase() : false)
+          ),
         };
       }
 

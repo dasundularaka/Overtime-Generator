@@ -80,6 +80,7 @@ export interface UserProfile {
   welcomeEmailMessageId?: string | null;
   initialPassword?: string;
   passwordHash?: string;
+  passwordMatchesPf?: boolean;
   createdAt: string;
   updatedAt: string;
 }

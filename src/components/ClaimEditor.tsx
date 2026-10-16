@@ -21,6 +21,7 @@ import {
   Banknote,
   AlertTriangle,
   Check,
+  Save,
 } from 'lucide-react';
 import {
   collection,
@@ -43,6 +44,7 @@ import {
   formatMinutesToTime,
   getDayOfWeek,
   generateMonthDates,
+  getDaysInMonth,
   isWeekendDay,
   MONTH_NAMES,
   GENERAL_SHIFT_START,
@@ -291,17 +293,95 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       setTotalRemuneration(targetProfile.totalRemuneration !== undefined ? targetProfile.totalRemuneration : '');
     }
 
-    // Initialize 3 default shift rows
-    const monthIndex = MONTH_NAMES.indexOf(claimMonth);
-    const mStr = String(monthIndex + 1).padStart(2, '0');
-    setRows([
-      createBlankRow(`${claimYear}-${mStr}-01`),
-      createBlankRow(`${claimYear}-${mStr}-02`),
-      createBlankRow(`${claimYear}-${mStr}-03`),
-    ]);
+    // Auto-populate full month dates with flagged holidays
+    setRows(generateFullMonthRows(claimMonth, claimYear, isSpecialAssignedOt));
   }, [initialClaim, userProfile, selectedUserId, allUsers]);
 
-  // Create clean blank row with assigned shift start time
+  // Generate full month of dates and flag holidays & weekends
+  function generateFullMonthRows(targetMonth: string, targetYear: number, specialOt: boolean = isSpecialAssignedOt): OvertimeRow[] {
+    const monthIndex = MONTH_NAMES.indexOf(targetMonth);
+    const validMonth = monthIndex >= 0 ? monthIndex : new Date().getMonth();
+    const daysInMonth = getDaysInMonth(targetYear, validMonth);
+    const mStr = String(validMonth + 1).padStart(2, '0');
+
+    const fullRows: OvertimeRow[] = [];
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dStr = String(day).padStart(2, '0');
+      const dateStr = `${targetYear}-${mStr}-${dStr}`;
+      const dow = getDayOfWeek(dateStr);
+      const isSun = dow === 'Sun';
+      const isSat = dow === 'Sat';
+      const hol = holidayMap.get(dateStr);
+      const isHol = !!hol || isSun;
+      const holidayTitle = hol?.name || (isSun ? 'Sunday' : isSat ? 'Saturday' : undefined);
+
+      fullRows.push({
+        id: 'row_' + Math.random().toString(36).substring(2, 9),
+        date: dateStr,
+        dayOfWeek: dow,
+        startTime: isHol ? '' : (userShiftStartTime || GENERAL_SHIFT_START),
+        endTime: '',
+        breakMinutes: 0,
+        isOvernight: false,
+        isWeekend: isSat || isSun,
+        isHoliday: isHol,
+        holidayName: holidayTitle,
+        isHolidayOverride: false,
+        isSpecialAssignment: specialOt,
+        totalWorkMinutes: 0,
+        rawOtMinutes: 0,
+        totalMinutes: 0,
+        totalFormatted: '00:00',
+        reason: isHol ? (hol?.name || (isSun ? 'Sunday' : 'Holiday')) : (isSat ? "Saturday Duty" : ''),
+      });
+    }
+    return fullRows;
+  }
+
+  const handleMonthChange = (newMonth: string) => {
+    setClaimMonth(newMonth);
+    if (!initialClaim) {
+      setRows(generateFullMonthRows(newMonth, claimYear, isSpecialAssignedOt));
+    }
+  };
+
+  const handleYearChange = (newYear: number) => {
+    setClaimYear(newYear);
+    if (!initialClaim) {
+      setRows(generateFullMonthRows(claimMonth, newYear, isSpecialAssignedOt));
+    }
+  };
+
+  const handleToggleSpecialAssignedOt = (newValue: boolean) => {
+    setIsSpecialAssignedOt(newValue);
+    setRows(prevRows =>
+      prevRows.map(r => {
+        const updated = { ...r, isSpecialAssignment: newValue };
+        if (updated.startTime && updated.endTime) {
+          const isHoliday = !!updated.isHoliday || holidayMap.has(updated.date) || updated.dayOfWeek === 'Sun';
+          const isOther = updated.dayOfWeek === 'Sat' || updated.dayOfWeek === 'Sun' || isHoliday;
+          const calc = calculateShiftOvertime(
+            updated.startTime,
+            updated.endTime,
+            0,
+            maxOtLimitHours,
+            isOther,
+            userShiftEndTime || GENERAL_SHIFT_END,
+            userShiftStartTime || GENERAL_SHIFT_START,
+            newValue,
+            !!updated.isHolidayOverride
+          );
+          updated.totalWorkMinutes = calc.totalWorkMinutes;
+          updated.rawOtMinutes = calc.rawOtMinutes;
+          updated.totalMinutes = calc.totalMinutes;
+          updated.totalFormatted = (isOther && !updated.isHolidayOverride) ? '' : formatMinutesToTime(calc.totalMinutes, otDisplayFormat);
+          updated.isCapped = calc.isCapped;
+        }
+        return updated;
+      })
+    );
+  };
+
   // Create clean blank row with assigned shift start time
   function createBlankRow(defaultDate: string = ''): OvertimeRow {
     const isWk = isWeekendDay(defaultDate);
@@ -977,32 +1057,11 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={handlePreviewPdf}
-              disabled={isGeneratingPdf}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold border border-slate-200 transition"
-            >
-              <Eye className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Preview PDF</span>
-            </button>
-
-            <button
-              onClick={handleSaveClaim}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition"
-            >
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>Save to Database</span>
-            </button>
-
-            <button
-              onClick={handleInitiateDownload}
-              disabled={isGeneratingPdf}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm transition cursor-pointer disabled:opacity-60"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>{isGeneratingPdf ? 'Generating...' : 'Download PDF'}</span>
-            </button>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold border border-emerald-200">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Full Month Auto-Populated</span>
+            </span>
           </div>
         </div>
 
@@ -1072,179 +1131,92 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           </div>
         )}
 
-        {/* Form Inputs Grid */}
-        <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
-          {/* Admin User Picker (Only visible to admins) */}
-          {isAdmin && allUsers.length > 0 && (
-            <div className="lg:col-span-2 bg-purple-50/60 p-2.5 rounded-xl border border-purple-200">
-              <label className="block font-bold text-purple-900 mb-1">
-                Admin: Select Employee Account
-              </label>
-              <select
-                value={selectedUserId}
-                onChange={e => setSelectedUserId(e.target.value)}
-                className="w-full rounded-lg border border-purple-300 bg-white py-1.5 px-2.5 text-xs text-slate-800 font-semibold"
-              >
-                {allUsers.map(u => (
-                  <option key={u.id} value={u.id}>
-                    {u.name} ({u.email}) &bull; Cap: {u.maxOtHoursPerDay || 2.0}h &bull; Shift: {u.shiftStartTime || '08:00'}-{u.shiftEndTime || '16:45'} &bull; Type: {u.claimType || 'OT'}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          <div>
-            <label className="block font-bold text-slate-600 mb-1">Claimant Name *</label>
-            <input
-              type="text"
-              value={employeeName}
-              onChange={e => setEmployeeName(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800"
-            />
-          </div>
-
-          <div>
-            <label className="block font-bold text-slate-600 mb-1">Employee Number</label>
-            <input
-              type="text"
-              value={employeeNumber}
-              onChange={e => setEmployeeNumber(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 font-mono"
-            />
-          </div>
-
-          <div>
-            <label className="block font-bold text-slate-600 mb-1">Designation</label>
-            <input
-              type="text"
-              value={designation}
-              onChange={e => setDesignation(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800"
-            />
-          </div>
-
-          {/* Department Custom Text */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block font-bold text-slate-700">Department</label>
-              <span className="text-[10px] text-indigo-600 font-semibold">Custom Text</span>
-            </div>
-            <input
-              type="text"
-              list="claim-department-suggestions"
-              value={department}
-              onChange={e => setDepartment(e.target.value)}
-              placeholder="e.g. IT Operations & Infrastructure"
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
-            />
-            <datalist id="claim-department-suggestions">
-              <option value="IT Operations & Infrastructure" />
-              <option value="Corporate Banking Division" />
-              <option value="Credit & Risk Management" />
-              <option value="Treasury & Foreign Exchange" />
-              <option value="Retail Banking & Branches" />
-              <option value="Finance & Accounts" />
-              <option value="Human Resources Division" />
-            </datalist>
-            <div className="flex flex-wrap gap-1 mt-1.5">
-              {['IT Operations', 'Corporate Banking', 'Treasury', 'Finance'].map(dep => (
-                <button
-                  key={dep}
-                  type="button"
-                  onClick={() => setDepartment(dep)}
-                  className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-600 text-[10px] font-medium transition"
-                  title={`Set Department to "${dep}"`}
-                >
-                  +{dep}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Branch Custom Text */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block font-bold text-slate-700">Branch</label>
-              <span className="text-[10px] text-indigo-600 font-semibold">Custom Text</span>
-            </div>
-            <input
-              type="text"
-              list="claim-branch-suggestions"
-              value={branch}
-              onChange={e => setBranch(e.target.value)}
-              placeholder="e.g. BOC Colombo Main Branch"
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
-            />
-            <datalist id="claim-branch-suggestions">
-              <option value="BOC Colombo Main Branch" />
-              <option value="Corporate Branch" />
-              <option value="Head Office - Colombo" />
-              <option value="Kandy Super Grade Branch" />
-              <option value="Galle Fort Branch" />
-              <option value="Kurunegala City Branch" />
-              <option value="Jaffna Main Branch" />
-            </datalist>
-            <div className="flex flex-wrap gap-1 mt-1.5">
-              {['Colombo Main', 'Head Office', 'Corporate', 'Kandy'].map(br => (
-                <button
-                  key={br}
-                  type="button"
-                  onClick={() => setBranch(br)}
-                  className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-600 text-[10px] font-medium transition"
-                  title={`Set Branch to "${br}"`}
-                >
-                  +{br}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Claim Type (OT = Overtime, OP = Out of Pocket) */}
-          <div>
-            <label className="block font-bold text-slate-700 mb-1">
-              Claim Type <span className="font-semibold text-[10px] text-indigo-600">(OT = Overtime, OP = Out of Pocket)</span>
+        {/* Admin User Picker (Only visible to admins) */}
+        {isAdmin && allUsers.length > 0 && (
+          <div className="mt-4 bg-purple-50/60 p-3 rounded-2xl border border-purple-200 text-xs">
+            <label className="block font-bold text-purple-900 mb-1">
+              Admin: Select Employee Profile
             </label>
             <select
-              value={claimType}
-              onChange={e => setClaimType(e.target.value as ClaimType)}
-              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 font-bold shadow-2xs focus:ring-2 focus:ring-indigo-500"
+              value={selectedUserId}
+              onChange={e => setSelectedUserId(e.target.value)}
+              className="w-full rounded-xl border border-purple-300 bg-white py-1.5 px-3 text-xs text-slate-800 font-semibold"
             >
-              <option value="OT">OT — Overtime Claim</option>
-              <option value="OP">OP — Out of Pocket Expense</option>
+              {allUsers.map(u => (
+                <option key={u.id} value={u.id}>
+                  {u.name} ({u.employeeNumber || u.pfNumber}) &bull; Shift: {u.shiftStartTime || '08:00'}-{u.shiftEndTime || '16:45'} &bull; Cap: {u.maxOtHoursPerDay || 2.0}h
+                </option>
+              ))}
             </select>
-            <p className="text-[10px] text-slate-500 mt-1">
-              {claimType === 'OT'
-                ? `OT (Overtime): Computes time after ${userShiftEndTime} in 15-min intervals (Assigned Shift: ${userShiftStartTime} - ${userShiftEndTime})`
-                : 'OP (Out of Pocket): Company reimbursable expenditure'}
-            </p>
+          </div>
+        )}
+
+        {/* Read-Only Verified Claimant Particulars (No Change Access) & Period / Special OT Controls */}
+        <div className="mt-4 p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs">
+          {/* Claimant Identity (Locked & Verified from Profile) */}
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-600 text-white font-bold text-base shadow-sm shrink-0">
+              {employeeName ? employeeName.charAt(0).toUpperCase() : 'U'}
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-bold text-slate-900 text-sm">{employeeName || 'Staff Member'}</span>
+                <span className="px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 font-mono font-bold text-[11px] border border-indigo-200">
+                  {employeeNumber || 'PF Number'}
+                </span>
+                <span className="px-2 py-0.5 rounded-md bg-slate-200 text-slate-600 font-semibold text-[10px] flex items-center gap-1">
+                  <Lock className="w-2.5 h-2.5" />
+                  <span>Profile Locked</span>
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1 flex flex-wrap items-center gap-2">
+                <span>{designation || 'Staff Member'}</span>
+                <span>&bull;</span>
+                <span>{branch || 'Head Office'}</span>
+                <span>&bull;</span>
+                <span>{department || 'IT Operations'}</span>
+                <span>&bull;</span>
+                <span className="font-medium text-slate-600">Shift: {userShiftStartTime} - {userShiftEndTime}</span>
+              </div>
+            </div>
           </div>
 
-          {/* Month & Year */}
-          <div className="flex gap-2">
-            <div className="flex-1">
-              <label className="block font-bold text-slate-600 mb-1">Month</label>
+          {/* Month, Year & Special Assigned OT Toggle Controls */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-2 bg-white border border-slate-300 rounded-xl px-3 py-1.5 shadow-2xs">
+              <label className="font-bold text-slate-600 text-[11px] uppercase tracking-wider">Month:</label>
               <select
                 value={claimMonth}
-                onChange={e => setClaimMonth(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-slate-800"
+                onChange={e => handleMonthChange(e.target.value)}
+                className="bg-transparent font-bold text-slate-800 text-xs focus:outline-hidden cursor-pointer"
               >
                 {MONTH_NAMES.map(m => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
+                  <option key={m} value={m}>{m}</option>
                 ))}
               </select>
-            </div>
-            <div className="w-20">
-              <label className="block font-bold text-slate-600 mb-1">Year</label>
               <input
                 type="number"
                 value={claimYear}
-                onChange={e => setClaimYear(parseInt(e.target.value, 10) || 2026)}
-                className="w-full rounded-xl border border-slate-300 px-2 py-2 text-slate-800 font-mono text-center"
+                onChange={e => handleYearChange(parseInt(e.target.value, 10) || 2026)}
+                className="w-16 bg-transparent font-bold text-slate-800 text-xs font-mono text-center focus:outline-hidden border-l border-slate-200 pl-2"
               />
             </div>
+
+            {/* Special Assigned OT Toggle (No limit / No break / No manager initial) */}
+            <button
+              type="button"
+              onClick={() => handleToggleSpecialAssignedOt(!isSpecialAssignedOt)}
+              className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                isSpecialAssignedOt
+                  ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
+                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+              }`}
+              title="Special Assigned OT (No limit / No break / No manager initial)"
+            >
+              <Check className={`w-3.5 h-3.5 ${isSpecialAssignedOt ? 'text-white' : 'text-slate-400'}`} />
+              <span>Special Assigned OT</span>
+              {isSpecialAssignedOt && <span className="text-[10px] bg-emerald-700 text-white px-1.5 py-0.2 rounded font-mono">No Limit</span>}
+            </button>
           </div>
         </div>
       </div>
@@ -1327,140 +1299,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         </div>
       </div>
 
-      {/* Hourly OT Rate & Days Payment of OT Section (Official Form 10756 Remuneration & Pay) */}
-      <div className="rounded-2xl bg-white p-5 shadow-xs border border-slate-200">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3 mb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100">
-              <Banknote className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-bold text-slate-900 tracking-tight">
-                  Hourly OT Rate &amp; Days Payment of OT
-                </h3>
-                <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200">
-                  Form 10756 Remuneration
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-500 mt-0.5">
-                Calculates and prints onto the bottom summary box: Hourly Rate, Day&apos;s Pay, and Overtime Payments Due &apos;A&apos; and &apos;B&apos;.
-              </p>
-            </div>
-          </div>
 
-          <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-3.5 py-1.5 rounded-xl">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-              Total Overtime Payment Due:
-            </span>
-            <span className="text-base font-black font-mono text-indigo-700">
-              Rs. {totalOtPayment.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3.5 text-xs">
-          {/* Total Remuneration */}
-          <div>
-            <label className="block font-bold text-slate-700 mb-1">
-              Total Remuneration (Rs.)
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              value={totalRemuneration}
-              onChange={e => handleRemunerationChange(e.target.value)}
-              placeholder="e.g. 85000.00"
-              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-            />
-            <span className="text-[10px] text-slate-400 mt-1 block">
-              Salary Book
-            </span>
-          </div>
-
-          {/* Hourly OT Rate (Weekday working days) */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block font-bold text-slate-700">Hourly OT Rate (Rs.)</label>
-              <span className="text-[10px] text-indigo-600 font-semibold">Weekday OT</span>
-            </div>
-            <input
-              type="number"
-              step="0.01"
-              value={hourlyRate}
-              onChange={e => setHourlyRate(e.target.value === '' ? '' : parseFloat(e.target.value))}
-              placeholder="e.g. 482.95"
-              className="w-full rounded-xl border border-indigo-300 bg-indigo-50/20 px-3 py-2 text-slate-900 font-mono font-bold focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-            />
-            <span className="text-[10px] text-slate-400 mt-1 block">
-              Applied to weekday working hours
-            </span>
-          </div>
-
-          {/* Overtime Payment Due 'A' */}
-          <div className="bg-emerald-50/60 p-3 rounded-xl border border-emerald-200">
-            <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">
-              Weekday OT Due &apos;A&apos;
-            </span>
-            <div className="text-base font-extrabold font-mono text-emerald-800 mt-1">
-              Rs. {otPaymentDueA.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </div>
-            <span className="text-[10px] text-emerald-700/80 mt-0.5 block">
-              {weekdayDecimalHours}h weekday OT @ {hourlyRate !== '' ? Number(hourlyRate).toFixed(2) : '0.00'}/h
-            </span>
-          </div>
-
-          {/* Days Payment Rate */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block font-bold text-slate-700">Days Payment Rate (Rs.)</label>
-              <span className="text-[10px] text-amber-700 font-semibold bg-amber-50 px-1 rounded">Day&apos;s Pay</span>
-            </div>
-            <input
-              type="number"
-              step="0.01"
-              value={daysPay}
-              onChange={e => setDaysPay(e.target.value === '' ? '' : parseFloat(e.target.value))}
-              placeholder="e.g. 3863.64"
-              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-            />
-            <span className="text-[10px] text-slate-400 mt-1 block">
-              Rate for Saturdays &amp; other days
-            </span>
-          </div>
-
-          {/* Days Payment Total */}
-          <div className="bg-amber-50/60 p-3 rounded-xl border border-amber-200">
-            <span className="text-[10px] font-bold text-amber-900 uppercase tracking-wider block">
-              Other Days Payment
-            </span>
-            <div className="text-base font-extrabold font-mono text-amber-900 mt-1">
-              Rs. {daysPayTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </div>
-            <span className="text-[10px] text-amber-800/80 mt-0.5 block">
-              {daysPayCount} day(s) worked @ {daysPay !== '' ? Number(daysPay).toFixed(2) : '0.00'}/day
-            </span>
-          </div>
-
-          {/* Special Assignment Payment 'B' */}
-          <div>
-            <label className="block font-bold text-slate-700 mb-1">
-              Special Assignment &apos;B&apos; (Rs.)
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              value={otPaymentDueB}
-              onChange={e => setOtPaymentDueB(e.target.value === '' ? '' : parseFloat(e.target.value))}
-              placeholder="0.00"
-              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-            />
-            <span className="text-[10px] text-slate-400 mt-1 block">
-              Payment Due &apos;B&apos; Rs.
-            </span>
-          </div>
-        </div>
-      </div>
 
       {/* Timesheet Daily Entries Table */}
       <div className="rounded-2xl bg-white shadow-xs border border-slate-200 overflow-hidden">
@@ -1712,21 +1551,21 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           </div>
         )}
 
-        {/* Desktop Table View */}
-        <div className={`overflow-x-auto ${mobileViewMode === 'cards' ? 'hidden md:block' : 'block'}`}>
-          <table className="w-full text-left border-collapse min-w-[880px]">
+        {/* Desktop Table View - Non-scrollable, fits 100% in one line screen fit */}
+        <div className={`overflow-hidden w-full ${mobileViewMode === 'cards' ? 'hidden md:block' : 'block'}`}>
+          <table className="w-full table-fixed text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-100 text-slate-700 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200">
-                <th className="py-2.5 px-2 w-10 text-center">#</th>
-                <th className="py-2.5 px-2 w-32">Date</th>
-                <th className="py-2.5 px-2 w-28 text-center">Day &amp; Holiday</th>
-                <th className="py-2.5 px-2 min-w-[180px]">Reason / Duties</th>
-                <th className="py-2.5 px-2 w-24 text-center">Time Started</th>
-                <th className="py-2.5 px-2 w-24 text-center">Time Left</th>
-                <th className="py-2.5 px-2 w-24 text-center">Total Worked</th>
-                <th className="py-2.5 px-2 w-24 text-center">Overtime (A)</th>
-                <th className="py-2.5 px-2 w-32 text-center">Special OT</th>
-                <th className="py-2.5 px-2 w-16 text-center">Actions</th>
+                <th className="py-2 px-1 w-7 text-center">#</th>
+                <th className="py-2 px-1.5 w-32">Date &amp; Day</th>
+                <th className="py-2 px-1.5 w-32 text-center">Holiday / Override</th>
+                <th className="py-2 px-2">Duties / Nature of Work</th>
+                <th className="py-2 px-1 w-20 text-center">Time In</th>
+                <th className="py-2 px-1 w-20 text-center">Time Out</th>
+                <th className="py-2 px-1 w-16 text-center">Worked</th>
+                <th className="py-2 px-1 w-16 text-center">OT (A)</th>
+                <th className="py-2 px-1.5 w-24 text-center">Special OT</th>
+                <th className="py-2 px-1 w-8 text-center">Del</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
@@ -1745,96 +1584,88 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       hasOt ? 'bg-indigo-50/20' : ''
                     }`}
                   >
-                    <td className="py-2.5 px-2 text-center text-slate-400 font-mono text-[11px]">
+                    {/* Index */}
+                    <td className="py-2 px-1 text-center text-slate-400 font-mono text-[11px]">
                       {index + 1}
                     </td>
 
-                    {/* 1. Date & Caution Icon (if holiday is overridden) */}
-                    <td className="py-2.5 px-2">
-                      <div className="flex items-center gap-1.5">
+                    {/* Date & Day */}
+                    <td className="py-2 px-1.5">
+                      <div className="flex items-center gap-1">
                         <input
                           type="date"
                           value={row.date}
                           onChange={e => updateRowField(index, 'date', e.target.value)}
-                          className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800"
+                          className="w-full min-w-0 rounded-md border border-slate-200 bg-white px-1 py-1 text-xs text-slate-800 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
                         />
-                        {/* Caution Icon (only icon) for relevant day if override is ticked */}
-                        {row.isHolidayOverride && (
-                          <span title="Holiday Overridden" className="inline-flex items-center">
-                            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
-                          </span>
-                        )}
+                        <span
+                          className={`inline-block px-1 py-0.5 rounded text-[10px] font-bold shrink-0 ${
+                            row.isHoliday || isHol
+                              ? 'bg-rose-100 text-rose-800'
+                              : isSun
+                              ? 'bg-purple-100 text-purple-800'
+                              : isSat
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-slate-100 text-slate-700'
+                          }`}
+                        >
+                          {row.dayOfWeek || '-'}
+                        </span>
                       </div>
                     </td>
 
-                    {/* 2. Day & Holiday Indicator with Modern Override Option */}
-                    <td className="py-2.5 px-2 text-center">
-                      <div className="flex flex-col items-center gap-1">
-                        <div className="flex items-center gap-1 justify-center">
-                          <span
-                            className={`inline-block px-1.5 py-0.5 rounded text-[11px] font-semibold ${
-                              row.isHoliday || isHol
-                                ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                                : isSun
-                                ? 'bg-purple-100 text-purple-800 border border-purple-200'
-                                : isSat
-                                ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                                : 'bg-slate-100 text-slate-700'
-                            }`}
-                          >
-                            {row.isHoliday ? 'Holiday' : row.dayOfWeek || '-'}
-                          </span>
-                        </div>
-
-                        {/* Next to holiday, show a modern override option to add in/out times and get claims in holidays */}
-                        {isHol && (
-                          <button
-                            type="button"
-                            onClick={() => toggleHolidayOverride(index)}
-                            className={`text-[10px] px-2 py-0.5 rounded font-bold transition flex items-center gap-1 cursor-pointer ${
+                    {/* Holiday Status & Holiday Override Checkbox with Caution Icon */}
+                    <td className="py-2 px-1.5 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        {isHol ? (
+                          <label
+                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-lg border text-[10px] font-bold cursor-pointer select-none transition ${
                               row.isHolidayOverride
-                                ? 'bg-amber-500 text-white shadow-xs border border-amber-600'
-                                : 'text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200'
+                                ? 'bg-amber-100 text-amber-900 border-amber-300 shadow-2xs'
+                                : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                             }`}
-                            title="Override to add in/out times and get claims in holidays"
+                            title="Tick override checkbox to enable in/out times and claim overtime on holidays"
                           >
-                            <span>{row.isHolidayOverride ? 'Override ✓' : 'Override OT'}</span>
-                          </button>
-                        )}
-                        {!isHol && !isSun && (
-                          <button
-                            type="button"
-                            onClick={() => updateRowField(index, 'isHoliday', !row.isHoliday)}
-                            className="text-[9px] px-1 py-0.2 rounded font-bold text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer transition"
-                            title="Toggle Holiday status for this date"
-                          >
-                            + Holiday
-                          </button>
+                            <input
+                              type="checkbox"
+                              checked={!!row.isHolidayOverride}
+                              onChange={() => toggleHolidayOverride(index)}
+                              className="w-3.5 h-3.5 rounded text-amber-600 focus:ring-amber-500 border-amber-300 cursor-pointer"
+                            />
+                            <span>{row.isHolidayOverride ? 'Override' : 'Holiday'}</span>
+                            {row.isHolidayOverride && (
+                              <span title="Caution: Holiday Overridden" className="inline-flex items-center">
+                                <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0 animate-pulse" />
+                              </span>
+                            )}
+                          </label>
+                        ) : (
+                          <span className="text-[11px] text-slate-400 font-medium">Regular</span>
                         )}
                       </div>
                     </td>
 
-                    {/* 3. Reason / Nature of Duties */}
-                    <td className="py-2.5 px-2">
+                    {/* Reason / Duties */}
+                    <td className="py-2 px-2">
                       <input
                         type="text"
                         value={row.reason}
                         onChange={e => updateRowField(index, 'reason', e.target.value)}
                         placeholder={isOther && !row.isHolidayOverride ? (isHol ? "Holiday / Off Day" : "Weekend Duty...") : "Duties performed..."}
-                        className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 placeholder:text-slate-300"
+                        className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500 truncate"
                       />
                     </td>
 
-                    {/* 4. Starting Time (Enabled when Holiday is Overridden) */}
-                    <td className="py-2.5 px-2">
+                    {/* Time In (Enabled when Holiday is Overridden) */}
+                    <td className="py-2 px-1 text-center">
                       <input
                         type="time"
                         disabled={isHol && !row.isHolidayOverride}
                         value={(isHol && !row.isHolidayOverride) ? '' : row.startTime}
                         onChange={e => updateRowField(index, 'startTime', e.target.value)}
-                        title={(isHol && !row.isHolidayOverride) ? "Tick 'Override OT' to enter times on holidays" : "Starting Time"}
-                        placeholder={(isHol && !row.isHolidayOverride) ? "Holiday" : ""}
-                        className={`w-full rounded-lg border border-slate-200 px-1.5 py-1.5 text-xs ${
+                        title={(isHol && !row.isHolidayOverride) ? "Tick 'Override' checkbox to enter times on holidays" : "Starting Time"}
+                        placeholder={(isHol && !row.isHolidayOverride) ? "--:--" : ""}
+                        className={`w-full rounded-md border border-slate-200 px-1 py-1 text-xs text-center font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
                           (isHol && !row.isHolidayOverride)
                             ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                             : 'bg-white text-slate-800'
@@ -1842,16 +1673,16 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       />
                     </td>
 
-                    {/* 5. Ending Time (Enabled when Holiday is Overridden) */}
-                    <td className="py-2.5 px-2">
+                    {/* Time Out (Enabled when Holiday is Overridden) */}
+                    <td className="py-2 px-1 text-center">
                       <input
                         type="time"
                         disabled={isHol && !row.isHolidayOverride}
                         value={(isHol && !row.isHolidayOverride) ? '' : row.endTime}
                         onChange={e => updateRowField(index, 'endTime', e.target.value)}
-                        title={(isHol && !row.isHolidayOverride) ? "Tick 'Override OT' to enter times on holidays" : "Ending Time"}
-                        placeholder={(isHol && !row.isHolidayOverride) ? "Holiday" : ""}
-                        className={`w-full rounded-lg border border-slate-200 px-1.5 py-1.5 text-xs ${
+                        title={(isHol && !row.isHolidayOverride) ? "Tick 'Override' checkbox to enter times on holidays" : "Ending Time"}
+                        placeholder={(isHol && !row.isHolidayOverride) ? "--:--" : ""}
+                        className={`w-full rounded-md border border-slate-200 px-1 py-1 text-xs text-center font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
                           (isHol && !row.isHolidayOverride)
                             ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                             : 'bg-white text-slate-800'
@@ -1859,30 +1690,13 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       />
                     </td>
 
-                    {/* 6. Total Working Time */}
-                    <td className="py-2.5 px-2 text-center font-mono text-slate-600">
+                    {/* Worked */}
+                    <td className="py-2 px-1 text-center font-mono text-[11px] text-slate-600">
                       {row.isHolidayOverride && row.totalWorkMinutes > 0 ? (
-                        <div className="flex flex-col items-center">
-                          <span className="font-bold text-slate-800">{formatMinutesToTime(row.totalWorkMinutes, 'hhmm')}</span>
-                          <span className="inline-block text-[9px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200 mt-0.5 whitespace-nowrap">
-                            Day&apos;s Pay + OT
-                          </span>
-                        </div>
+                        <span className="font-bold text-amber-800">{formatMinutesToTime(row.totalWorkMinutes, 'hhmm')}</span>
                       ) : isOther ? (
                         row.totalWorkMinutes > 0 ? (
-                          <div className="flex flex-col items-center">
-                            <span className="inline-block text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 whitespace-nowrap">
-                              Day&apos;s Pay
-                            </span>
-                            {isSat && row.totalWorkMinutes < 360 && (
-                              <span
-                                className="text-[9px] font-bold text-rose-700 bg-rose-50 px-1 py-0.2 rounded border border-rose-200 mt-0.5 whitespace-nowrap"
-                                title="Saturday requires minimum 6.00 hrs (360 mins) of working time"
-                              >
-                                Min 6h req!
-                              </span>
-                            )}
-                          </div>
+                          <span className="font-bold text-slate-700 text-[10px]">Day&apos;s Pay</span>
                         ) : (
                           <span className="text-slate-300">-</span>
                         )
@@ -1893,91 +1707,47 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       )}
                     </td>
 
-                    {/* 7. Generated Overtime (A) (Shown on regular days & overridden holidays) */}
-                    <td className="py-2.5 px-2 text-center">
+                    {/* Overtime (A) */}
+                    <td className="py-2 px-1 text-center font-mono text-xs font-bold">
                       {isOther && !row.isHolidayOverride ? (
-                        <span className="text-slate-300">-</span>
+                        <span className="text-slate-300 font-normal">-</span>
                       ) : (
-                        <div className="flex flex-col items-center">
-                          <span
-                            className={`font-mono text-xs font-bold ${
-                              hasOt ? 'text-indigo-600' : 'text-slate-300'
-                            }`}
-                          >
-                            {row.totalFormatted}
-                          </span>
-                          {row.isLateDisqualified && (
-                            <span
-                              className="text-[9px] font-bold text-rose-700 bg-rose-50 px-1 py-0.2 rounded border border-rose-200 mt-0.5 whitespace-nowrap"
-                              title={row.lateNote || 'Late arrival after 08:30: No overtime allocated'}
-                            >
-                              Late &gt; 08:30 (0 OT)
-                            </span>
-                          )}
-                          {!row.isLateDisqualified && row.lateDeductionMinutes !== undefined && row.lateDeductionMinutes > 0 && (
-                            <span
-                              className="text-[9px] font-bold text-amber-700 bg-amber-50 px-1 py-0.2 rounded border border-amber-200 mt-0.5 whitespace-nowrap"
-                              title={row.lateNote || `Late arrival: -${row.lateDeductionMinutes}m deducted from OT`}
-                            >
-                              Late -{row.lateDeductionMinutes}m OT
-                            </span>
-                          )}
-                          {row.isCapped && (
-                            <span
-                              className="text-[9px] font-bold text-indigo-700 bg-indigo-50 px-1 py-0.2 rounded border border-indigo-200 mt-0.5 whitespace-nowrap"
-                              title={`Capped at ${maxOtLimitHours}h limit (uncapped was ${formatMinutesToTime(row.uncappedMinutes || 0, 'hhmm')})`}
-                            >
-                              Capped {maxOtLimitHours}h
-                            </span>
-                          )}
-                        </div>
+                        <span className={hasOt ? 'text-indigo-600' : 'text-slate-300'}>
+                          {row.totalFormatted || '00:00'}
+                        </span>
                       )}
                     </td>
 
-                    {/* 8. Special Assigned OT (Modern tick option: users can tick if assigned to special OT; no limit) */}
-                    <td className="py-2.5 px-2 text-center">
-                      <div className="flex flex-col items-center justify-center gap-0.5">
-                        <button
-                          type="button"
-                          onClick={() => updateRowField(index, 'isSpecialAssignment', !isRowSpecial)}
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
-                            isRowSpecial
-                              ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
-                              : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-800'
-                          }`}
-                          title="Tick if assigned to special overtime (No limit)"
-                        >
-                          <Check className={`w-3.5 h-3.5 ${isRowSpecial ? 'text-white' : 'text-slate-400'}`} />
-                          <span>{isRowSpecial ? 'Special OT ✓' : 'Special OT'}</span>
-                        </button>
-                        {isRowSpecial && (
-                          <span className="text-[9px] font-bold text-emerald-700">
-                            No Limit
-                          </span>
-                        )}
-                      </div>
+                    {/* Special Assigned OT Toggle (No Limit / No Break / No Manager Initial) */}
+                    <td className="py-2 px-1 text-center">
+                      <label
+                        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-lg border text-[10px] font-bold cursor-pointer select-none transition ${
+                          isRowSpecial
+                            ? 'bg-emerald-600 text-white border-emerald-700 shadow-2xs'
+                            : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                        }`}
+                        title="Special Assigned OT (no limit/no break/no manager initial)"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isRowSpecial}
+                          onChange={e => updateRowField(index, 'isSpecialAssignment', e.target.checked)}
+                          className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 cursor-pointer"
+                        />
+                        <span>{isRowSpecial ? 'Special' : 'Special'}</span>
+                      </label>
                     </td>
 
-                    {/* 9. Actions */}
-                    <td className="py-2.5 px-2 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => handleDuplicateRow(index)}
-                          className="p-1 text-slate-400 hover:text-indigo-600 rounded cursor-pointer"
-                          title="Duplicate row"
-                        >
-                          <Copy className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteRow(index)}
-                          className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
-                          title="Delete row"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                    {/* Actions */}
+                    <td className="py-2 px-1 text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteRow(index)}
+                        className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer transition"
+                        title="Delete row"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </td>
                   </tr>
                 );
@@ -1987,10 +1757,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+        <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
           <button
             onClick={handleAddRow}
-            className="inline-flex items-center gap-1.5 text-indigo-600 hover:text-indigo-800 font-bold"
+            className="inline-flex items-center gap-1.5 text-indigo-600 hover:text-indigo-800 font-bold cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>Add Row</span>
@@ -2009,6 +1779,61 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
               ({summary.totalDecimalHours} hrs)
             </span>
           </div>
+        </div>
+      </div>
+
+      {/* Bottom Action Bar: Preview, Save, Download */}
+      <div className="rounded-2xl bg-white p-4 sm:p-5 shadow-lg border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4 sticky bottom-4 z-20 backdrop-blur-md bg-white/95">
+        <div className="flex items-center gap-3">
+          <div className="text-xs text-slate-500">
+            <span className="font-semibold text-slate-800">Total Claimable OT:</span>{' '}
+            <strong className="text-indigo-600 text-sm font-black">{summary.totalHoursFormatted}</strong> ({summary.totalDecimalHours} hrs)
+            <span className="mx-2 text-slate-300">&bull;</span>
+            <span className="font-medium text-slate-700">{summary.otDaysCount} Days</span>
+            {isSpecialAssignedOt && (
+              <span className="ml-2 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold border border-emerald-300">
+                Special Assigned OT (No Limit)
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+          {/* 1. Preview PDF Button */}
+          <button
+            type="button"
+            onClick={handlePreviewPdf}
+            disabled={isGeneratingPdf}
+            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50"
+            title="Preview print-ready A4 Overtime Sheet"
+          >
+            <Eye className="w-4 h-4" />
+            <span>{isGeneratingPdf ? 'Rendering...' : 'Preview'}</span>
+          </button>
+
+          {/* 2. Save Claim Button */}
+          <button
+            type="button"
+            onClick={handleSaveClaim}
+            disabled={isGeneratingPdf}
+            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50"
+            title="Save claim to database and history"
+          >
+            <Save className="w-4 h-4 text-slate-600" />
+            <span>Save</span>
+          </button>
+
+          {/* 3. Download PDF Button */}
+          <button
+            type="button"
+            onClick={handleInitiateDownload}
+            disabled={isGeneratingPdf}
+            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white text-xs font-bold shadow-md hover:shadow-lg transition cursor-pointer disabled:opacity-50"
+            title="Download official PDF sheet & save claim"
+          >
+            <Download className="w-4 h-4" />
+            <span>{isGeneratingPdf ? 'Generating...' : 'Download'}</span>
+          </button>
         </div>
       </div>
 
