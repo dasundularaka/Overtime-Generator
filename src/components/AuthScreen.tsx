@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { formatPfNumber } from '../utils/pfHelper';
+import { ClockLogo } from './ClockLogo';
 
 export const AuthScreen: React.FC = () => {
   const {
@@ -98,8 +99,8 @@ export const AuthScreen: React.FC = () => {
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 flex flex-col justify-center items-center px-4 py-8 sm:py-12">
       {/* App Brand Header */}
       <div className="text-center mb-6 sm:mb-8">
-        <div className="inline-flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-2xl overflow-hidden shadow-xl mb-3 border border-indigo-400/30">
-          <img src="/infinite-clock.gif" alt="Clock Logo" className="w-full h-full object-cover" />
+        <div className="inline-flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center mb-3">
+          <ClockLogo className="w-full h-full" />
         </div>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
           Overtime Claim Manager

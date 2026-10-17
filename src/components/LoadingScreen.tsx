@@ -1,5 +1,6 @@
 import React from 'react';
-import { Clock, ShieldCheck, Sparkles } from 'lucide-react';
+import { ShieldCheck, Sparkles } from 'lucide-react';
+import { ClockLogo } from './ClockLogo';
 
 interface LoadingScreenProps {
   message?: string;
@@ -18,11 +19,10 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
 
       {/* Main card */}
       <div className="relative z-10 flex flex-col items-center max-w-sm w-full text-center space-y-6">
-        {/* Animated Icon Container */}
+        {/* Animated Clock Logo without outline circle and without background */}
         <div className="relative">
-          <div className="absolute -inset-3 bg-gradient-to-r from-indigo-500 to-blue-500 rounded-3xl blur-md opacity-40 animate-pulse" />
-          <div className="relative flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-tr from-indigo-600 to-blue-500 shadow-2xl border border-indigo-400/30 overflow-hidden">
-            <img src="/infinite-clock.gif" alt="Clock Engine" className="w-full h-full object-cover" />
+          <div className="relative flex h-24 w-24 items-center justify-center">
+            <ClockLogo className="w-full h-full" />
           </div>
 
           {/* Mini badge */}

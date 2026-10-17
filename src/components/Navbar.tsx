@@ -25,6 +25,7 @@ import {
 import { PWAInstallButton } from './PWAInstallButton';
 import { useAuth } from '../context/AuthContext';
 import { ConfirmationModal } from './ConfirmationModal';
+import { ClockLogo } from './ClockLogo';
 
 export type NavigationTab =
   | 'dashboard'
@@ -204,8 +205,8 @@ export const Navbar: React.FC<NavbarProps> = ({
               onSelectTab('dashboard');
             }}
           >
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl overflow-hidden shadow-md group-hover:scale-105 transition-transform border border-indigo-400/30">
-              <img src="/infinite-clock.gif" alt="OT Logo" className="w-full h-full object-cover" />
+            <div className="flex h-10 w-10 items-center justify-center group-hover:scale-105 transition-transform">
+              <ClockLogo className="w-10 h-10" />
             </div>
             <div>
               <div className="flex items-center gap-2">

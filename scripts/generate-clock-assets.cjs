@@ -1,0 +1,106 @@
+const fs = require('fs');
+const path = require('path');
+const { execSync } = require('child_process');
+
+console.log('Generating clock assets...');
+
+// 1. Generate public/icon.svg (Vector Animated SVG without outline circle and without background)
+const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="hourGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#818cf8"/>
+      <stop offset="100%" stop-color="#4f46e5"/>
+    </linearGradient>
+    <linearGradient id="minGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+    <linearGradient id="markerMajor" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <style>
+    @keyframes spinClockHour {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    @keyframes spinClockMin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .clock-hour-hand {
+      transform-origin: 256px 256px;
+      animation: spinClockHour 48s linear infinite;
+    }
+    .clock-min-hand {
+      transform-origin: 256px 256px;
+      animation: spinClockMin 12s linear infinite;
+    }
+  </style>
+
+  <!-- NO OUTLINE CIRCLE, NO BACKGROUND: Clean floating clock dial -->
+
+  <!-- 12 Hour Dial Markers -->
+  <!-- 12 o'clock -->
+  <rect x="250" y="32" width="12" height="34" rx="6" fill="url(#markerMajor)" filter="url(#glow)"/>
+  <!-- 3 o'clock -->
+  <rect x="446" y="250" width="34" height="12" rx="6" fill="url(#markerMajor)" filter="url(#glow)"/>
+  <!-- 6 o'clock -->
+  <rect x="250" y="446" width="12" height="34" rx="6" fill="url(#markerMajor)" filter="url(#glow)"/>
+  <!-- 9 o'clock -->
+  <rect x="32" y="250" width="34" height="12" rx="6" fill="url(#markerMajor)" filter="url(#glow)"/>
+
+  <!-- Secondary hour ticks -->
+  <!-- 1 o'clock (30 deg) -->
+  <circle cx="363" cy="70" r="7" fill="#94a3b8"/>
+  <!-- 2 o'clock (60 deg) -->
+  <circle cx="442" cy="149" r="7" fill="#94a3b8"/>
+  <!-- 4 o'clock (120 deg) -->
+  <circle cx="442" cy="363" r="7" fill="#94a3b8"/>
+  <!-- 5 o'clock (150 deg) -->
+  <circle cx="363" cy="442" r="7" fill="#94a3b8"/>
+  <!-- 7 o'clock (210 deg) -->
+  <circle cx="149" cy="442" r="7" fill="#94a3b8"/>
+  <!-- 8 o'clock (240 deg) -->
+  <circle cx="70" cy="363" r="7" fill="#94a3b8"/>
+  <!-- 10 o'clock (300 deg) -->
+  <circle cx="70" cy="149" r="7" fill="#94a3b8"/>
+  <!-- 11 o'clock (330 deg) -->
+  <circle cx="149" cy="70" r="7" fill="#94a3b8"/>
+
+  <!-- Hour Hand: Continuous 360-degree rotation, slower than minute hand -->
+  <g class="clock-hour-hand">
+    <animateTransform attributeName="transform" type="rotate" from="0 256 256" to="360 256 256" dur="48s" repeatCount="indefinite"/>
+    <!-- Counterbalance tail -->
+    <rect x="250" y="256" width="12" height="36" rx="6" fill="#4338ca"/>
+    <!-- Main hour arm -->
+    <path d="M249 256 L251 138 L256 124 L261 138 L263 256 Z" fill="url(#hourGrad)" filter="url(#glow)"/>
+    <circle cx="256" cy="155" r="4" fill="#ffffff" opacity="0.8"/>
+  </g>
+
+  <!-- Minute Hand: Continuous 360-degree rotation, smooth and slow -->
+  <g class="clock-min-hand">
+    <animateTransform attributeName="transform" type="rotate" from="0 256 256" to="360 256 256" dur="12s" repeatCount="indefinite"/>
+    <!-- Counterbalance tail -->
+    <rect x="252" y="256" width="8" height="46" rx="4" fill="#1e40af"/>
+    <!-- Main minute arm -->
+    <path d="M252 256 L253 74 L256 56 L259 74 L260 256 Z" fill="url(#minGrad)" filter="url(#glow)"/>
+    <circle cx="256" cy="90" r="3" fill="#ffffff" opacity="0.9"/>
+  </g>
+
+  <!-- Central Hub / Pin (Layered luxury center pivot) -->
+  <circle cx="256" cy="256" r="20" fill="#1e1b4b" stroke="#6366f1" stroke-width="3"/>
+  <circle cx="256" cy="256" r="11" fill="#38bdf8"/>
+  <circle cx="256" cy="256" r="4" fill="#ffffff"/>
+</svg>
+`;
+
+fs.writeFileSync('public/icon.svg', svgContent.trim());
+console.log('Saved public/icon.svg');
+

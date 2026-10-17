@@ -625,24 +625,52 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   };
 
   // Totals & Calculations
-  // Working days of weekdays (Mon-Fri, non-holiday) receive overtime hourly rate.
-  // Other days (Saturdays, non-working days) receive Day's Payment rate.
-  const weekdayWorkingRows = useMemo(() => {
-    return rows.filter(r => isWeekdayWorkingDay(r) && r.totalMinutes > 0);
-  }, [rows, holidayMap]);
+  // Column A: Regular Weekday Overtime (Mon-Fri, non-holiday, NOT Special OT, NOT Holiday Override)
+  const columnA_Rows = useMemo(() => {
+    return rows.filter(
+      r => isWeekdayWorkingDay(r) && !(r.isSpecialAssignment ?? isSpecialAssignedOt) && !r.isHolidayOverride && (r.totalMinutes || 0) > 0
+    );
+  }, [rows, holidayMap, isSpecialAssignedOt]);
 
-  const weekdayOtMinutes = useMemo(() => {
-    return weekdayWorkingRows.reduce((acc, r) => acc + (r.totalMinutes || 0), 0);
-  }, [weekdayWorkingRows]);
+  const colAMinutes = useMemo(() => {
+    return columnA_Rows.reduce((acc, r) => acc + (r.totalMinutes || 0), 0);
+  }, [columnA_Rows]);
 
-  const weekdayDecimalHours = useMemo(() => {
-    return parseFloat((weekdayOtMinutes / 60).toFixed(2));
-  }, [weekdayOtMinutes]);
+  const colADecimalHours = useMemo(() => {
+    return parseFloat((colAMinutes / 60).toFixed(2));
+  }, [colAMinutes]);
 
   const otPaymentDueA = useMemo(() => {
     if (hourlyRate === '' || isNaN(Number(hourlyRate))) return 0;
-    return Math.round(weekdayDecimalHours * Number(hourlyRate) * 100) / 100;
-  }, [weekdayDecimalHours, hourlyRate]);
+    return Math.round(colADecimalHours * Number(hourlyRate) * 100) / 100;
+  }, [colADecimalHours, hourlyRate]);
+
+  // Column B: Special Assigned OT (no limit) OR Holiday Overridden Overtime
+  const columnB_Rows = useMemo(() => {
+    return rows.filter(
+      r => ((r.isSpecialAssignment ?? isSpecialAssignedOt) || r.isHolidayOverride) && (r.totalMinutes || 0) > 0
+    );
+  }, [rows, isSpecialAssignedOt]);
+
+  const colBMinutes = useMemo(() => {
+    return columnB_Rows.reduce((acc, r) => acc + (r.totalMinutes || 0), 0);
+  }, [columnB_Rows]);
+
+  const colBDecimalHours = useMemo(() => {
+    return parseFloat((colBMinutes / 60).toFixed(2));
+  }, [colBMinutes]);
+
+  // Special OT on weekdays
+  const specialOtWeekdayMinutes = useMemo(() => {
+    return rows
+      .filter(r => isWeekdayWorkingDay(r) && (r.isSpecialAssignment ?? isSpecialAssignedOt) && !r.isHolidayOverride)
+      .reduce((acc, r) => acc + (r.totalMinutes || 0), 0);
+  }, [rows, holidayMap, isSpecialAssignedOt]);
+
+  const specialOtWeekdayPayment = useMemo(() => {
+    if (hourlyRate === '' || isNaN(Number(hourlyRate))) return 0;
+    return Math.round((specialOtWeekdayMinutes / 60) * Number(hourlyRate) * 100) / 100;
+  }, [specialOtWeekdayMinutes, hourlyRate]);
 
   // Overridden Holiday Overtime: time worked on holidays earns Day's Pay AND Non-Working Days Hourly Rate
   const holidayOverriddenRows = useMemo(() => {
@@ -692,14 +720,19 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     return Math.round(daysPayCount * Number(daysPay) * 100) / 100;
   }, [daysPayCount, daysPay]);
 
+  // Payment for Column B (Special Assignment & Holiday Override)
+  const calculatedPaymentB = useMemo(() => {
+    const manualB = otPaymentDueB !== '' ? Number(otPaymentDueB) : 0;
+    return Math.round((specialOtWeekdayPayment + holidayHourlyPayment + (isNaN(manualB) ? 0 : manualB)) * 100) / 100;
+  }, [specialOtWeekdayPayment, holidayHourlyPayment, otPaymentDueB]);
+
   const totalOtPayment = useMemo(() => {
-    const b = otPaymentDueB !== '' ? Number(otPaymentDueB) : 0;
-    return Math.round((otPaymentDueA + daysPayTotal + holidayHourlyPayment + (isNaN(b) ? 0 : b)) * 100) / 100;
-  }, [otPaymentDueA, daysPayTotal, holidayHourlyPayment, otPaymentDueB]);
+    return Math.round((otPaymentDueA + calculatedPaymentB + daysPayTotal) * 100) / 100;
+  }, [otPaymentDueA, calculatedPaymentB, daysPayTotal]);
 
   const summary = useMemo(() => {
-    const totalMin = weekdayOtMinutes + holidayOtMinutes;
-    const otDays = weekdayWorkingRows.length + holidayOverriddenRows.length;
+    const totalMin = colAMinutes + colBMinutes;
+    const otDays = columnA_Rows.length + columnB_Rows.length;
     const cappedCount = rows.filter(r => r.isCapped).length;
     const totalHoursFormatted = formatMinutesToTime(totalMin, 'hhmm');
     const totalDecimalHours = parseFloat((totalMin / 60).toFixed(2));
@@ -708,6 +741,12 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       totalMinutes: totalMin,
       totalHoursFormatted,
       totalDecimalHours,
+      colAMinutes,
+      colADecimalHours,
+      colAFormatted: formatMinutesToTime(colAMinutes, 'hhmm'),
+      colBMinutes,
+      colBDecimalHours,
+      colBFormatted: formatMinutesToTime(colBMinutes, 'hhmm'),
       otDaysCount: otDays,
       cappedCount,
       daysPayCount,
@@ -715,8 +754,23 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       holidayOtMinutes,
       holidayDecimalHours,
       holidayHourlyPayment,
+      specialOtWeekdayPayment,
+      calculatedPaymentB,
     };
-  }, [weekdayOtMinutes, holidayOtMinutes, weekdayWorkingRows, holidayOverriddenRows, rows, daysPayCount, daysPayTotal, holidayDecimalHours, holidayHourlyPayment]);
+  }, [
+    colAMinutes,
+    colBMinutes,
+    columnA_Rows,
+    columnB_Rows,
+    rows,
+    daysPayCount,
+    daysPayTotal,
+    holidayOtMinutes,
+    holidayDecimalHours,
+    holidayHourlyPayment,
+    specialOtWeekdayPayment,
+    calculatedPaymentB,
+  ]);
 
   const handleRemunerationChange = (val: string) => {
     if (val === '') {
@@ -834,9 +888,17 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     const totalDecimalHours = parseFloat((totalMinutes / 60).toFixed(2));
     const totalHoursFormatted = formatMinutesToTime(totalMinutes, otDisplayFormat);
 
+    // Column A: ONLY regular weekday OT (NOT special OT, NOT holiday override)
     const calculatedPaymentA =
       hourlyRate !== '' && !isNaN(Number(hourlyRate))
-        ? Math.round(activeRows.filter(r => isWeekdayWorkingDay(r)).reduce((acc, r) => acc + (r.totalMinutes || 0), 0) / 60 * Number(hourlyRate) * 100) / 100
+        ? Math.round(
+            activeRows
+              .filter(r => isWeekdayWorkingDay(r) && !(r.isSpecialAssignment ?? isSpecialAssignedOt) && !r.isHolidayOverride)
+              .reduce((acc, r) => acc + (r.totalMinutes || 0), 0) /
+              60 *
+              Number(hourlyRate) *
+              100
+          ) / 100
         : 0;
 
     const currentDaysPayCount = activeRows.filter(r => isOtherDayRow(r) && r.totalWorkMinutes > 0).length;
@@ -845,13 +907,26 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         ? Math.round(currentDaysPayCount * Number(daysPay) * 100) / 100
         : 0;
 
-    const currentHolidayOtMin = activeRows.filter(r => r.isHolidayOverride).reduce((acc, r) => acc + (r.totalMinutes || 0), 0);
-    const currentHolidayPayment = effectiveNonWorkingHourlyRate > 0
-      ? Math.round((currentHolidayOtMin / 60) * effectiveNonWorkingHourlyRate * 100) / 100
-      : 0;
+    // Column B: Special Assigned OT AND Holiday Override OT
+    const specialOtWeekdayMin = activeRows
+      .filter(r => isWeekdayWorkingDay(r) && (r.isSpecialAssignment ?? isSpecialAssignedOt) && !r.isHolidayOverride)
+      .reduce((acc, r) => acc + (r.totalMinutes || 0), 0);
+    const specialOtWeekdayPayment =
+      hourlyRate !== '' && !isNaN(Number(hourlyRate))
+        ? Math.round((specialOtWeekdayMin / 60) * Number(hourlyRate) * 100) / 100
+        : 0;
 
-    const b = otPaymentDueB !== '' ? Number(otPaymentDueB) : 0;
-    const calculatedTotalPayment = Math.round((calculatedPaymentA + currentDaysPayTotal + currentHolidayPayment + (isNaN(b) ? 0 : b)) * 100) / 100;
+    const currentHolidayOtMin = activeRows
+      .filter(r => r.isHolidayOverride)
+      .reduce((acc, r) => acc + (r.totalMinutes || 0), 0);
+    const currentHolidayPayment =
+      effectiveNonWorkingHourlyRate > 0
+        ? Math.round((currentHolidayOtMin / 60) * effectiveNonWorkingHourlyRate * 100) / 100
+        : 0;
+
+    const manualB = otPaymentDueB !== '' ? Number(otPaymentDueB) : 0;
+    const calculatedPaymentB = Math.round((specialOtWeekdayPayment + currentHolidayPayment + (isNaN(manualB) ? 0 : manualB)) * 100) / 100;
+    const calculatedTotalPayment = Math.round((calculatedPaymentA + calculatedPaymentB + currentDaysPayTotal) * 100) / 100;
 
     return {
       id: claimId,
@@ -868,7 +943,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       month: claimMonth,
       year: claimYear,
       claimDate,
-      rows: activeRows,
+      rows: activeRows.map(r => ({
+        ...r,
+        isSpecialAssignment: r.isSpecialAssignment ?? isSpecialAssignedOt,
+      })),
       totalMinutes,
       totalHoursFormatted,
       totalDecimalHours,
@@ -879,7 +957,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       daysPayCount: currentDaysPayCount,
       daysPayTotal: currentDaysPayTotal,
       otPaymentDueA: calculatedPaymentA,
-      otPaymentDueB: otPaymentDueB !== '' ? Number(otPaymentDueB) : 0,
+      otPaymentDueB: calculatedPaymentB,
       totalOtPayment: calculatedTotalPayment,
       status: 'submitted',
       templateId: activeTemplate.id,
@@ -1239,9 +1317,11 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
               ({summary.totalDecimalHours}h)
             </span>
           </div>
-          <p className="mt-1 text-[11px] text-slate-400">
-            Calculated after 4:45 PM in 15m steps
-          </p>
+          <div className="mt-1 flex items-center gap-2 text-[11px] font-medium">
+            <span className="text-indigo-600">Col A: {summary.colAFormatted}</span>
+            <span className="text-slate-300">&bull;</span>
+            <span className="text-emerald-700 font-semibold">Col B: {summary.colBFormatted}</span>
+          </div>
         </div>
 
         {/* Days Claimed */}
@@ -1515,9 +1595,13 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                     </button>
 
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      {row.isHolidayOverride && row.totalWorkMinutes > 0 ? (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
-                          Day&apos;s Pay + OT Rate
+                      {row.isHolidayOverride && hasOt ? (
+                        <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                          Col B: {row.totalFormatted} (Hol Override)
+                        </span>
+                      ) : isRowSpecial && hasOt ? (
+                        <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                          Col B: {row.totalFormatted} (Special OT)
                         </span>
                       ) : isOther ? (
                         row.totalWorkMinutes > 0 ? (
@@ -1534,7 +1618,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       ) : (
                         <div className="flex items-center gap-1">
                           <span className={`font-mono text-xs font-bold ${hasOt ? 'text-indigo-600' : 'text-slate-400'}`}>
-                            {row.totalFormatted} OT
+                            {hasOt ? `Col A: ${row.totalFormatted}` : '00:00 OT'}
                           </span>
                           {row.isLateDisqualified && (
                             <span className="text-[9px] font-bold text-rose-700 bg-rose-50 px-1 rounded border border-rose-200">
@@ -1556,15 +1640,16 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           <table className="w-full table-fixed text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-100 text-slate-700 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200">
-                <th className="py-2 px-1 w-7 text-center">#</th>
-                <th className="py-2 px-1.5 w-32">Date &amp; Day</th>
-                <th className="py-2 px-1.5 w-32 text-center">Holiday / Override</th>
+                <th className="py-2 px-1 w-6 text-center">#</th>
+                <th className="py-2 px-1.5 w-28">Date &amp; Day</th>
+                <th className="py-2 px-1.5 w-28 text-center">Holiday / Override</th>
                 <th className="py-2 px-2">Duties / Nature of Work</th>
-                <th className="py-2 px-1 w-20 text-center">Time In</th>
-                <th className="py-2 px-1 w-20 text-center">Time Out</th>
-                <th className="py-2 px-1 w-16 text-center">Worked</th>
-                <th className="py-2 px-1 w-16 text-center">OT (A)</th>
-                <th className="py-2 px-1.5 w-24 text-center">Special OT</th>
+                <th className="py-2 px-1 w-18 text-center">Time In</th>
+                <th className="py-2 px-1 w-18 text-center">Time Out</th>
+                <th className="py-2 px-1 w-14 text-center">Worked</th>
+                <th className="py-2 px-1 w-14 text-center" title="Column A: Regular Weekday Overtime">OT (A)</th>
+                <th className="py-2 px-1 w-16 text-center" title="Column B: Special Assigned OT &amp; Holiday Overridden Overtime">OT (B)</th>
+                <th className="py-2 px-1 w-20 text-center" title="Toggle Special Assigned OT (no limit)">Special OT</th>
                 <th className="py-2 px-1 w-8 text-center">Del</th>
               </tr>
             </thead>
@@ -1624,7 +1709,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                                 ? 'bg-amber-100 text-amber-900 border-amber-300 shadow-2xs'
                                 : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                             }`}
-                            title="Tick override checkbox to enable in/out times and claim overtime on holidays"
+                            title="Tick override checkbox to enable in/out times and claim overtime on holidays (Adds to Column B)"
                           >
                             <input
                               type="checkbox"
@@ -1707,14 +1792,23 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       )}
                     </td>
 
-                    {/* Overtime (A) */}
+                    {/* Overtime (A): Regular Weekday Overtime ONLY */}
                     <td className="py-2 px-1 text-center font-mono text-xs font-bold">
-                      {isOther && !row.isHolidayOverride ? (
-                        <span className="text-slate-300 font-normal">-</span>
+                      {!isRowSpecial && !row.isHolidayOverride && !isOther && hasOt ? (
+                        <span className="text-indigo-600">{row.totalFormatted || '00:00'}</span>
                       ) : (
-                        <span className={hasOt ? 'text-indigo-600' : 'text-slate-300'}>
+                        <span className="text-slate-300 font-normal">-</span>
+                      )}
+                    </td>
+
+                    {/* Overtime (B): Special Assigned OT OR Holiday Overridden Overtime */}
+                    <td className="py-2 px-1 text-center font-mono text-xs font-bold">
+                      {(isRowSpecial || row.isHolidayOverride) && hasOt ? (
+                        <span className="inline-block px-1 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
                           {row.totalFormatted || '00:00'}
                         </span>
+                      ) : (
+                        <span className="text-slate-300 font-normal">-</span>
                       )}
                     </td>
 
@@ -1726,7 +1820,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                             ? 'bg-emerald-600 text-white border-emerald-700 shadow-2xs'
                             : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                         }`}
-                        title="Special Assigned OT (no limit/no break/no manager initial)"
+                        title="Special Assigned OT (no limit/no break/no manager initial). When selected, OT moves to Column B."
                       >
                         <input
                           type="checkbox"
@@ -1768,12 +1862,16 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
           <div className="flex items-center gap-4 text-slate-700">
             <span>
-              Total Overtime Days: <strong>{summary.otDaysCount}</strong>
+              Col A (Regular): <strong className="text-indigo-600">{summary.colAFormatted}</strong>
             </span>
             <div className="h-4 w-px bg-slate-300" />
             <span>
-              Total Overtime Hours:{' '}
-              <strong className="text-indigo-600 text-sm font-black">
+              Col B (Special/Hol): <strong className="text-emerald-700">{summary.colBFormatted}</strong>
+            </span>
+            <div className="h-4 w-px bg-slate-300" />
+            <span>
+              Total OT:{' '}
+              <strong className="text-slate-900 text-sm font-black">
                 {summary.totalHoursFormatted}
               </strong>{' '}
               ({summary.totalDecimalHours} hrs)
@@ -1788,6 +1886,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           <div className="text-xs text-slate-500">
             <span className="font-semibold text-slate-800">Total Claimable OT:</span>{' '}
             <strong className="text-indigo-600 text-sm font-black">{summary.totalHoursFormatted}</strong> ({summary.totalDecimalHours} hrs)
+            <span className="mx-2 text-slate-300">&bull;</span>
+            <span className="font-medium text-indigo-700">Col A: {summary.colAFormatted}</span>
+            <span className="mx-2 text-slate-300">&bull;</span>
+            <span className="font-medium text-emerald-700">Col B: {summary.colBFormatted}</span>
             <span className="mx-2 text-slate-300">&bull;</span>
             <span className="font-medium text-slate-700">{summary.otDaysCount} Days</span>
             {isSpecialAssignedOt && (

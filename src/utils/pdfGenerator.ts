@@ -281,9 +281,20 @@ export async function generateOvertimePdf(
         { col: cols.startTime, val: row.startTime || '' },
         { col: cols.endTime, val: row.endTime ? `${row.endTime}${row.isOvernight ? '*' : ''}` : '' },
         { col: cols.totalHours, val: row.totalWorkMinutes > 0 ? formatMinutesToTime(row.totalWorkMinutes, 'hhmm') : '' },
-        // On regular days or overridden holidays, print claimed OT hours
-        { col: cols.otHoursClaimed || (cols.breakMinutes ? undefined : cols.totalHours), val: (isOtherDay && !row.isHolidayOverride) ? '' : (row.totalFormatted || '') },
-        { col: cols.specialHoursClaimed, val: row.specialAssignmentHours || '' },
+        // Column A: Regular weekday OT only (Do NOT add special OT or holiday override OT to Column A)
+        {
+          col: cols.otHoursClaimed || (cols.breakMinutes ? undefined : cols.totalHours),
+          val: (!row.isSpecialAssignment && !row.isHolidayOverride && !isOtherDay && (row.totalMinutes || 0) > 0)
+            ? (row.totalFormatted || '')
+            : '',
+        },
+        // Column B: Special Assigned OT AND Holiday Override OT must be added to Column B
+        {
+          col: cols.specialHoursClaimed,
+          val: ((row.isSpecialAssignment || row.isHolidayOverride) && (row.totalMinutes || 0) > 0)
+            ? (row.totalFormatted || '')
+            : (row.specialAssignmentHours || ''),
+        },
       ];
 
       for (const { col, val } of rowValues) {
