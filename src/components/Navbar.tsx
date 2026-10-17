@@ -170,17 +170,17 @@ export const Navbar: React.FC<NavbarProps> = ({
   // Operations dropdown items (Standard Non-Admin Users)
   const userMenuItems = [
     {
-      id: 'employees' as NavigationTab,
-      label: 'Employee Directory',
-      description: 'Staff directory & branch overtime limits',
-      icon: Users,
-      badge: 'Staff',
-      color: 'text-blue-400 bg-blue-500/10 border-blue-500/30',
+      id: 'branches' as NavigationTab,
+      label: 'Branch Network',
+      description: 'Corporate bank branches, branch codes, addresses & contacts',
+      icon: Building2,
+      badge: 'Branches',
+      color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
     },
     {
       id: 'settings' as NavigationTab,
-      label: 'Settings & Offsets',
-      description: 'Printer margins, calendar preferences & view options',
+      label: 'Privacy & Security',
+      description: 'Personal data protection, account security & export',
       icon: Settings,
       badge: 'Config',
       color: 'text-slate-400 bg-slate-500/10 border-slate-500/30',
@@ -657,24 +657,6 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                   <button
                     onClick={() => {
-                      onSelectTab('branches');
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`flex items-center gap-2.5 p-3 rounded-2xl border text-left transition cursor-pointer ${
-                      activeTab === 'branches'
-                        ? 'bg-emerald-900/40 border-emerald-500 text-emerald-200 font-bold'
-                        : 'bg-slate-800/80 border-slate-700/80 text-slate-200 hover:bg-slate-700'
-                    }`}
-                  >
-                    <Building2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                    <div>
-                      <span className="block font-bold">Branches</span>
-                      <span className="text-[10px] text-slate-400">Branch Network</span>
-                    </div>
-                  </button>
-
-                  <button
-                    onClick={() => {
                       onSelectTab('roles');
                       setIsMobileMenuOpen(false);
                     }}
@@ -728,6 +710,25 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </button>
                 </>
               )}
+
+              {/* Branch Network - Accessible to both Admins & Users */}
+              <button
+                onClick={() => {
+                  onSelectTab('branches');
+                  setIsMobileMenuOpen(false);
+                }}
+                className={`flex items-center gap-2.5 p-3 rounded-2xl border text-left transition cursor-pointer ${
+                  activeTab === 'branches'
+                    ? 'bg-emerald-900/40 border-emerald-500 text-emerald-200 font-bold'
+                    : 'bg-slate-800/80 border-slate-700/80 text-slate-200 hover:bg-slate-700'
+                }`}
+              >
+                <Building2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <div>
+                  <span className="block font-bold">Branches</span>
+                  <span className="text-[10px] text-slate-400">Branch Network</span>
+                </div>
+              </button>
 
               <button
                 onClick={() => {

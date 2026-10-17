@@ -18,6 +18,7 @@ export const DEFAULT_BRANCHES: Branch[] = [
     telephone: '+94 11 2446790',
     email: 'headoffice@bank.lk',
     notes: 'Main Executive Headquarters & Core Banking Operations',
+    mapLink: 'https://maps.google.com/?q=No.+1,+York+Street,+Colombo+01',
     createdAt: '2026-01-01T00:00:00.000Z',
   },
   {
@@ -28,6 +29,7 @@ export const DEFAULT_BRANCHES: Branch[] = [
     telephone: '+94 11 2445800',
     email: 'colombomain@bank.lk',
     notes: 'Metropolitan Commercial & Clearing Hub',
+    mapLink: 'https://maps.google.com/?q=No.+4,+Bristol+Street,+Colombo+01',
     createdAt: '2026-01-01T00:00:00.000Z',
   },
   {
@@ -38,6 +40,7 @@ export const DEFAULT_BRANCHES: Branch[] = [
     telephone: '+94 11 2337722',
     email: 'corporate@bank.lk',
     notes: 'High-Value Institutional Client Operations',
+    mapLink: 'https://maps.google.com/?q=BOC+Tower,+Colombo+01',
     createdAt: '2026-01-01T00:00:00.000Z',
   },
   {
@@ -48,6 +51,7 @@ export const DEFAULT_BRANCHES: Branch[] = [
     telephone: '+94 81 2223400',
     email: 'kandy@bank.lk',
     notes: 'Central Province Regional Operations Center',
+    mapLink: 'https://maps.google.com/?q=No.+22,+Dalada+Veediya,+Kandy',
     createdAt: '2026-01-01T00:00:00.000Z',
   },
   {
@@ -58,6 +62,7 @@ export const DEFAULT_BRANCHES: Branch[] = [
     telephone: '+94 91 2234120',
     email: 'galle@bank.lk',
     notes: 'Southern Province Regional Financial Hub',
+    mapLink: 'https://maps.google.com/?q=No.+18,+Church+Street,+Galle+Fort',
     createdAt: '2026-01-01T00:00:00.000Z',
   },
   {
@@ -68,6 +73,7 @@ export const DEFAULT_BRANCHES: Branch[] = [
     telephone: '+94 37 2222150',
     email: 'kurunegala@bank.lk',
     notes: 'North Western Regional Banking Center',
+    mapLink: 'https://maps.google.com/?q=No.+45,+Colombo+Road,+Kurunegala',
     createdAt: '2026-01-01T00:00:00.000Z',
   },
   {
@@ -78,6 +84,7 @@ export const DEFAULT_BRANCHES: Branch[] = [
     telephone: '+94 21 2222300',
     email: 'jaffna@bank.lk',
     notes: 'Northern Province Hub',
+    mapLink: 'https://maps.google.com/?q=No.+80,+Hospital+Road,+Jaffna',
     createdAt: '2026-01-01T00:00:00.000Z',
   },
 ];
@@ -174,8 +181,8 @@ export async function fetchBranchesFromFirestore(): Promise<Branch[]> {
       const data = d.data() as Branch;
       list.push({ ...data, id: data.id || d.id });
     });
-    // Sort A to Z by name
-    list.sort((a, b) => a.name.localeCompare(b.name));
+    // Sort by branch code (natural alphanumeric)
+    list.sort((a, b) => (a.branchCode || '').localeCompare(b.branchCode || '', undefined, { numeric: true, sensitivity: 'base' }));
     saveLocalBranches(list);
     return list;
   } catch (e) {
@@ -194,7 +201,8 @@ export function subscribeToBranches(callback: (branches: Branch[]) => void): () 
           const data = d.data() as Branch;
           list.push({ ...data, id: data.id || d.id });
         });
-        list.sort((a, b) => a.name.localeCompare(b.name));
+        // Sort by branch code (natural alphanumeric)
+        list.sort((a, b) => (a.branchCode || '').localeCompare(b.branchCode || '', undefined, { numeric: true, sensitivity: 'base' }));
         saveLocalBranches(list);
         callback(list);
       },

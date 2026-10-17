@@ -24,6 +24,7 @@ export interface Branch {
   telephone?: string;
   email?: string;
   notes?: string;
+  mapLink?: string; // Google Maps Location URL / Directions link
   createdAt: string;
   updatedAt?: string;
 }

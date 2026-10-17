@@ -124,7 +124,7 @@ function AppContent() {
         {activeTab === 'calendar' && <CalendarManager />}
 
         {activeTab === 'users' && isAdmin && <UserManagement />}
-        {activeTab === 'branches' && isAdmin && <BranchManagement />}
+        {activeTab === 'branches' && <BranchManagement />}
         {activeTab === 'roles' && isAdmin && <RoleManagement />}
         {activeTab === 'audit' && isAdmin && <AuditLogViewer />}
 
