@@ -15,6 +15,10 @@ import {
   Building2,
   FileText,
   X,
+  Lock,
+  Unlock,
+  Shield,
+  Check,
 } from 'lucide-react';
 import { RoleRate, ClaimType, Department } from '../types';
 import {
@@ -22,6 +26,7 @@ import {
   subscribeToRoleRates,
   saveRoleRate,
   deleteRoleRate,
+  toggleRoleRateLock,
   fetchDepartmentsFromFirestore,
   subscribeToDepartments,
   saveDepartment,
@@ -44,7 +49,7 @@ export const RoleManagement: React.FC = () => {
   const [isSavingDept, setIsSavingDept] = useState(false);
   const [deptFormError, setDeptFormError] = useState<string | null>(null);
 
-  // Modal State
+  // Role Add / Edit Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingRole, setEditingRole] = useState<RoleRate | null>(null);
 
@@ -57,6 +62,7 @@ export const RoleManagement: React.FC = () => {
   const [daysPaymentNonWorkingDays, setDaysPaymentNonWorkingDays] = useState<number | ''>('');
   const [hourlyRateNonWorkingDays, setHourlyRateNonWorkingDays] = useState<number | ''>('');
   const [specialHourlyRate, setSpecialHourlyRate] = useState<number | ''>('');
+  const [isRatesLocked, setIsRatesLocked] = useState<boolean>(false);
 
   // Delete State
   const [roleToDelete, setRoleToDelete] = useState<RoleRate | null>(null);
@@ -64,6 +70,7 @@ export const RoleManagement: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [isTogglingLock, setIsTogglingLock] = useState<string | null>(null);
 
   useEffect(() => {
     fetchRoleRatesFromFirestore().then(list => {
@@ -99,6 +106,7 @@ export const RoleManagement: React.FC = () => {
     setDaysPaymentNonWorkingDays('');
     setHourlyRateNonWorkingDays('');
     setSpecialHourlyRate('');
+    setIsRatesLocked(false);
     setFormError(null);
     setIsModalOpen(true);
   };
@@ -113,6 +121,7 @@ export const RoleManagement: React.FC = () => {
     setDaysPaymentNonWorkingDays(r.daysPaymentNonWorkingDays);
     setHourlyRateNonWorkingDays(r.hourlyRateNonWorkingDays);
     setSpecialHourlyRate(r.specialHourlyRate !== undefined ? r.specialHourlyRate : '');
+    setIsRatesLocked(Boolean(r.isRatesLocked));
     setFormError(null);
     setIsModalOpen(true);
   };
@@ -179,7 +188,6 @@ export const RoleManagement: React.FC = () => {
     setHourlyRateWorkingDays(val);
     if (typeof val === 'number' && val > 0) {
       // Auto-suggest non-working day rates if empty:
-      // Standard rate 1.25x or 1.5x for non-working days
       if (hourlyRateNonWorkingDays === '') {
         setHourlyRateNonWorkingDays(parseFloat((val * 1.25).toFixed(2)));
       }
@@ -189,13 +197,36 @@ export const RoleManagement: React.FC = () => {
     }
   };
 
+  // 1-Click Fast Lock/Unlock from Role Card
+  const handleToggleRoleLock = async (r: RoleRate) => {
+    setIsTogglingLock(r.id);
+    const nextLockState = !r.isRatesLocked;
+    try {
+      await toggleRoleRateLock(r.id, nextLockState);
+      await recordAuditLog({
+        action: 'ROLE_UPDATE',
+        actionLabel: nextLockState ? 'Locked role overtime rates' : 'Unlocked role overtime rates',
+        targetType: 'role',
+        targetId: r.id,
+        targetDescription: `${r.name} (${nextLockState ? 'Locked' : 'Unlocked'})`,
+        details: { isRatesLocked: nextLockState },
+      });
+      setActionSuccess(`Role "${r.name}" rates are now ${nextLockState ? 'LOCKED (Users cannot edit)' : 'UNLOCKED (Users can edit)'}.`);
+      setTimeout(() => setActionSuccess(null), 4000);
+    } catch (err: any) {
+      console.error('Toggle role lock error', err);
+    } finally {
+      setIsTogglingLock(null);
+    }
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
 
     const cleanName = name.trim();
     if (!cleanName) {
-      setFormError('Please enter a role name.');
+      setFormError('Please enter a role title / designation.');
       return;
     }
 
@@ -220,12 +251,13 @@ export const RoleManagement: React.FC = () => {
         id: editingRole?.id || `role_${Date.now()}`,
         name: cleanName,
         description: description.trim() || undefined,
-        department: editingRole?.department || undefined,
+        department: department.trim() || undefined,
         claimType: claimType,
         hourlyRateWorkingDays: Number(hourlyRateWorkingDays),
         daysPaymentNonWorkingDays: Number(daysPaymentNonWorkingDays),
         hourlyRateNonWorkingDays: Number(hourlyRateNonWorkingDays),
         specialHourlyRate: specialHourlyRate !== '' ? Number(specialHourlyRate) : undefined,
+        isRatesLocked: isRatesLocked,
         createdAt: editingRole?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -234,7 +266,7 @@ export const RoleManagement: React.FC = () => {
 
       await recordAuditLog({
         action: editingRole ? 'ROLE_UPDATE' : 'ROLE_CREATE',
-        actionLabel: editingRole ? 'Updated role overtime rates' : 'Created role with assigned overtime rates',
+        actionLabel: editingRole ? 'Updated role overtime rates' : 'Created new role with overtime rates',
         targetType: 'role',
         targetId: payload.id,
         targetDescription: payload.name,
@@ -244,6 +276,7 @@ export const RoleManagement: React.FC = () => {
           hourlyRateWorkingDays: payload.hourlyRateWorkingDays,
           daysPaymentNonWorkingDays: payload.daysPaymentNonWorkingDays,
           hourlyRateNonWorkingDays: payload.hourlyRateNonWorkingDays,
+          isRatesLocked: payload.isRatesLocked,
         },
       });
 
@@ -286,7 +319,8 @@ export const RoleManagement: React.FC = () => {
     const q = searchQuery.toLowerCase();
     return (
       r.name.toLowerCase().includes(q) ||
-      (r.description && r.description.toLowerCase().includes(q))
+      (r.description && r.description.toLowerCase().includes(q)) ||
+      (r.department && r.department.toLowerCase().includes(q))
     );
   });
 
@@ -308,17 +342,27 @@ export const RoleManagement: React.FC = () => {
               </span>
             </div>
             <p className="text-xs sm:text-sm text-slate-500 mt-1">
-              Add corporate roles with assigned overtime rates: Hourly Rate in Working Days, Days Payment in Non-Working Days, and Hourly Rate in Non-Working Days. Admins can filter employees by assigned role and branch.
+              Add corporate roles, assign overtime rates, and lock/unlock rate editing. When locked, users in that role cannot modify their rates in the New Claim tab.
             </p>
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {/* Manage Departments Button */}
             <button
               onClick={() => setIsDeptModalOpen(true)}
               className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border border-purple-300 bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-semibold shadow-xs transition cursor-pointer"
             >
               <Building2 className="w-4 h-4" />
               <span>Departments ({departments.length})</span>
+            </button>
+
+            {/* Add New Role Button */}
+            <button
+              onClick={openCreateModal}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Role</span>
             </button>
           </div>
         </div>
@@ -330,7 +374,7 @@ export const RoleManagement: React.FC = () => {
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search roles by title or description..."
+            placeholder="Search roles by title, department, or description..."
             className="w-full rounded-xl border border-slate-300 bg-white py-2 pl-10 pr-4 text-xs text-slate-800 placeholder:text-slate-400 focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
           />
         </div>
@@ -358,19 +402,22 @@ export const RoleManagement: React.FC = () => {
                   </div>
                   <div>
                     <h3 className="font-bold text-slate-900 text-sm">{role.name}</h3>
-                    <span className="text-[10px] text-slate-400 uppercase font-mono tracking-wider">
-                      Role ID: {role.id}
-                    </span>
-                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                      {role.department && (
+                        <span className="text-[10px] text-slate-500 font-medium">
+                          {role.department}
+                        </span>
+                      )}
+                      <span className="text-slate-300">&bull;</span>
                       <span
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[10px] border ${
+                        className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded font-bold text-[10px] border ${
                           role.claimType === 'OP'
                             ? 'bg-amber-50 text-amber-700 border-amber-200'
                             : 'bg-blue-50 text-blue-700 border-blue-200'
                         }`}
                       >
                         <FileText className="w-3 h-3" />
-                        <span>{role.claimType || 'OT'} Claim</span>
+                        <span>{role.claimType || 'OT'}</span>
                       </span>
                     </div>
                   </div>
@@ -380,7 +427,7 @@ export const RoleManagement: React.FC = () => {
                   <button
                     onClick={() => openEditModal(role)}
                     className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition cursor-pointer"
-                    title="Edit Role Rates"
+                    title="Edit Role & Rates"
                   >
                     <Edit2 className="w-3.5 h-3.5" />
                   </button>
@@ -446,28 +493,79 @@ export const RoleManagement: React.FC = () => {
               </div>
             </div>
 
-            <div className="mt-4 pt-3 border-t border-slate-100 text-[10px] text-slate-400 flex items-center justify-between">
-              <span>Auto-applied to assigned employees</span>
-              <span className="font-semibold text-purple-600">Form 10756</span>
+            {/* Lock / Unlock Rates Status & Quick Action Button */}
+            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5">
+                {role.isRatesLocked ? (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 text-[11px] font-bold border border-amber-200">
+                    <Lock className="w-3 h-3 text-amber-600 shrink-0" />
+                    <span>Rates Locked</span>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 text-[11px] font-bold border border-emerald-200">
+                    <Unlock className="w-3 h-3 text-emerald-600 shrink-0" />
+                    <span>Rates Unlocked</span>
+                  </span>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleToggleRoleLock(role)}
+                disabled={isTogglingLock === role.id}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border shadow-2xs ${
+                  role.isRatesLocked
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600'
+                    : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300'
+                }`}
+                title={
+                  role.isRatesLocked
+                    ? 'Unlock Rates: permit users with this role to edit their rates in New Claim'
+                    : 'Lock Rates: freeze rates so users with this role cannot modify them in New Claim'
+                }
+              >
+                {role.isRatesLocked ? (
+                  <>
+                    <Unlock className="w-3.5 h-3.5" />
+                    <span>Unlock</span>
+                  </>
+                ) : (
+                  <>
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>Lock</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         ))}
       </div>
 
       {filteredRoles.length === 0 && !loading && (
-        <div className="p-12 text-center bg-white rounded-2xl border border-slate-200">
+        <div className="p-12 text-center bg-white rounded-2xl border border-slate-200 shadow-xs">
           <Briefcase className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-          <h3 className="text-sm font-bold text-slate-700">No corporate roles found</h3>
-          <p className="text-xs text-slate-500 mt-1">
-            {searchQuery ? 'Try adjusting your search query.' : 'Add your first role to configure overtime rates.'}
+          <h3 className="text-sm font-bold text-slate-700">No roles found</h3>
+          <p className="text-xs text-slate-500 mt-1 mb-4">
+            {searchQuery
+              ? 'Try adjusting your search query.'
+              : 'Add corporate roles to define standard overtime rates for employees.'}
           </p>
+          <button
+            onClick={openCreateModal}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold shadow-xs cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add New Role</span>
+          </button>
         </div>
       )}
 
-      {/* Add / Edit Modal */}
+      {/* ======================================================== */}
+      {/* ADD / EDIT ROLE MODAL */}
+      {/* ======================================================== */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-          <div className="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl border border-slate-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-fade-in backdrop-blur-xs">
+          <div className="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl border border-slate-200 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-4 border-b border-slate-100">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 rounded-xl bg-purple-50 text-purple-700">
@@ -475,14 +573,14 @@ export const RoleManagement: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-900">
-                    {editingRole ? 'Edit Role Overtime Rates' : 'Add New Corporate Role'}
+                    {editingRole ? 'Edit Corporate Role' : 'Add New Corporate Role'}
                   </h3>
-                  <p className="text-xs text-slate-500">Assign standard working &amp; non-working day rates</p>
+                  <p className="text-xs text-slate-500">Designation title, department, rates &amp; lock policy</p>
                 </div>
               </div>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg"
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
               >
                 ✕
               </button>
@@ -496,19 +594,41 @@ export const RoleManagement: React.FC = () => {
             )}
 
             <form onSubmit={handleSave} className="mt-4 space-y-3.5 text-xs">
+              {/* Role Title / Designation Input */}
               <div>
                 <label className="block font-bold text-slate-700 mb-1">
-                  Designation (Corporate Standard)
+                  Role Title / Designation <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
-                  readOnly
+                  required
                   value={name}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-slate-700 font-bold cursor-not-allowed"
+                  onChange={e => setName(e.target.value)}
+                  placeholder="e.g. Senior Technical Officer, Systems Engineer, Banking Associate"
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 font-bold focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
                 />
                 <span className="text-[10px] text-slate-400 mt-1 block">
-                  Designations in the database are fixed corporate standards. You can configure overtime rates below.
+                  Staff members assigned to this role will inherit its overtime rates.
                 </span>
+              </div>
+
+              {/* Department Selection */}
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Department <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={department}
+                  onChange={e => setDepartment(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 font-semibold focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+                >
+                  {departments.map(d => (
+                    <option key={d.id} value={d.name}>{d.name}</option>
+                  ))}
+                  {!departments.some(d => d.name === department) && department && (
+                    <option value={department}>{department}</option>
+                  )}
+                </select>
               </div>
 
               <div>
@@ -517,7 +637,7 @@ export const RoleManagement: React.FC = () => {
                   rows={2}
                   value={description}
                   onChange={e => setDescription(e.target.value)}
-                  placeholder="e.g. Senior IT officer handling technical infrastructure & maintenance."
+                  placeholder="e.g. Senior technical staff handling systems, network uptime & IT maintenance."
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
                 />
               </div>
@@ -538,9 +658,41 @@ export const RoleManagement: React.FC = () => {
                   <option value="OT">OT (Overtime Claim Sheet)</option>
                   <option value="OP">OP (Out of Pocket Claim Sheet)</option>
                 </select>
-                <span className="text-[10px] text-slate-400 mt-0.5 block">
-                  Default claim template type for this designation
-                </span>
+              </div>
+
+              {/* Lock / Unlock Rates Switch for this Role */}
+              <div className={`p-4 rounded-2xl border transition-all ${
+                isRatesLocked
+                  ? 'bg-amber-50 border-amber-300 text-amber-950'
+                  : 'bg-emerald-50 border-emerald-300 text-emerald-950'
+              }`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-start gap-2.5">
+                    <div className={`p-2 rounded-xl shrink-0 ${isRatesLocked ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                      {isRatesLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-xs">
+                        Overtime Rates Lock Policy: {isRatesLocked ? 'LOCKED' : 'UNLOCKED'}
+                      </h4>
+                      <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                        {isRatesLocked
+                          ? 'Rates are LOCKED: Users in this role CANNOT edit their overtime rates in the New Claim tab.'
+                          : 'Rates are UNLOCKED: Users in this role CAN edit their overtime rates in the New Claim tab.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={isRatesLocked}
+                      onChange={e => setIsRatesLocked(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-slate-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+                  </label>
+                </div>
               </div>
 
               {/* Overtime Rates Matrix */}
@@ -751,15 +903,15 @@ export const RoleManagement: React.FC = () => {
                           </span>
                         </div>
                         {d.description && (
-                          <span className="text-[11px] text-slate-500 block truncate">{d.description}</span>
+                          <p className="text-[11px] text-slate-400 truncate mt-0.5">{d.description}</p>
                         )}
                       </div>
                       <button
                         onClick={() => setDeptToDelete(d)}
-                        className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg shrink-0 transition cursor-pointer"
+                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
                         title="Delete Department"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   );
@@ -771,9 +923,9 @@ export const RoleManagement: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setIsDeptModalOpen(false)}
-                className="px-4 py-2 rounded-xl border border-slate-300 text-slate-600 hover:bg-slate-50 font-semibold text-xs cursor-pointer"
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs cursor-pointer"
               >
-                Close
+                Done
               </button>
             </div>
           </div>
@@ -785,8 +937,8 @@ export const RoleManagement: React.FC = () => {
         isOpen={!!deptToDelete}
         onClose={() => setDeptToDelete(null)}
         onConfirm={confirmDeleteDept}
-        title="Delete Department"
-        message={`Are you sure you want to delete department "${deptToDelete?.name}"? Roles assigned to this department will not be deleted.`}
+        title="Delete Bank Department"
+        message={`Are you sure you want to remove department "${deptToDelete?.name}"? Roles already assigned to this department will not be deleted.`}
         confirmText="Delete Department"
         variant="danger"
       />

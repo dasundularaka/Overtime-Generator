@@ -332,6 +332,20 @@ export async function deleteRoleRate(roleId: string): Promise<void> {
   saveLocalRoleRates(local);
 }
 
+export async function toggleRoleRateLock(roleId: string, isLocked: boolean): Promise<void> {
+  const updateData = {
+    isRatesLocked: isLocked,
+    updatedAt: new Date().toISOString(),
+  };
+  await setDoc(doc(db, 'roles', roleId), updateData, { merge: true });
+  const local = getLocalRoleRates();
+  const idx = local.findIndex(r => r.id === roleId);
+  if (idx >= 0) {
+    local[idx] = { ...local[idx], isRatesLocked: isLocked, updatedAt: updateData.updatedAt };
+    saveLocalRoleRates([...local]);
+  }
+}
+
 // ---------------- Departments Helpers ----------------
 
 export const DEFAULT_DEPARTMENTS: Department[] = [

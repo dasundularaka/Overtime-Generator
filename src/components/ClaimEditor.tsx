@@ -18,6 +18,7 @@ import {
   Info,
   FileText,
   Lock,
+  Unlock,
   Banknote,
   AlertTriangle,
   Check,
@@ -38,6 +39,9 @@ import {
   ClaimRecord,
   OvertimeRow,
   ClaimType,
+  TemplateConfig,
+  Holiday,
+  RoleRate,
 } from '../types';
 import {
   calculateShiftOvertime,
@@ -62,7 +66,10 @@ import { ConfirmationModal } from './ConfirmationModal';
 import { useAuth } from '../context/AuthContext';
 import { subscribeToTemplates } from '../services/templateService';
 import { subscribeToHolidays } from '../services/holidayService';
-import { TemplateConfig, Holiday } from '../types';
+import {
+  fetchRoleRatesFromFirestore,
+  subscribeToRoleRates,
+} from '../utils/branchRoleManager';
 
 interface ClaimEditorProps {
   initialClaim?: ClaimRecord | null;
@@ -208,6 +215,19 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   // Holidays Calendar Sync State
   const [calendarHolidays, setCalendarHolidays] = useState<Holiday[]>([]);
 
+  // Corporate Role Rates Subscription
+  const [roleRates, setRoleRates] = useState<RoleRate[]>([]);
+
+  useEffect(() => {
+    fetchRoleRatesFromFirestore().then(list => {
+      if (list && list.length > 0) setRoleRates(list);
+    });
+    const unsub = subscribeToRoleRates(list => {
+      if (list && list.length > 0) setRoleRates(list);
+    });
+    return () => unsub();
+  }, []);
+
   useEffect(() => {
     const unsub = subscribeToHolidays((list) => {
       setCalendarHolidays(list);
@@ -250,6 +270,35 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     }
   }, [isAdmin]);
 
+  // Target profile being edited (admin can choose other user, or defaults to current logged-in user profile)
+  const targetProfile = useMemo(() => {
+    return allUsers.find(u => u.id === selectedUserId) || userProfile;
+  }, [allUsers, selectedUserId, userProfile]);
+
+  // Find the corporate RoleRate definition matching the user's role/designation
+  const userRelevantRole = useMemo(() => {
+    if (!targetProfile && !designation) return null;
+    if (targetProfile?.roleId) {
+      const byId = roleRates.find(r => r.id === targetProfile.roleId);
+      if (byId) return byId;
+    }
+    if (targetProfile?.roleName) {
+      const byRoleName = roleRates.find(r => r.name.toLowerCase() === targetProfile.roleName?.toLowerCase());
+      if (byRoleName) return byRoleName;
+    }
+    const title = targetProfile?.designation || designation;
+    if (title) {
+      const byDesig = roleRates.find(r => r.name.toLowerCase() === title.toLowerCase());
+      if (byDesig) return byDesig;
+    }
+    return null;
+  }, [targetProfile, designation, roleRates]);
+
+  // Lock status of the user's relevant role
+  const isRoleRatesLocked = Boolean(userRelevantRole?.isRatesLocked);
+  // Standard users cannot edit if locked; Admins can always edit
+  const canEditRates = isAdmin || !isRoleRatesLocked;
+
   // Sync profile details into form
   useEffect(() => {
     if (initialClaim) {
@@ -271,10 +320,6 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       return;
     }
 
-    // Default to current user profile or chosen user
-    const targetProfile =
-      allUsers.find(u => u.id === selectedUserId) || userProfile;
-
     if (targetProfile) {
       setEmployeeName(targetProfile.name || '');
       setEmployeeNumber(targetProfile.employeeNumber || '');
@@ -287,15 +332,33 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       );
       setUserShiftStartTime(targetProfile.shiftStartTime || GENERAL_SHIFT_START);
       setUserShiftEndTime(targetProfile.shiftEndTime || GENERAL_SHIFT_END);
-      setHourlyRate(targetProfile.hourlyRate !== undefined ? targetProfile.hourlyRate : '');
-      setDaysPay(targetProfile.daysPay !== undefined ? targetProfile.daysPay : '');
-      setHourlyRateNonWorkingDays(targetProfile.hourlyRateNonWorkingDays !== undefined ? targetProfile.hourlyRateNonWorkingDays : '');
+
+      // Match corporate role rates if user rates are blank or from assigned role
+      const matchedRole = targetProfile.roleId
+        ? roleRates.find(r => r.id === targetProfile.roleId)
+        : roleRates.find(r => r.name.toLowerCase() === (targetProfile.roleName || targetProfile.designation || '').toLowerCase());
+
+      const finalHourly = targetProfile.hourlyRate !== undefined && targetProfile.hourlyRate !== ''
+        ? targetProfile.hourlyRate
+        : matchedRole ? matchedRole.hourlyRateWorkingDays : '';
+
+      const finalDayPay = targetProfile.daysPay !== undefined && targetProfile.daysPay !== ''
+        ? targetProfile.daysPay
+        : matchedRole ? matchedRole.daysPaymentNonWorkingDays : '';
+
+      const finalNonWorkingHourly = targetProfile.hourlyRateNonWorkingDays !== undefined && targetProfile.hourlyRateNonWorkingDays !== ''
+        ? targetProfile.hourlyRateNonWorkingDays
+        : matchedRole ? matchedRole.hourlyRateNonWorkingDays : '';
+
+      setHourlyRate(finalHourly);
+      setDaysPay(finalDayPay);
+      setHourlyRateNonWorkingDays(finalNonWorkingHourly);
       setTotalRemuneration(targetProfile.totalRemuneration !== undefined ? targetProfile.totalRemuneration : '');
     }
 
     // Auto-populate full month dates with flagged holidays
     setRows(generateFullMonthRows(claimMonth, claimYear, isSpecialAssignedOt));
-  }, [initialClaim, userProfile, selectedUserId, allUsers]);
+  }, [initialClaim, userProfile, selectedUserId, allUsers, roleRates]);
 
   // Generate full month of dates and flag holidays & weekends
   function generateFullMonthRows(targetMonth: string, targetYear: number, specialOt: boolean = isSpecialAssignedOt): OvertimeRow[] {
@@ -1302,6 +1365,194 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
               <span>Special Assigned OT</span>
               {isSpecialAssignedOt && <span className="text-[10px] bg-emerald-700 text-white px-1.5 py-0.2 rounded font-mono">No Limit</span>}
             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Overtime Rates & Remuneration Panel (Subject to Role Lock Status) */}
+      <div className={`rounded-2xl p-4 sm:p-5 border transition-all ${
+        isRoleRatesLocked && !isAdmin
+          ? 'bg-amber-50/60 border-amber-200 shadow-2xs'
+          : 'bg-white border-slate-200 shadow-xs'
+      }`}>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2.5">
+            <div className={`p-2 rounded-xl shrink-0 ${
+              isRoleRatesLocked && !isAdmin
+                ? 'bg-amber-100 text-amber-800'
+                : 'bg-indigo-50 text-indigo-700'
+            }`}>
+              <Banknote className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm font-bold text-slate-900">
+                  Overtime Payment Rates
+                </h3>
+                {userRelevantRole && (
+                  <span className="text-[11px] font-semibold text-slate-600">
+                    &bull; Role: <strong className="text-slate-900">{userRelevantRole.name}</strong>
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Official overtime rate matrix for working days, non-working days &amp; monthly remuneration.
+              </p>
+            </div>
+          </div>
+
+          {/* Role Rates Lock Status Pill */}
+          <div className="flex items-center gap-2 shrink-0">
+            {isRoleRatesLocked ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-900 text-xs font-bold border border-amber-300 shadow-2xs">
+                <Lock className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                <span>Rates Locked by Admin</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 text-xs font-bold border border-emerald-300 shadow-2xs">
+                <Unlock className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>Rates Unlocked (Editable)</span>
+              </span>
+            )}
+            {isAdmin && isRoleRatesLocked && (
+              <span className="text-[10px] bg-purple-100 text-purple-800 px-2 py-0.5 rounded font-bold border border-purple-200">
+                Admin Override Active
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Lock Notice for Standard Users */}
+        {isRoleRatesLocked && !isAdmin && (
+          <div className="mt-3 p-3 rounded-xl bg-amber-100/70 border border-amber-200/80 text-amber-900 text-xs flex items-center gap-2">
+            <Lock className="w-4 h-4 text-amber-700 shrink-0" />
+            <p className="leading-relaxed">
+              Your overtime rates are <strong>locked by corporate administration</strong> for your assigned role (<strong>{userRelevantRole?.name || designation || 'Staff'}</strong>). You cannot edit these rates on this claim sheet.
+            </p>
+          </div>
+        )}
+
+        {/* Unlocked Notice for Standard Users */}
+        {!isRoleRatesLocked && (
+          <div className="mt-3 p-2.5 rounded-xl bg-emerald-50/70 border border-emerald-200 text-emerald-900 text-xs flex items-center gap-2">
+            <Unlock className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+            <p className="leading-relaxed">
+              Overtime rates are <strong>unlocked</strong> for your role (<strong>{userRelevantRole?.name || designation || 'Staff'}</strong>). You are authorized to edit these rates if authorized by your manager.
+            </p>
+          </div>
+        )}
+
+        {/* 4 Rates Inputs */}
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+          {/* 1. Working Days Hourly Rate */}
+          <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-1">
+            <div className="flex items-center justify-between">
+              <label className="font-bold text-slate-700 text-[11px] flex items-center gap-1">
+                <span>Working Days Hourly Rate</span>
+                <span className="text-rose-500">*</span>
+              </label>
+              {!canEditRates && <Lock className="w-3 h-3 text-slate-400" />}
+            </div>
+            <div className="relative">
+              <span className="absolute left-2.5 top-2 text-slate-400 font-mono text-xs">Rs.</span>
+              <input
+                type="number"
+                step="0.01"
+                disabled={!canEditRates}
+                value={hourlyRate}
+                onChange={e => setHourlyRate(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                placeholder="e.g. 1850.00"
+                className={`w-full rounded-lg border py-1.5 pl-9 pr-2.5 font-mono font-bold text-xs ${
+                  !canEditRates
+                    ? 'border-slate-200 bg-slate-100 text-slate-600 cursor-not-allowed select-none'
+                    : 'border-blue-300 bg-blue-50/30 text-blue-950 focus:border-blue-500 focus:ring-1 focus:ring-blue-500'
+                }`}
+              />
+            </div>
+            <span className="text-[10px] text-slate-400 block truncate">Column A &amp; Weekday overtime</span>
+          </div>
+
+          {/* 2. Non-Working Days Daily Payment */}
+          <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-1">
+            <div className="flex items-center justify-between">
+              <label className="font-bold text-slate-700 text-[11px] flex items-center gap-1">
+                <span>Non-Working Days Payment</span>
+                <span className="text-rose-500">*</span>
+              </label>
+              {!canEditRates && <Lock className="w-3 h-3 text-slate-400" />}
+            </div>
+            <div className="relative">
+              <span className="absolute left-2.5 top-2 text-slate-400 font-mono text-xs">Rs.</span>
+              <input
+                type="number"
+                step="0.01"
+                disabled={!canEditRates}
+                value={daysPay}
+                onChange={e => setDaysPay(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                placeholder="e.g. 12500.00"
+                className={`w-full rounded-lg border py-1.5 pl-9 pr-2.5 font-mono font-bold text-xs ${
+                  !canEditRates
+                    ? 'border-slate-200 bg-slate-100 text-slate-600 cursor-not-allowed select-none'
+                    : 'border-amber-300 bg-amber-50/30 text-amber-950 focus:border-amber-500 focus:ring-1 focus:ring-amber-500'
+                }`}
+              />
+            </div>
+            <span className="text-[10px] text-slate-400 block truncate">Sat (min 6h) / Sun / Holiday day payment</span>
+          </div>
+
+          {/* 3. Non-Working Days Hourly Rate */}
+          <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-1">
+            <div className="flex items-center justify-between">
+              <label className="font-bold text-slate-700 text-[11px] flex items-center gap-1">
+                <span>Non-Working Days Hourly Rate</span>
+                <span className="text-rose-500">*</span>
+              </label>
+              {!canEditRates && <Lock className="w-3 h-3 text-slate-400" />}
+            </div>
+            <div className="relative">
+              <span className="absolute left-2.5 top-2 text-slate-400 font-mono text-xs">Rs.</span>
+              <input
+                type="number"
+                step="0.01"
+                disabled={!canEditRates}
+                value={hourlyRateNonWorkingDays}
+                onChange={e => setHourlyRateNonWorkingDays(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                placeholder="e.g. 2312.50"
+                className={`w-full rounded-lg border py-1.5 pl-9 pr-2.5 font-mono font-bold text-xs ${
+                  !canEditRates
+                    ? 'border-slate-200 bg-slate-100 text-slate-600 cursor-not-allowed select-none'
+                    : 'border-purple-300 bg-purple-50/30 text-purple-950 focus:border-purple-500 focus:ring-1 focus:ring-purple-500'
+                }`}
+              />
+            </div>
+            <span className="text-[10px] text-slate-400 block truncate">Column B / Holiday override hourly</span>
+          </div>
+
+          {/* 4. Total Monthly Remuneration (Auto-calculator) */}
+          <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-1">
+            <div className="flex items-center justify-between">
+              <label className="font-bold text-slate-700 text-[11px]">
+                Monthly Remuneration (Salary)
+              </label>
+              {!canEditRates && <Lock className="w-3 h-3 text-slate-400" />}
+            </div>
+            <div className="relative">
+              <span className="absolute left-2.5 top-2 text-slate-400 font-mono text-xs">Rs.</span>
+              <input
+                type="number"
+                step="0.01"
+                disabled={!canEditRates}
+                value={totalRemuneration}
+                onChange={e => handleRemunerationChange(e.target.value)}
+                placeholder="e.g. 275000.00"
+                className={`w-full rounded-lg border py-1.5 pl-9 pr-2.5 font-mono text-xs ${
+                  !canEditRates
+                    ? 'border-slate-200 bg-slate-100 text-slate-600 cursor-not-allowed select-none'
+                    : 'border-slate-300 bg-white text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
+                }`}
+              />
+            </div>
+            <span className="text-[10px] text-slate-400 block truncate">Formula: Pay/22, Hourly=Day/8</span>
           </div>
         </div>
       </div>

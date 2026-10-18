@@ -47,6 +47,7 @@ export interface RoleRate {
   daysPaymentNonWorkingDays: number; // Days Payment in Non-Working Days (Rs.)
   hourlyRateNonWorkingDays: number; // Hourly Rate in Non-Working Days (Rs.)
   specialHourlyRate?: number; // Special assignment hourly rate (Rs.)
+  isRatesLocked?: boolean; // When true, OT rates are locked for users with this role in New Claim tab
   createdAt: string;
   updatedAt?: string;
 }
