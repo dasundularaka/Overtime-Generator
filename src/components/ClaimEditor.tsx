@@ -1028,6 +1028,13 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         settings.globalPrinterOffsetY
       );
 
+      // Clean up previous blob URL to prevent memory leaks and stale caches
+      if (previewPdfUrl && previewPdfUrl.startsWith('blob:')) {
+        try {
+          URL.revokeObjectURL(previewPdfUrl);
+        } catch (_) {}
+      }
+
       setPreviewPdfUrl(url);
       setPreviewPdfBlob(blob);
       setPreviewFilename(filename);
@@ -1941,6 +1948,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
       {/* PDF Preview Modal */}
       <PDFPreviewModal
+        key={previewPdfUrl || 'preview_modal'}
         isOpen={isPreviewOpen}
         onClose={() => setIsPreviewOpen(false)}
         pdfUrl={previewPdfUrl}
@@ -1948,6 +1956,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         pdfBlob={previewPdfBlob}
         onSaveClaim={handleSaveClaim}
         isSaved={claimSavedSuccess}
+        onRefresh={executePreviewPdf}
+        isRefreshing={isGeneratingPdf}
       />
 
       {/* Reset Confirmation Modal */}

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Download,
   Printer,
@@ -10,24 +10,27 @@ import {
   ZoomOut,
   ChevronLeft,
   ChevronRight,
-  Layers,
-  FileText,
-  Loader2,
-  ExternalLink,
-  Cloud,
-  Check,
+  RotateCw,
+  Maximize2,
   RefreshCw,
+  FileText,
+  Layers,
+  Loader2,
+  Check,
+  Cloud,
+  Maximize,
+  Minimize,
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import { printPdfDocument } from '../utils/pdfGenerator';
 import {
   uploadClaimPdfToGoogleDrive,
-  GoogleDriveUploadResult,
-  ensureGoogleAccessToken,
   hasGoogleWorkspaceToken,
+  ensureGoogleAccessToken,
 } from '../services/googleWorkspaceService';
 
+// Configure PDF.js worker
 if (typeof window !== 'undefined') {
   try {
     pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
@@ -44,6 +47,8 @@ interface PDFPreviewModalProps {
   pdfBlob?: Blob | null;
   onSaveClaim?: () => void;
   isSaved?: boolean;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
 }
 
 export const PDFPreviewModal: React.FC<PDFPreviewModalProps> = ({
@@ -54,294 +59,290 @@ export const PDFPreviewModal: React.FC<PDFPreviewModalProps> = ({
   pdfBlob,
   onSaveClaim,
   isSaved,
+  onRefresh,
+  isRefreshing = false,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [viewMode, setViewMode] = useState<'embedded' | 'gdrive' | 'canvas'>('embedded');
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const renderTaskRef = useRef<any>(null);
+
+  // Viewer State
+  const [engineMode, setEngineMode] = useState<'canvas' | 'native'>('canvas');
   const [numPages, setNumPages] = useState<number>(1);
   const [pageNumber, setPageNumber] = useState<number>(1);
-  const [scale, setScale] = useState<number>(1.25);
-  const [canvasLoading, setCanvasLoading] = useState<boolean>(false);
-  const [canvasError, setCanvasError] = useState<string | null>(null);
-  const pdfDocRef = useRef<any>(null);
+  const [scale, setScale] = useState<number>(1.15);
+  const [rotation, setRotation] = useState<number>(0);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [renderError, setRenderError] = useState<string | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [localRefreshTick, setLocalRefreshTick] = useState<number>(0);
 
-  // Google Drive State
-  const [driveResult, setDriveResult] = useState<GoogleDriveUploadResult | null>(null);
-  const [isDriveUploading, setIsDriveUploading] = useState<boolean>(false);
-  const [driveNotice, setDriveNotice] = useState<string | null>(null);
-  const [driveError, setDriveError] = useState<string | null>(null);
-  const [isConnectingGoogle, setIsConnectingGoogle] = useState<boolean>(false);
+  // Optional Cloud Backup state (without replacing the in-site viewer)
+  const [isUploadingToDrive, setIsUploadingToDrive] = useState<boolean>(false);
+  const [driveUploadSuccess, setDriveUploadSuccess] = useState<boolean>(false);
+  const [driveUploadError, setDriveUploadError] = useState<string | null>(null);
 
-  // Helper to obtain the PDF blob
-  const getBlob = async (): Promise<Blob> => {
-    if (pdfBlob) return pdfBlob;
-    if (!pdfUrl) throw new Error('No PDF URL available');
-    const resp = await fetch(pdfUrl);
-    return await resp.blob();
-  };
-
-  // Upload to Google Drive and generate in-site preview
-  const handleUploadToGoogleDrive = async () => {
-    setIsDriveUploading(true);
-    setDriveError(null);
-    setDriveNotice(null);
-    try {
-      const blob = await getBlob();
-      const result = await uploadClaimPdfToGoogleDrive(blob, filename);
-      setDriveResult(result);
-      setViewMode('gdrive');
-    } catch (err: any) {
-      console.warn('Google Drive preview upload note:', err?.message);
-      const is403 = err?.message?.includes('403') || err?.message?.includes('not been used') || err?.message?.includes('disabled');
-      const friendlyMsg = is403
-        ? 'Preview through Google Drive is supported for self-registered Google accounts with Drive API enabled. Showing built-in PDF viewer.'
-        : (err.message || 'Drive preview unavailable. Showing built-in PDF viewer.');
-      setDriveNotice(friendlyMsg);
-      // Seamlessly fall back to embedded viewer so the user is never blocked!
-      setViewMode('embedded');
-    } finally {
-      setIsDriveUploading(false);
+  // Helper to obtain the PDF binary array buffer
+  const getArrayBuffer = useCallback(async (): Promise<ArrayBuffer> => {
+    if (pdfBlob) {
+      return await pdfBlob.arrayBuffer();
     }
-  };
-
-  // Connect Google account and immediately upload
-  const handleConnectGoogle = async () => {
-    setIsConnectingGoogle(true);
-    setDriveError(null);
-    try {
-      await ensureGoogleAccessToken();
-      await handleUploadToGoogleDrive();
-    } catch (err: any) {
-      setDriveError(err.message || 'Google authentication was not completed.');
-    } finally {
-      setIsConnectingGoogle(false);
+    if (!pdfUrl) {
+      throw new Error('No PDF URL or Blob provided for rendering');
     }
-  };
+    // Append timestamp cache-buster to prevent any browser HTTP caching
+    const fetchUrl = pdfUrl.startsWith('blob:') ? pdfUrl : `${pdfUrl}?t=${Date.now()}`;
+    const resp = await fetch(fetchUrl);
+    if (!resp.ok) {
+      throw new Error(`Failed to load PDF (${resp.status})`);
+    }
+    return await resp.arrayBuffer();
+  }, [pdfBlob, pdfUrl]);
 
-  // If in canvas view mode, try rendering with pdfjs
-  useEffect(() => {
-    if (!isOpen || !pdfUrl || viewMode !== 'canvas') return;
+  // Render the current page on canvas via PDF.js
+  const renderPage = useCallback(async () => {
+    if (!isOpen || !pdfUrl || engineMode !== 'canvas') return;
 
-    let isCancelled = false;
-    setCanvasLoading(true);
-    setCanvasError(null);
+    setLoading(true);
+    setRenderError(null);
 
-    const loadAndRenderPdf = async () => {
-      try {
-        const resp = await fetch(pdfUrl);
-        const arrayBuffer = await resp.arrayBuffer();
-        if (isCancelled) return;
+    try {
+      const buffer = await getArrayBuffer();
+      const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) });
+      const doc = await loadingTask.promise;
 
-        const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
-        const doc = await loadingTask.promise;
-        if (isCancelled) return;
+      setNumPages(doc.numPages);
+      const safePage = Math.min(Math.max(1, pageNumber), doc.numPages);
+      const page = await doc.getPage(safePage);
 
-        pdfDocRef.current = doc;
-        setNumPages(doc.numPages);
-
-        const page = await doc.getPage(pageNumber);
-        if (isCancelled) return;
-
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-
-        const viewport = page.getViewport({ scale });
-        const dpr = Math.min(window.devicePixelRatio || 1.5, 2);
-        canvas.width = Math.round(viewport.width * dpr);
-        canvas.height = Math.round(viewport.height * dpr);
-        canvas.style.width = `${Math.round(viewport.width)}px`;
-        canvas.style.height = `${Math.round(viewport.height)}px`;
-
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        await page.render({
-          canvasContext: ctx,
-          viewport: page.getViewport({ scale: scale * dpr }),
-          canvas: canvas,
-        }).promise;
-
-        setCanvasLoading(false);
-      } catch (err: any) {
-        if (!isCancelled) {
-          console.warn('Canvas rendering via pdfjs could not complete:', err);
-          setCanvasError(err.message || 'Canvas rendering failed.');
-          setCanvasLoading(false);
-          setViewMode('embedded');
-        }
+      const canvas = canvasRef.current;
+      if (!canvas) {
+        setLoading(false);
+        return;
       }
-    };
 
-    loadAndRenderPdf();
+      // Cancel previous ongoing render task if any
+      if (renderTaskRef.current) {
+        try {
+          renderTaskRef.current.cancel();
+        } catch (_) {}
+      }
 
+      const viewport = page.getViewport({ scale, rotation });
+      const dpr = Math.min(typeof window !== 'undefined' ? window.devicePixelRatio || 1.5 : 1.5, 2.5);
+
+      canvas.width = Math.round(viewport.width * dpr);
+      canvas.height = Math.round(viewport.height * dpr);
+      canvas.style.width = `${Math.round(viewport.width)}px`;
+      canvas.style.height = `${Math.round(viewport.height)}px`;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Could not acquire 2D canvas context');
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const renderContext = {
+        canvasContext: ctx,
+        viewport: page.getViewport({ scale: scale * dpr, rotation }),
+        canvas: canvas,
+      };
+
+      renderTaskRef.current = page.render(renderContext);
+      await renderTaskRef.current.promise;
+      setLoading(false);
+    } catch (err: any) {
+      if (err?.name === 'RenderingCancelledException') {
+        return;
+      }
+      console.warn('PDF.js canvas rendering notice:', err?.message || err);
+      setRenderError(err?.message || 'Could not render PDF with interactive engine.');
+      setLoading(false);
+    }
+  }, [isOpen, pdfUrl, engineMode, pageNumber, scale, rotation, getArrayBuffer]);
+
+  // Trigger render on dependency changes
+  useEffect(() => {
+    if (isOpen && pdfUrl) {
+      renderPage();
+    }
     return () => {
-      isCancelled = true;
+      if (renderTaskRef.current) {
+        try {
+          renderTaskRef.current.cancel();
+        } catch (_) {}
+      }
     };
-  }, [isOpen, pdfUrl, viewMode, pageNumber, scale]);
+  }, [isOpen, pdfUrl, pdfBlob, pageNumber, scale, rotation, engineMode, localRefreshTick, renderPage]);
 
-  // When modal opens, if user already has an active Google token, automatically upload to Drive if not already done
+  // Reset page when document changes
   useEffect(() => {
-    if (isOpen && pdfUrl && !driveResult && !isDriveUploading) {
-      if (hasGoogleWorkspaceToken()) {
-        handleUploadToGoogleDrive();
+    setPageNumber(1);
+    setDriveUploadSuccess(false);
+    setDriveUploadError(null);
+  }, [pdfUrl, pdfBlob]);
+
+  // Auto-fit scale on first open based on container dimensions
+  useEffect(() => {
+    if (isOpen && containerRef.current) {
+      const containerWidth = containerRef.current.clientWidth - 48;
+      // Standard A4 aspect ratio width ~595pt
+      if (containerWidth > 300) {
+        const calculatedScale = Math.min(1.4, Math.max(0.65, containerWidth / 650));
+        setScale(parseFloat(calculatedScale.toFixed(2)));
       }
     }
-  }, [isOpen, pdfUrl]);
+  }, [isOpen]);
 
   if (!isOpen || !pdfUrl) return null;
 
+  // Zoom Helpers
+  const handleZoomIn = () => setScale(s => Math.min(2.5, parseFloat((s + 0.15).toFixed(2))));
+  const handleZoomOut = () => setScale(s => Math.max(0.5, parseFloat((s - 0.15).toFixed(2))));
+  const handleFitWidth = () => {
+    if (containerRef.current) {
+      const w = containerRef.current.clientWidth - 48;
+      setScale(parseFloat(Math.min(2.0, Math.max(0.6, w / 630)).toFixed(2)));
+    }
+  };
+  const handleFitPage = () => {
+    if (containerRef.current) {
+      const h = containerRef.current.clientHeight - 80;
+      setScale(parseFloat(Math.min(1.8, Math.max(0.5, h / 860)).toFixed(2)));
+    }
+  };
+  const handleActualSize = () => setScale(1.0);
+  const handleRotate = () => setRotation(r => (r + 90) % 360);
+
+  // Manual Refresh Handler
+  const handleTriggerRefresh = () => {
+    if (onRefresh) {
+      onRefresh();
+    } else {
+      setLocalRefreshTick(t => t + 1);
+    }
+  };
+
+  // Download Handler
   const handleDownload = () => {
     const a = document.createElement('a');
     a.href = pdfUrl;
-    a.download = filename;
+    a.download = filename || 'Overtime_Claim_Form_10756.pdf';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
   };
 
+  // Direct Print Handler
   const handlePrint = () => {
     printPdfDocument(pdfUrl);
   };
 
+  // Optional Cloud Backup to Google Drive
+  const handleBackupToGoogleDrive = async () => {
+    setIsUploadingToDrive(true);
+    setDriveUploadError(null);
+    try {
+      if (!hasGoogleWorkspaceToken()) {
+        await ensureGoogleAccessToken();
+      }
+      const buffer = await getArrayBuffer();
+      const blob = new Blob([buffer], { type: 'application/pdf' });
+      await uploadClaimPdfToGoogleDrive(blob, filename);
+      setDriveUploadSuccess(true);
+      setTimeout(() => setDriveUploadSuccess(false), 5000);
+    } catch (err: any) {
+      setDriveUploadError(err.message || 'Google Drive backup could not be completed.');
+    } finally {
+      setIsUploadingToDrive(false);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-2 sm:p-4 backdrop-blur-xs">
-      <div className="relative flex flex-col w-full max-w-5xl h-[92vh] rounded-2xl bg-white shadow-2xl border border-slate-300 overflow-hidden">
-        {/* Top Header Bar */}
-        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 bg-slate-900 text-white border-b border-slate-800">
-          <div className="flex items-center gap-3 min-w-0">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-1 sm:p-4 backdrop-blur-xs animate-fade-in">
+      <div
+        className={`relative flex flex-col w-full bg-slate-900 rounded-2xl shadow-2xl border border-slate-700 overflow-hidden transition-all duration-200 ${
+          isFullscreen
+            ? 'h-full max-w-full rounded-none border-0'
+            : 'max-w-5xl h-[94vh]'
+        }`}
+      >
+        {/* ======================================================== */}
+        {/* Top Header Bar with Live Controls */}
+        {/* ======================================================== */}
+        <div className="flex flex-wrap items-center justify-between px-3 sm:px-5 py-2.5 bg-slate-950 text-white border-b border-slate-800 gap-2 shrink-0">
+          {/* File Title & Info */}
+          <div className="flex items-center gap-2.5 min-w-0">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white shadow-xs shrink-0">
               <FileCheck className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-sm sm:text-base font-bold text-white tracking-tight truncate max-w-xs sm:max-w-md">
-                {filename}
-              </h2>
-              <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                <span>Official A4 Print-Ready Document</span>
-                {driveResult && (
-                  <span className="inline-flex items-center gap-1 text-emerald-400 font-medium">
-                    <Check className="w-3 h-3" />
-                    Google Drive Synced
-                  </span>
-                )}
+              <div className="flex items-center gap-2">
+                <h2 className="text-xs sm:text-sm font-bold text-white tracking-tight truncate max-w-[180px] sm:max-w-md">
+                  {filename}
+                </h2>
+                <span className="hidden md:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                  Form 10756 A4
+                </span>
               </div>
+              <p className="text-[11px] text-slate-400 truncate hidden sm:block">
+                Interactive Vector PDF Preview &bull; Always Live &bull; Ready for Print &amp; Submission
+              </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            {/* View Mode Switcher */}
-            <div className="hidden sm:flex items-center bg-slate-800 rounded-lg p-0.5 border border-slate-700 text-xs text-slate-300 mr-1">
-              {/* Google Drive Preview Switch */}
+          {/* Center / Right Toolbar Controls */}
+          <div className="flex items-center flex-wrap gap-1.5 sm:gap-2">
+            {/* Engine Mode Toggle (PDF.js Canvas vs Native Embed) */}
+            <div className="flex items-center bg-slate-900 rounded-lg p-0.5 border border-slate-800 text-xs text-slate-300">
               <button
                 type="button"
-                onClick={() => {
-                  setViewMode('gdrive');
-                  if (!driveResult && !isDriveUploading) {
-                    handleUploadToGoogleDrive();
-                  }
-                }}
-                className={`px-2.5 py-1 rounded text-[11px] font-semibold transition flex items-center gap-1.5 ${
-                  viewMode === 'gdrive'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'hover:text-white hover:bg-slate-700/60'
+                onClick={() => setEngineMode('canvas')}
+                className={`px-2 py-1 rounded text-[11px] font-semibold transition flex items-center gap-1 cursor-pointer ${
+                  engineMode === 'canvas'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'hover:text-white hover:bg-slate-800'
                 }`}
-                title="Preview using Google Drive facility"
+                title="Interactive High-Precision Vector Engine"
               >
-                <svg className="w-3.5 h-3.5" viewBox="0 0 87.3 78" fill="currentColor">
-                  <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.45z" fill="#0066da" />
-                  <path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44c-.8 1.35-1.2 2.9-1.2 4.45h27.5z" fill="#00ac47" />
-                  <path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.35 1.2-2.9 1.2-4.5h-27.5l5.85 10.15z" fill="#ea4335" />
-                  <path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d" />
-                  <path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc" />
-                  <path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00" />
-                </svg>
-                <span>Google Drive Preview</span>
+                <Layers className="w-3 h-3" />
+                <span className="hidden sm:inline">Interactive</span>
               </button>
-
               <button
                 type="button"
-                onClick={() => setViewMode('embedded')}
-                className={`px-2 py-1 rounded text-[11px] font-semibold transition flex items-center gap-1 ${
-                  viewMode === 'embedded' ? 'bg-indigo-600 text-white shadow-xs' : 'hover:text-white'
+                onClick={() => setEngineMode('native')}
+                className={`px-2 py-1 rounded text-[11px] font-semibold transition flex items-center gap-1 cursor-pointer ${
+                  engineMode === 'native'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'hover:text-white hover:bg-slate-800'
                 }`}
                 title="Browser Native PDF Engine"
               >
                 <FileText className="w-3 h-3" />
-                <span>PDF Viewer</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setViewMode('canvas')}
-                className={`px-2 py-1 rounded text-[11px] font-semibold transition flex items-center gap-1 ${
-                  viewMode === 'canvas' ? 'bg-indigo-600 text-white shadow-xs' : 'hover:text-white'
-                }`}
-                title="High-Res Canvas Rendering"
-              >
-                <Layers className="w-3 h-3" />
-                <span>Canvas</span>
+                <span className="hidden sm:inline">Native</span>
               </button>
             </div>
 
-            {/* External Google Drive Link if uploaded */}
-            {driveResult && (
-              <a
-                href={driveResult.webViewLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/20 text-blue-300 hover:bg-blue-600/30 hover:text-white text-xs font-semibold border border-blue-500/30 transition cursor-pointer"
-                title="Open file in Google Drive"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                <span>Open in Drive</span>
-              </a>
-            )}
-
-            {/* Canvas Zoom Controls (Only if Canvas Mode) */}
-            {viewMode === 'canvas' && (
-              <div className="hidden sm:flex items-center bg-slate-800 rounded-lg p-0.5 border border-slate-700 text-xs text-slate-300 mr-1">
-                <button
-                  type="button"
-                  onClick={() => setScale(s => Math.max(0.6, s - 0.15))}
-                  className="p-1 hover:text-white hover:bg-slate-700 rounded transition"
-                  title="Zoom Out"
-                >
-                  <ZoomOut className="w-3.5 h-3.5" />
-                </button>
-                <span className="px-2 font-mono text-[11px]">{Math.round(scale * 100)}%</span>
-                <button
-                  type="button"
-                  onClick={() => setScale(s => Math.min(2.5, s + 0.15))}
-                  className="p-1 hover:text-white hover:bg-slate-700 rounded transition"
-                  title="Zoom In"
-                >
-                  <ZoomIn className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
-
-            {/* Page Nav (if multiple pages in canvas mode) */}
-            {viewMode === 'canvas' && numPages > 1 && (
-              <div className="flex items-center bg-slate-800 rounded-lg p-0.5 border border-slate-700 text-xs text-slate-300 mr-1">
+            {/* Page Navigation (if multi-page) */}
+            {numPages > 1 && engineMode === 'canvas' && (
+              <div className="flex items-center bg-slate-900 rounded-lg p-0.5 border border-slate-800 text-xs text-slate-300">
                 <button
                   type="button"
                   disabled={pageNumber <= 1}
                   onClick={() => setPageNumber(p => Math.max(1, p - 1))}
-                  className="p-1 hover:text-white disabled:opacity-30 rounded transition"
+                  className="p-1 hover:text-white disabled:opacity-30 rounded transition cursor-pointer"
                   title="Previous Page"
                 >
                   <ChevronLeft className="w-3.5 h-3.5" />
                 </button>
-                <span className="px-1.5 text-[11px]">
+                <span className="px-1.5 text-[11px] font-mono">
                   {pageNumber} / {numPages}
                 </span>
                 <button
                   type="button"
                   disabled={pageNumber >= numPages}
                   onClick={() => setPageNumber(p => Math.min(numPages, p + 1))}
-                  className="p-1 hover:text-white disabled:opacity-30 rounded transition"
+                  className="p-1 hover:text-white disabled:opacity-30 rounded transition cursor-pointer"
                   title="Next Page"
                 >
                   <ChevronRight className="w-3.5 h-3.5" />
@@ -349,285 +350,268 @@ export const PDFPreviewModal: React.FC<PDFPreviewModalProps> = ({
               </div>
             )}
 
+            {/* Canvas Zoom Controls (Canvas Mode) */}
+            {engineMode === 'canvas' && (
+              <div className="flex items-center bg-slate-900 rounded-lg p-0.5 border border-slate-800 text-xs text-slate-300">
+                <button
+                  type="button"
+                  onClick={handleZoomOut}
+                  className="p-1 hover:text-white hover:bg-slate-800 rounded transition cursor-pointer"
+                  title="Zoom Out (-15%)"
+                >
+                  <ZoomOut className="w-3.5 h-3.5" />
+                </button>
+                <span className="px-1.5 font-mono text-[11px] w-11 text-center font-semibold">
+                  {Math.round(scale * 100)}%
+                </span>
+                <button
+                  type="button"
+                  onClick={handleZoomIn}
+                  className="p-1 hover:text-white hover:bg-slate-800 rounded transition cursor-pointer"
+                  title="Zoom In (+15%)"
+                >
+                  <ZoomIn className="w-3.5 h-3.5" />
+                </button>
+
+                {/* Preset shortcuts on larger screens */}
+                <div className="hidden lg:flex items-center border-l border-slate-800 ml-1 pl-1 gap-1 text-[10px]">
+                  <button
+                    type="button"
+                    onClick={handleFitWidth}
+                    className="px-1.5 py-0.5 hover:bg-slate-800 rounded text-slate-400 hover:text-white cursor-pointer"
+                    title="Fit to Width"
+                  >
+                    Width
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleFitPage}
+                    className="px-1.5 py-0.5 hover:bg-slate-800 rounded text-slate-400 hover:text-white cursor-pointer"
+                    title="Fit Whole Page"
+                  >
+                    Fit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleActualSize}
+                    className="px-1.5 py-0.5 hover:bg-slate-800 rounded text-slate-400 hover:text-white cursor-pointer"
+                    title="Actual 100% Size (A4 Print)"
+                  >
+                    100%
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Rotate Button (Canvas Mode) */}
+            {engineMode === 'canvas' && (
+              <button
+                type="button"
+                onClick={handleRotate}
+                className="p-1.5 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition border border-slate-800 cursor-pointer hidden sm:block"
+                title="Rotate 90° Clockwise"
+              >
+                <RotateCw className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {/* Live Refresh Preview Button */}
             <button
+              type="button"
+              onClick={handleTriggerRefresh}
+              disabled={isRefreshing}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition cursor-pointer disabled:opacity-50"
+              title="Refresh preview immediately with current timesheet data"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-indigo-400 ${isRefreshing ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">Refresh</span>
+            </button>
+
+            {/* Direct Print Button */}
+            <button
+              type="button"
               onClick={handlePrint}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition cursor-pointer"
               title="Send directly to printer"
             >
               <Printer className="w-3.5 h-3.5 text-blue-400" />
               <span className="hidden sm:inline">Print</span>
             </button>
 
+            {/* Download Button */}
             <button
+              type="button"
               onClick={handleDownload}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-sm transition cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-xs transition cursor-pointer"
+              title="Download official PDF to device"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Download</span>
+              <span className="hidden sm:inline">Download</span>
             </button>
 
+            {/* Fullscreen Toggle */}
             <button
+              type="button"
+              onClick={() => setIsFullscreen(f => !f)}
+              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition cursor-pointer hidden md:block"
+              title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+            >
+              {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+            </button>
+
+            {/* Close Modal */}
+            <button
+              type="button"
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition ml-1 cursor-pointer"
+              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition cursor-pointer"
+              title="Close Preview"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        {/* Print Settings & Scaling Warning Banner */}
-        <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-900 shrink-0">
+        {/* ======================================================== */}
+        {/* Crucial Printing Requirement Banner */}
+        {/* ======================================================== */}
+        <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-200 shrink-0">
           <div className="flex items-center gap-2 font-medium">
-            <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
             <span>
-              <strong>Crucial Printing Requirement:</strong> When printing this PDF, set Paper Size to <strong>A4</strong> and Scaling to <strong>"100% / Actual Size"</strong>.
+              <strong>Crucial Printing Requirement:</strong> Set Paper Size to <strong>A4</strong> and Scaling to <strong>"100% / Actual Size"</strong> in printer dialog.
             </span>
           </div>
-          <div className="hidden sm:flex items-center gap-3 text-[11px] text-amber-800">
-            <span className="bg-amber-100/80 px-2 py-0.5 rounded font-mono">Paper: A4</span>
-            <span className="bg-amber-100/80 px-2 py-0.5 rounded font-mono">Scale: 100%</span>
-            <span className="bg-amber-100/80 px-2 py-0.5 rounded font-mono">Portrait</span>
+          <div className="hidden sm:flex items-center gap-2 text-[11px] text-amber-300 font-mono">
+            <span className="bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/30">A4 210×297mm</span>
+            <span className="bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/30">Scale 100%</span>
+            <span className="bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/30">Portrait</span>
           </div>
         </div>
 
-        {/* Informative Google Drive Notice Banner */}
-        {driveNotice && (
-          <div className="px-4 py-2 bg-blue-50 border-b border-blue-200 flex items-center justify-between gap-2 text-xs text-blue-900 shrink-0 animate-fade-in">
+        {/* Feedback Notices (Drive Sync or Error) */}
+        {driveUploadSuccess && (
+          <div className="px-4 py-2 bg-emerald-500/10 border-b border-emerald-500/30 text-emerald-300 text-xs flex items-center justify-between shrink-0 animate-fade-in">
             <div className="flex items-center gap-2">
-              <Cloud className="w-4 h-4 text-blue-600 shrink-0" />
-              <span>{driveNotice}</span>
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <span>Backup copy successfully synced to your Google Drive!</span>
             </div>
-            <button
-              onClick={() => setDriveNotice(null)}
-              className="text-blue-500 hover:text-blue-800 p-0.5 rounded hover:bg-blue-100"
-              title="Dismiss"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
+            <button onClick={() => setDriveUploadSuccess(false)} className="text-emerald-400 hover:text-white">✕</button>
+          </div>
+        )}
+        {driveUploadError && (
+          <div className="px-4 py-2 bg-rose-500/10 border-b border-rose-500/30 text-rose-300 text-xs flex items-center justify-between shrink-0 animate-fade-in">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-rose-400" />
+              <span>{driveUploadError}</span>
+            </div>
+            <button onClick={() => setDriveUploadError(null)} className="text-rose-400 hover:text-white">✕</button>
           </div>
         )}
 
-        {/* Main Viewer Body */}
-        <div className="flex-1 bg-slate-200/90 relative p-3 sm:p-4 overflow-hidden flex items-center justify-center">
-          {viewMode === 'gdrive' ? (
-            <div className="w-full h-full flex flex-col items-center justify-center relative">
-              {/* If uploaded, show in-site Google Drive iframe preview */}
-              {driveResult && !isDriveUploading ? (
-                <div className="w-full h-full rounded-xl overflow-hidden bg-white shadow-2xl border border-slate-300 flex flex-col relative">
-                  <div className="bg-slate-100 border-b border-slate-200 px-3 py-1.5 flex items-center justify-between text-xs text-slate-600 shrink-0">
-                    <div className="flex items-center gap-2">
-                      <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                      <span className="font-semibold text-slate-800">Google Drive Embedded Preview Facility</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <a
-                        href={driveResult.webViewLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:text-blue-800 font-medium inline-flex items-center gap-1"
-                      >
-                        <span>Open full document in Google Drive</span>
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                    </div>
-                  </div>
-                  <iframe
-                    src={driveResult.previewUrl}
-                    className="w-full h-full border-0 bg-white"
-                    title={`Google Drive In-Site Preview - ${filename}`}
-                    allow="autoplay; encrypted-media; fullscreen"
-                  />
-                </div>
-              ) : isDriveUploading ? (
-                /* Uploading to Google Drive loading screen */
-                <div className="flex flex-col items-center justify-center gap-4 p-8 bg-white/95 rounded-2xl shadow-xl border border-slate-200 max-w-md text-center">
-                  <div className="relative">
-                    <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
-                    <Cloud className="w-4 h-4 text-blue-500 absolute inset-0 m-auto" />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-bold text-slate-800">Preparing Google Drive In-Site Preview</h3>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Uploading print-ready A4 PDF to Google Drive facility to enable full in-site vector preview...
-                    </p>
-                  </div>
-                </div>
-              ) : driveError ? (
-                /* Drive Error State */
-                <div className="flex flex-col items-center justify-center gap-4 p-6 sm:p-8 bg-white rounded-2xl shadow-xl border border-blue-200 max-w-md text-center">
-                  <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
-                    <Cloud className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900">Google Drive Facility</h3>
-                    <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                      Preview through Google Drive is supported for self-registered Google accounts with Drive permissions enabled. You can continue viewing via the high-fidelity built-in PDF viewer.
-                    </p>
-                  </div>
-                  <div className="flex flex-col sm:flex-row items-center gap-2 w-full pt-2">
-                    <button
-                      onClick={() => setViewMode('embedded')}
-                      className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition cursor-pointer"
-                    >
-                      <FileText className="w-3.5 h-3.5" />
-                      <span>Use Built-in PDF Viewer</span>
-                    </button>
-                    <button
-                      onClick={handleConnectGoogle}
-                      disabled={isConnectingGoogle}
-                      className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition cursor-pointer"
-                    >
-                      {isConnectingGoogle ? (
-                        <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          <span>Connecting...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Cloud className="w-3.5 h-3.5" />
-                          <span>Retry Account Sign-in</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                /* Unconnected state: Provide 1-click Google Drive preview button */
-                <div className="flex flex-col items-center justify-center gap-5 p-8 bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg text-center">
-                  <div className="w-16 h-16 rounded-2xl bg-blue-50 flex items-center justify-center border border-blue-100 shadow-inner">
-                    <svg className="w-8 h-8" viewBox="0 0 87.3 78" fill="currentColor">
-                      <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.45z" fill="#0066da" />
-                      <path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44c-.8 1.35-1.2 2.9-1.2 4.45h27.5z" fill="#00ac47" />
-                      <path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.35 1.2-2.9 1.2-4.5h-27.5l5.85 10.15z" fill="#ea4335" />
-                      <path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d" />
-                      <path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc" />
-                      <path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h3 className="text-base font-bold text-slate-800">
-                      Enable Google Drive Facility for In-Site Preview
-                    </h3>
-                    <p className="text-xs text-slate-500 mt-1 max-w-sm">
-                      Connect your Google Drive to render instant, interactive in-site previews of your generated claim forms with zoom, page navigation, and cloud backup.
-                    </p>
-                  </div>
-
-                  {/* Official Google Sign-In Button */}
-                  <button
-                    type="button"
-                    onClick={handleConnectGoogle}
-                    disabled={isConnectingGoogle}
-                    className="flex items-center justify-center gap-3 w-full max-w-xs py-2.5 px-4 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-xl border border-slate-300 shadow-sm transition hover:shadow cursor-pointer"
-                  >
-                    <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="w-4 h-4 shrink-0">
-                      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
-                      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
-                      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
-                      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
-                    </svg>
-                    <span>{isConnectingGoogle ? 'Connecting Google Drive...' : 'Connect with Google Drive'}</span>
-                  </button>
-
-                  <div className="flex items-center gap-2 text-xs text-slate-400">
-                    <span>Or</span>
-                    <button
-                      onClick={() => setViewMode('embedded')}
-                      className="text-indigo-600 hover:text-indigo-800 font-semibold underline cursor-pointer"
-                    >
-                      use standard browser viewer
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : viewMode === 'embedded' ? (
-            <div className="w-full h-full rounded-xl overflow-hidden bg-white shadow-2xl border border-slate-300 flex flex-col">
-              <iframe
-                src={`${pdfUrl}#toolbar=1&navpanes=0`}
-                className="w-full h-full border-0"
-                title={filename}
-              />
-            </div>
-          ) : (
-            <div className="w-full h-full overflow-auto flex items-center justify-center relative">
-              {canvasLoading && (
-                <div className="flex flex-col items-center justify-center gap-3 p-8 bg-white/90 rounded-2xl shadow-lg border border-slate-200">
-                  <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
-                  <div className="text-center">
-                    <p className="text-sm font-bold text-slate-800">Rendering A4 Claim Sheet...</p>
-                    <p className="text-xs text-slate-500 mt-0.5">Generating high-precision preview</p>
-                  </div>
+        {/* ======================================================== */}
+        {/* Main Viewer Body (Real-time Canvas or Native Embed) */}
+        {/* ======================================================== */}
+        <div
+          ref={containerRef}
+          className="flex-1 bg-slate-950/90 relative p-3 sm:p-6 overflow-auto flex items-center justify-center min-h-[300px]"
+        >
+          {engineMode === 'canvas' ? (
+            <div className="w-full h-full flex items-center justify-center relative min-h-[350px]">
+              {/* Spinner during rendering */}
+              {loading && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950/70 z-10 backdrop-blur-2xs">
+                  <Loader2 className="w-8 h-8 text-indigo-400 animate-spin" />
+                  <p className="text-xs font-bold text-slate-200">
+                    {isRefreshing ? 'Re-generating with fresh claim data...' : 'Rendering high-precision A4 sheet...'}
+                  </p>
                 </div>
               )}
 
-              {canvasError && !canvasLoading && (
-                <div className="flex flex-col items-center justify-center gap-3 p-8 bg-white rounded-2xl shadow-lg border border-rose-200 max-w-md text-center">
-                  <AlertTriangle className="w-8 h-8 text-rose-600" />
-                  <p className="text-sm font-bold text-rose-800">Canvas Rendering Note</p>
-                  <p className="text-xs text-slate-600">Switching back to Google Drive facility or embedded PDF viewer.</p>
+              {/* Render Error Fallback */}
+              {renderError && !loading && (
+                <div className="flex flex-col items-center justify-center gap-3 p-8 bg-slate-900 rounded-2xl border border-rose-500/30 max-w-md text-center text-white">
+                  <AlertTriangle className="w-8 h-8 text-rose-400" />
+                  <p className="text-sm font-bold text-rose-200">Canvas Rendering Note</p>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    {renderError}
+                  </p>
                   <button
-                    onClick={() => setViewMode('gdrive')}
-                    className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition cursor-pointer"
+                    onClick={() => setEngineMode('native')}
+                    className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-500 transition cursor-pointer"
                   >
-                    <Cloud className="w-3.5 h-3.5" />
-                    <span>View in Google Drive Facility</span>
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>Switch to Native Browser Viewer</span>
                   </button>
                 </div>
               )}
 
-              <div className={`transition-opacity duration-200 ${canvasLoading ? 'opacity-0' : 'opacity-100'}`}>
+              {/* Vector Canvas Container */}
+              <div
+                className={`transition-opacity duration-200 flex items-center justify-center p-2 ${
+                  loading ? 'opacity-40' : 'opacity-100'
+                }`}
+              >
                 <canvas
                   ref={canvasRef}
-                  className="bg-white shadow-2xl rounded-xs border border-slate-300 mx-auto"
+                  className="bg-white shadow-2xl rounded-xs border border-slate-300 mx-auto transition-transform duration-100"
                 />
               </div>
+            </div>
+          ) : (
+            /* Native Browser Embed Mode */
+            <div className="w-full h-full rounded-xl overflow-hidden bg-white shadow-2xl border border-slate-700 flex flex-col">
+              <iframe
+                key={`${pdfUrl}_${localRefreshTick}`}
+                src={`${pdfUrl}#toolbar=1&navpanes=0`}
+                className="w-full h-full border-0 bg-white"
+                title={`Native PDF Preview - ${filename}`}
+              />
             </div>
           )}
         </div>
 
+        {/* ======================================================== */}
         {/* Bottom Footer Actions */}
-        <div className="px-4 py-3 bg-white border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-2 shrink-0">
-          <div className="text-xs text-slate-500 flex items-center gap-2 flex-wrap">
-            <span>Rendered with exact coordinates on official template background.</span>
-            <span className="hidden sm:inline text-slate-300">|</span>
-            <span className="hidden sm:inline text-slate-400">
-              {viewMode === 'gdrive'
-                ? driveResult
-                  ? 'Google Drive Cloud Engine'
-                  : 'Google Drive Facility'
-                : viewMode === 'embedded'
-                ? 'Native Vector Engine'
-                : `Page ${pageNumber} of ${numPages}`}
+        {/* ======================================================== */}
+        <div className="px-4 py-3 bg-slate-950 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0 text-white">
+          <div className="text-xs text-slate-400 flex items-center gap-2 flex-wrap">
+            <span className="font-medium text-slate-300">Form 10756 Calibration:</span>
+            <span>Accurate A4 Coordinates</span>
+            <span className="text-slate-600">&bull;</span>
+            <span className="text-slate-400">
+              {engineMode === 'canvas'
+                ? `Vector Renderer (${Math.round(scale * 100)}%)`
+                : 'Native Browser PDF Plugin'}
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* Save to Drive button if not yet uploaded */}
-            {!driveResult && (
-              <button
-                type="button"
-                onClick={handleUploadToGoogleDrive}
-                disabled={isDriveUploading}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-semibold transition cursor-pointer"
-              >
-                {isDriveUploading ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Cloud className="w-3.5 h-3.5" />
-                )}
-                <span>Sync to Google Drive</span>
-              </button>
-            )}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Optional Cloud Backup Button (Clean backup without blocking preview) */}
+            <button
+              type="button"
+              onClick={handleBackupToGoogleDrive}
+              disabled={isUploadingToDrive}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition cursor-pointer disabled:opacity-50"
+              title="Save a backup copy to your Google Drive"
+            >
+              {isUploadingToDrive ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400" />
+              ) : (
+                <Cloud className="w-3.5 h-3.5 text-blue-400" />
+              )}
+              <span className="hidden sm:inline">Backup to Google Drive</span>
+            </button>
 
+            {/* Save to Claim History Button */}
             {onSaveClaim && (
               <button
+                type="button"
                 onClick={onSaveClaim}
                 disabled={isSaved}
                 className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition ${
                   isSaved
-                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-default'
-                    : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm cursor-pointer'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 cursor-default'
+                    : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs cursor-pointer'
                 }`}
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
@@ -635,9 +619,11 @@ export const PDFPreviewModal: React.FC<PDFPreviewModalProps> = ({
               </button>
             )}
 
+            {/* Download Button */}
             <button
+              type="button"
               onClick={handleDownload}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold shadow-sm transition cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-xs transition cursor-pointer"
             >
               <Download className="w-3.5 h-3.5" />
               <span>Download A4 PDF</span>

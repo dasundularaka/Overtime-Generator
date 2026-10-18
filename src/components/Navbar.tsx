@@ -105,6 +105,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'new-claim' as NavigationTab, label: 'New Claim', icon: FileText },
     { id: 'history' as NavigationTab, label: 'Claim History', icon: History },
     { id: 'calendar' as NavigationTab, label: 'Calendar', icon: Calendar },
+    { id: 'branches' as NavigationTab, label: 'Branch Network', icon: Building2 },
   ];
 
   // Administrative tools grouped into a dropdown (Admin Exclusive)
