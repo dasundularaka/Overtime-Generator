@@ -76,6 +76,7 @@ export interface UserProfile {
   daysPay?: number; // Default day's pay in Rs. (Non-Working Days)
   hourlyRateNonWorkingDays?: number; // Default hourly rate in Non-Working Days in Rs.
   totalRemuneration?: number; // Default salary/remuneration in Rs.
+  isRatesLocked?: boolean; // When true, OT rates are locked for this user on claims
   assignedTemplateIds?: string[]; // Templates assigned by admin; user can only access these
   welcomeEmailDispatched?: boolean;
   welcomeEmailSubject?: string;

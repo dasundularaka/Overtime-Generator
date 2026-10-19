@@ -16,6 +16,7 @@ import {
   Sparkles,
   FileText,
   Lock,
+  Unlock,
   Banknote,
   Calculator,
   KeyRound,
@@ -46,6 +47,7 @@ import {
   subscribeToRoleRates,
   fetchDepartmentsFromFirestore,
   subscribeToDepartments,
+  saveDepartment,
 } from '../utils/branchRoleManager';
 
 export const UserManagement: React.FC = () => {
@@ -85,6 +87,7 @@ export const UserManagement: React.FC = () => {
   const [branch, setBranch] = useState('Head Office - Colombo');
   const [branchCode, setBranchCode] = useState('');
   const [department, setDepartment] = useState('IT & Infrastructure Operations');
+  const [isCustomDept, setIsCustomDept] = useState(false);
   const [maxOtHoursPerDay, setMaxOtHoursPerDay] = useState<number>(2.0);
   const [shiftStartTime, setShiftStartTime] = useState<string>('08:00');
   const [shiftEndTime, setShiftEndTime] = useState<string>('16:45');
@@ -93,6 +96,7 @@ export const UserManagement: React.FC = () => {
   const [daysPay, setDaysPay] = useState<number | ''>('');
   const [hourlyRateNonWorkingDays, setHourlyRateNonWorkingDays] = useState<number | ''>('');
   const [totalRemuneration, setTotalRemuneration] = useState<number | ''>('');
+  const [isRatesLocked, setIsRatesLocked] = useState<boolean>(false);
 
   // Confirmation Modal State
   const [userToDelete, setUserToDelete] = useState<UserProfile | null>(null);
@@ -229,6 +233,7 @@ export const UserManagement: React.FC = () => {
     setShiftStartTime('08:00');
     setShiftEndTime('16:45');
     setTotalRemuneration('');
+    setIsRatesLocked(false);
     setDispatchEmailViaGmail(true);
     // Default to primary template or all available
     const defTpl = availableTemplates.find(t => t.isDefault) || availableTemplates[0];
@@ -258,6 +263,7 @@ export const UserManagement: React.FC = () => {
     setDaysPay(user.daysPay !== undefined ? user.daysPay : '');
     setHourlyRateNonWorkingDays(user.hourlyRateNonWorkingDays !== undefined ? user.hourlyRateNonWorkingDays : '');
     setTotalRemuneration(user.totalRemuneration !== undefined ? user.totalRemuneration : '');
+    setIsRatesLocked(Boolean(user.isRatesLocked));
     setFormError(null);
     setIsModalOpen(true);
   };
@@ -275,6 +281,9 @@ export const UserManagement: React.FC = () => {
       // Automatically assign claim type (OT or OP) with designation
       if (found.claimType) {
         setClaimType(found.claimType);
+      }
+      if (found.isRatesLocked !== undefined) {
+        setIsRatesLocked(found.isRatesLocked);
       }
     }
   };
@@ -319,6 +328,17 @@ export const UserManagement: React.FC = () => {
         cleanPf = 'PF' + cleanPf.replace(/^PF/i, '').padStart(6, '0').slice(-6);
       }
 
+      if (department && department.trim()) {
+        const dName = department.trim();
+        if (!departments.some(d => d.name.toLowerCase() === dName.toLowerCase())) {
+          saveDepartment({
+            id: `dept_${Date.now()}`,
+            name: dName,
+            createdAt: new Date().toISOString(),
+          }).catch(() => {});
+        }
+      }
+
       if (editingUser) {
         // Update existing user profile in Firestore
         const userRef = doc(db, 'users', editingUser.id);
@@ -337,6 +357,7 @@ export const UserManagement: React.FC = () => {
           shiftStartTime: shiftStartTime || '08:00',
           shiftEndTime: shiftEndTime || '16:45',
           assignedTemplateIds: assignedTemplateIds || [],
+          isRatesLocked: isRatesLocked,
           updatedAt: new Date().toISOString(),
         };
 
@@ -464,6 +485,7 @@ export const UserManagement: React.FC = () => {
           shiftStartTime: shiftStartTime || '08:00',
           shiftEndTime: shiftEndTime || '16:45',
           assignedTemplateIds: assignedTemplateIds || [],
+          isRatesLocked: isRatesLocked,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
@@ -1017,8 +1039,13 @@ export const UserManagement: React.FC = () => {
 
                       {/* Hourly Rate & Day's Pay */}
                       <td className="py-3.5 px-4">
-                        <div className="font-bold text-slate-900 font-mono">
-                          {u.hourlyRate ? `Rs. ${u.hourlyRate.toFixed(2)}/h` : <span className="text-slate-400 font-normal italic">Default rate</span>}
+                        <div className="flex items-center gap-1.5 font-bold text-slate-900 font-mono">
+                          <span>{u.hourlyRate ? `Rs. ${u.hourlyRate.toFixed(2)}/h` : <span className="text-slate-400 font-normal italic">Default rate</span>}</span>
+                          {u.isRatesLocked && (
+                            <span className="p-0.5 rounded bg-amber-100 text-amber-800" title="Overtime rates are locked for this user">
+                              <Lock className="w-3 h-3" />
+                            </span>
+                          )}
                         </div>
                         <div className="text-[11px] text-slate-500 font-mono">
                           {u.daysPay ? `Day: Rs. ${u.daysPay.toFixed(2)}` : ''}
@@ -1417,25 +1444,53 @@ export const UserManagement: React.FC = () => {
                     <label className="block font-bold text-slate-700">
                       Department <span className="text-rose-500">*</span>
                     </label>
-                    <span className="text-[10px] text-indigo-600 font-semibold">Auto-loaded with designation</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCustomDept(!isCustomDept);
+                        if (!isCustomDept) setDepartment('');
+                      }}
+                      className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold underline cursor-pointer"
+                    >
+                      {isCustomDept ? 'Choose from list' : '+ Add new department'}
+                    </button>
                   </div>
-                  <select
-                    value={department}
-                    onChange={e => setDepartment(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 bg-white font-medium focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                  >
-                    <option value="">-- Select Department --</option>
-                    {departments.map(d => (
-                      <option key={d.id} value={d.name}>
-                        {d.name}
-                      </option>
-                    ))}
-                    {!departments.some(d => d.name === department) && department && (
-                      <option value={department}>{department}</option>
-                    )}
-                  </select>
+                  {isCustomDept ? (
+                    <input
+                      type="text"
+                      required
+                      value={department}
+                      onChange={e => setDepartment(e.target.value)}
+                      placeholder="e.g. Card Operations, Risk & Compliance"
+                      className="w-full rounded-xl border border-indigo-300 bg-indigo-50/20 px-3 py-2 text-slate-800 font-semibold focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-xs"
+                    />
+                  ) : (
+                    <select
+                      value={department}
+                      onChange={e => {
+                        if (e.target.value === '__add_custom__') {
+                          setIsCustomDept(true);
+                          setDepartment('');
+                        } else {
+                          setDepartment(e.target.value);
+                        }
+                      }}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 bg-white font-medium focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-xs"
+                    >
+                      <option value="">-- Select Department --</option>
+                      {departments.map(d => (
+                        <option key={d.id} value={d.name}>
+                          {d.name}
+                        </option>
+                      ))}
+                      {!departments.some(d => d.name === department) && department && (
+                        <option value={department}>{department}</option>
+                      )}
+                      <option value="__add_custom__">+ Add Custom Department...</option>
+                    </select>
+                  )}
                   <span className="text-[10px] text-slate-400 mt-0.5 block">
-                    Assigned department. Loads automatically when designation is selected.
+                    Assigned department for this staff member. Saved per user.
                   </span>
                 </div>
 
@@ -1557,6 +1612,41 @@ export const UserManagement: React.FC = () => {
                     <span className="text-[10px] text-slate-400 mt-0.5 block">
                       Saturday / Sunday / Holiday Hourly Rate
                     </span>
+                  </div>
+                </div>
+
+                {/* Overtime Rates Lock Policy for this User */}
+                <div className={`mt-3 p-3.5 rounded-2xl border transition-all ${
+                  isRatesLocked
+                    ? 'bg-amber-50 border-amber-300 text-amber-950'
+                    : 'bg-slate-50 border-slate-200 text-slate-800'
+                }`}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-start gap-2.5">
+                      <div className={`p-2 rounded-xl shrink-0 ${isRatesLocked ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-600'}`}>
+                        {isRatesLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-xs">
+                          Overtime Rates Lock: {isRatesLocked ? 'LOCKED' : 'UNLOCKED'}
+                        </h4>
+                        <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                          {isRatesLocked
+                            ? 'Rates are LOCKED: User cannot edit rates on claim sheets.'
+                            : 'Rates are UNLOCKED: User can adjust rates on claim sheets.'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={isRatesLocked}
+                        onChange={e => setIsRatesLocked(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-slate-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+                    </label>
                   </div>
                 </div>
               </div>

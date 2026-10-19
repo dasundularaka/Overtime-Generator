@@ -94,7 +94,6 @@ export const DEFAULT_ROLE_RATES: RoleRate[] = [
     id: 'role_to',
     name: 'Technical Officer',
     description: 'Technical officer responsible for infrastructure & IT maintenance.',
-    department: 'IT & Infrastructure Operations',
     claimType: 'OT',
     hourlyRateWorkingDays: 1850,
     daysPaymentNonWorkingDays: 12500,
@@ -106,7 +105,6 @@ export const DEFAULT_ROLE_RATES: RoleRate[] = [
     id: 'role_sre',
     name: 'Senior Systems Engineer',
     description: 'Core infrastructure, networking, and critical server reliability.',
-    department: 'IT & Infrastructure Operations',
     claimType: 'OT',
     hourlyRateWorkingDays: 2100,
     daysPaymentNonWorkingDays: 14000,
@@ -118,7 +116,6 @@ export const DEFAULT_ROLE_RATES: RoleRate[] = [
     id: 'role_sysadmin',
     name: 'Lead Systems Administrator',
     description: 'Enterprise systems oversight, security, and administrative duties.',
-    department: 'Core Banking & Systems',
     claimType: 'OT',
     hourlyRateWorkingDays: 2500,
     daysPaymentNonWorkingDays: 16000,
@@ -130,7 +127,6 @@ export const DEFAULT_ROLE_RATES: RoleRate[] = [
     id: 'role_staff',
     name: 'Staff Member / Operations Assistant',
     description: 'General administrative support and operations execution.',
-    department: 'Branch Operations & Clearing',
     claimType: 'OT',
     hourlyRateWorkingDays: 1250,
     daysPaymentNonWorkingDays: 8500,
@@ -142,7 +138,6 @@ export const DEFAULT_ROLE_RATES: RoleRate[] = [
     id: 'role_officer',
     name: 'Banking Officer / Analyst',
     description: 'Branch operations, account verification, and document auditing.',
-    department: 'Corporate Banking Division',
     claimType: 'OT',
     hourlyRateWorkingDays: 1550,
     daysPaymentNonWorkingDays: 10500,
@@ -157,11 +152,11 @@ export const DEFAULT_ROLE_RATES: RoleRate[] = [
 export function getLocalBranches(): Branch[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.BRANCHES);
-    if (!raw) return [];
+    if (!raw) return DEFAULT_BRANCHES;
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_BRANCHES;
   } catch {
-    return [];
+    return DEFAULT_BRANCHES;
   }
 }
 
@@ -179,8 +174,17 @@ export async function fetchBranchesFromFirestore(): Promise<Branch[]> {
     const list: Branch[] = [];
     snap.forEach(d => {
       const data = d.data() as Branch;
-      list.push({ ...data, id: data.id || d.id });
+      const def = DEFAULT_BRANCHES.find(b => b.id === d.id);
+      list.push({ ...(def || {}), ...data, id: data.id || d.id });
     });
+    // If firestore is empty, seed default branches
+    if (list.length === 0) {
+      for (const b of DEFAULT_BRANCHES) {
+        setDoc(doc(db, 'branches', b.id), b).catch(() => {});
+      }
+      saveLocalBranches(DEFAULT_BRANCHES);
+      return DEFAULT_BRANCHES;
+    }
     // Sort by branch code (natural alphanumeric)
     list.sort((a, b) => (a.branchCode || '').localeCompare(b.branchCode || '', undefined, { numeric: true, sensitivity: 'base' }));
     saveLocalBranches(list);
@@ -199,8 +203,13 @@ export function subscribeToBranches(callback: (branches: Branch[]) => void): () 
         const list: Branch[] = [];
         snap.forEach(d => {
           const data = d.data() as Branch;
-          list.push({ ...data, id: data.id || d.id });
+          const def = DEFAULT_BRANCHES.find(b => b.id === d.id);
+          list.push({ ...(def || {}), ...data, id: data.id || d.id });
         });
+        if (list.length === 0) {
+          callback(getLocalBranches());
+          return;
+        }
         // Sort by branch code (natural alphanumeric)
         list.sort((a, b) => (a.branchCode || '').localeCompare(b.branchCode || '', undefined, { numeric: true, sensitivity: 'base' }));
         saveLocalBranches(list);
@@ -241,11 +250,11 @@ export async function deleteBranch(branchId: string): Promise<void> {
 export function getLocalRoleRates(): RoleRate[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.ROLES);
-    if (!raw) return [];
+    if (!raw) return DEFAULT_ROLE_RATES;
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_ROLE_RATES;
   } catch {
-    return [];
+    return DEFAULT_ROLE_RATES;
   }
 }
 
@@ -263,9 +272,23 @@ export async function fetchRoleRatesFromFirestore(): Promise<RoleRate[]> {
     const list: RoleRate[] = [];
     snap.forEach(d => {
       const data = d.data() as RoleRate;
-      list.push({ ...data, id: data.id || d.id });
+      const def = DEFAULT_ROLE_RATES.find(dr => dr.id === d.id);
+      list.push({
+        ...(def || {}),
+        ...data,
+        id: data.id || d.id,
+        name: data.name || def?.name || 'Designation',
+      });
     });
-    list.sort((a, b) => a.name.localeCompare(b.name));
+    if (list.length === 0) {
+      // Seed default roles to Firestore
+      for (const r of DEFAULT_ROLE_RATES) {
+        setDoc(doc(db, 'roles', r.id), r).catch(() => {});
+      }
+      saveLocalRoleRates(DEFAULT_ROLE_RATES);
+      return DEFAULT_ROLE_RATES;
+    }
+    list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     saveLocalRoleRates(list);
     return list;
   } catch (e) {
@@ -282,9 +305,19 @@ export function subscribeToRoleRates(callback: (roles: RoleRate[]) => void): () 
         const list: RoleRate[] = [];
         snap.forEach(d => {
           const data = d.data() as RoleRate;
-          list.push({ ...data, id: data.id || d.id });
+          const def = DEFAULT_ROLE_RATES.find(dr => dr.id === d.id);
+          list.push({
+            ...(def || {}),
+            ...data,
+            id: data.id || d.id,
+            name: data.name || def?.name || 'Designation',
+          });
         });
-        list.sort((a, b) => a.name.localeCompare(b.name));
+        if (list.length === 0) {
+          callback(getLocalRoleRates());
+          return;
+        }
+        list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
         saveLocalRoleRates(list);
         callback(list);
       },
@@ -310,20 +343,6 @@ export async function saveRoleRate(role: RoleRate): Promise<void> {
   const updated = idx >= 0 ? [...local] : [role, ...local];
   if (idx >= 0) updated[idx] = role;
   saveLocalRoleRates(updated);
-
-  // If role has department, automatically save to departments collection too
-  if (role.department && role.department.trim()) {
-    const deptName = role.department.trim();
-    const depts = getLocalDepartments();
-    if (!depts.some(d => d.name.toLowerCase() === deptName.toLowerCase())) {
-      const newDept: Department = {
-        id: 'dept_' + Date.now(),
-        name: deptName,
-        createdAt: new Date().toISOString(),
-      };
-      saveDepartment(newDept).catch(() => {});
-    }
-  }
 }
 
 export async function deleteRoleRate(roleId: string): Promise<void> {
@@ -333,16 +352,29 @@ export async function deleteRoleRate(roleId: string): Promise<void> {
 }
 
 export async function toggleRoleRateLock(roleId: string, isLocked: boolean): Promise<void> {
-  const updateData = {
+  const local = getLocalRoleRates();
+  const existing = local.find(r => r.id === roleId) || DEFAULT_ROLE_RATES.find(r => r.id === roleId);
+  const fullRole: RoleRate = {
+    ...(existing || {
+      id: roleId,
+      name: 'Designation',
+      claimType: 'OT',
+      hourlyRateWorkingDays: 1850,
+      daysPaymentNonWorkingDays: 12500,
+      hourlyRateNonWorkingDays: 2312.5,
+      createdAt: new Date().toISOString(),
+    }),
     isRatesLocked: isLocked,
     updatedAt: new Date().toISOString(),
   };
-  await setDoc(doc(db, 'roles', roleId), updateData, { merge: true });
-  const local = getLocalRoleRates();
+
+  await setDoc(doc(db, 'roles', roleId), sanitizeFirestoreData(fullRole));
   const idx = local.findIndex(r => r.id === roleId);
   if (idx >= 0) {
-    local[idx] = { ...local[idx], isRatesLocked: isLocked, updatedAt: updateData.updatedAt };
+    local[idx] = fullRole;
     saveLocalRoleRates([...local]);
+  } else {
+    saveLocalRoleRates([fullRole, ...local]);
   }
 }
 

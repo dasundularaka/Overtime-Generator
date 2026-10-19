@@ -15,6 +15,7 @@ import {
   Calendar,
   ShieldCheck,
   Menu,
+  MoreHorizontal,
   X,
   ChevronRight,
   ChevronDown,
@@ -586,10 +587,10 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-purple-500" />
             </div>
           ) : (
-            <Settings className={`w-5 h-5 ${activeTab === 'settings' ? 'stroke-[2.5]' : 'stroke-2'}`} />
+            <MoreHorizontal className={`w-5 h-5 ${isMoreTabActive || isMobileMenuOpen ? 'stroke-[2.5]' : 'stroke-2'}`} />
           )}
           <span className="text-[10px] mt-1 font-medium">
-            {isAdmin ? 'Admin' : 'Settings'}
+            {isAdmin ? 'Admin' : 'More'}
           </span>
         </button>
       </nav>
@@ -634,152 +635,119 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             </div>
 
-            {/* Admin Hub Links */}
+            {/* Application Section Links in Pairs (If an item is not paired, spans full area) */}
             <div className="grid grid-cols-2 gap-2 text-xs">
-              {isAdmin && (
-                <>
-                  <button
-                    onClick={() => {
-                      onSelectTab('users');
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`flex items-center gap-2.5 p-3 rounded-2xl border text-left transition cursor-pointer ${
-                      activeTab === 'users'
-                        ? 'bg-purple-900/40 border-purple-500 text-purple-200 font-bold'
-                        : 'bg-slate-800/80 border-slate-700/80 text-slate-200 hover:bg-slate-700'
-                    }`}
-                  >
-                    <UserCheck className="w-4 h-4 text-purple-400 shrink-0" />
-                    <div>
-                      <span className="block font-bold">User Admin</span>
-                      <span className="text-[10px] text-slate-400">OT limits &amp; roles</span>
-                    </div>
-                  </button>
+              {(() => {
+                const sectionItems = [
+                  ...(isAdmin
+                    ? [
+                        {
+                          id: 'users' as NavigationTab,
+                          label: 'User Admin',
+                          desc: 'OT limits & roles',
+                          icon: UserCheck,
+                          color: 'text-purple-400',
+                          activeBg: 'bg-purple-900/40 border-purple-500 text-purple-200',
+                        },
+                        {
+                          id: 'roles' as NavigationTab,
+                          label: 'Roles & Rates',
+                          desc: 'Overtime Rates',
+                          icon: Briefcase,
+                          color: 'text-amber-400',
+                          activeBg: 'bg-amber-900/40 border-amber-500 text-amber-200',
+                        },
+                        {
+                          id: 'audit' as NavigationTab,
+                          label: 'Audit Logs',
+                          desc: 'Traceability',
+                          icon: ShieldCheck,
+                          color: 'text-blue-400',
+                          activeBg: 'bg-blue-900/40 border-blue-500 text-blue-200',
+                        },
+                        {
+                          id: 'designer' as NavigationTab,
+                          label: 'Designer',
+                          desc: 'A4 Template Calib',
+                          icon: Sliders,
+                          color: 'text-indigo-400',
+                          activeBg: 'bg-indigo-900/40 border-indigo-500 text-indigo-200',
+                        },
+                        {
+                          id: 'employees' as NavigationTab,
+                          label: 'Employees',
+                          desc: 'Profiles & rates',
+                          icon: Users,
+                          color: 'text-blue-400',
+                          activeBg: 'bg-blue-900/40 border-blue-500 text-blue-200',
+                        },
+                      ]
+                    : []),
+                  {
+                    id: 'branches' as NavigationTab,
+                    label: 'Branches',
+                    desc: 'Branch Network',
+                    icon: Building2,
+                    color: 'text-emerald-400',
+                    activeBg: 'bg-emerald-900/40 border-emerald-500 text-emerald-200',
+                  },
+                  {
+                    id: 'settings' as NavigationTab,
+                    label: 'Settings',
+                    desc: 'Format & offsets',
+                    icon: Settings,
+                    color: 'text-slate-300',
+                    activeBg: 'bg-indigo-900/40 border-indigo-500 text-indigo-200',
+                  },
+                  {
+                    id: 'logout' as const,
+                    label: 'Sign Out',
+                    desc: 'End session',
+                    icon: LogOut,
+                    color: 'text-rose-400',
+                    activeBg: '',
+                    isLogout: true,
+                  },
+                ];
 
-                  <button
-                    onClick={() => {
-                      onSelectTab('roles');
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`flex items-center gap-2.5 p-3 rounded-2xl border text-left transition cursor-pointer ${
-                      activeTab === 'roles'
-                        ? 'bg-amber-900/40 border-amber-500 text-amber-200 font-bold'
-                        : 'bg-slate-800/80 border-slate-700/80 text-slate-200 hover:bg-slate-700'
-                    }`}
-                  >
-                    <Briefcase className="w-4 h-4 text-amber-400 shrink-0" />
-                    <div>
-                      <span className="block font-bold">Roles &amp; Rates</span>
-                      <span className="text-[10px] text-slate-400">Overtime Rates</span>
-                    </div>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      onSelectTab('audit');
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`flex items-center gap-2.5 p-3 rounded-2xl border text-left transition cursor-pointer ${
-                      activeTab === 'audit'
-                        ? 'bg-blue-900/40 border-blue-500 text-blue-200 font-bold'
-                        : 'bg-slate-800/80 border-slate-700/80 text-slate-200 hover:bg-slate-700'
-                    }`}
-                  >
-                    <ShieldCheck className="w-4 h-4 text-blue-400 shrink-0" />
-                    <div>
-                      <span className="block font-bold">Audit Logs</span>
-                      <span className="text-[10px] text-slate-400">Traceability</span>
-                    </div>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      onSelectTab('designer');
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`flex items-center gap-2.5 p-3 rounded-2xl border text-left transition cursor-pointer ${
-                      activeTab === 'designer'
-                        ? 'bg-indigo-900/40 border-indigo-500 text-indigo-200 font-bold'
-                        : 'bg-slate-800/80 border-slate-700/80 text-slate-200 hover:bg-slate-700'
-                    }`}
-                  >
-                    <Sliders className="w-4 h-4 text-indigo-400 shrink-0" />
-                    <div>
-                      <span className="block font-bold">Designer</span>
-                      <span className="text-[10px] text-slate-400">A4 Template Calib</span>
-                    </div>
-                  </button>
-                </>
-              )}
-
-              {/* Branch Network - Accessible to both Admins & Users */}
-              <button
-                onClick={() => {
-                  onSelectTab('branches');
-                  setIsMobileMenuOpen(false);
-                }}
-                className={`flex items-center gap-2.5 p-3 rounded-2xl border text-left transition cursor-pointer ${
-                  activeTab === 'branches'
-                    ? 'bg-emerald-900/40 border-emerald-500 text-emerald-200 font-bold'
-                    : 'bg-slate-800/80 border-slate-700/80 text-slate-200 hover:bg-slate-700'
-                }`}
-              >
-                <Building2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <div>
-                  <span className="block font-bold">Branches</span>
-                  <span className="text-[10px] text-slate-400">Branch Network</span>
-                </div>
-              </button>
-
-              <button
-                onClick={() => {
-                  onSelectTab('employees');
-                  setIsMobileMenuOpen(false);
-                }}
-                className={`flex items-center gap-2.5 p-3 rounded-2xl border text-left transition cursor-pointer ${
-                  activeTab === 'employees'
-                    ? 'bg-blue-900/40 border-blue-500 text-blue-200 font-bold'
-                    : 'bg-slate-800/80 border-slate-700/80 text-slate-200 hover:bg-slate-700'
-                }`}
-              >
-                <Users className="w-4 h-4 text-blue-400 shrink-0" />
-                <div>
-                  <span className="block font-bold">Employees</span>
-                  <span className="text-[10px] text-slate-400">Profiles &amp; rates</span>
-                </div>
-              </button>
-
-              <button
-                onClick={() => {
-                  onSelectTab('settings');
-                  setIsMobileMenuOpen(false);
-                }}
-                className={`flex items-center gap-2.5 p-3 rounded-2xl border text-left transition cursor-pointer ${
-                  activeTab === 'settings'
-                    ? 'bg-indigo-900/40 border-indigo-500 text-indigo-200 font-bold'
-                    : 'bg-slate-800/80 border-slate-700/80 text-slate-200 hover:bg-slate-700'
-                }`}
-              >
-                <Settings className="w-4 h-4 text-slate-300 shrink-0" />
-                <div>
-                  <span className="block font-bold">Settings</span>
-                  <span className="text-[10px] text-slate-400">Format &amp; offsets</span>
-                </div>
-              </button>
-
-              <button
-                onClick={() => {
-                  setIsMobileMenuOpen(false);
-                  setIsLogoutConfirmOpen(true);
-                }}
-                className="flex items-center gap-2.5 p-3 rounded-2xl bg-rose-950/40 border border-rose-800/50 text-rose-300 hover:bg-rose-900/50 text-left transition cursor-pointer"
-              >
-                <LogOut className="w-4 h-4 text-rose-400 shrink-0" />
-                <div>
-                  <span className="block font-bold">Sign Out</span>
-                  <span className="text-[10px] text-rose-400/80">End session</span>
-                </div>
-              </button>
+                return sectionItems.map((item, index) => {
+                  const isUnpaired = sectionItems.length % 2 !== 0 && index === sectionItems.length - 1;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => {
+                        setIsMobileMenuOpen(false);
+                        if (item.isLogout) {
+                          setIsLogoutConfirmOpen(true);
+                        } else {
+                          onSelectTab(item.id as NavigationTab);
+                        }
+                      }}
+                      className={`flex items-center gap-2.5 p-3 rounded-2xl border text-left transition cursor-pointer ${
+                        isUnpaired ? 'col-span-2 justify-center py-3.5' : ''
+                      } ${
+                        item.isLogout
+                          ? 'bg-rose-950/40 border-rose-800/50 text-rose-300 hover:bg-rose-900/50'
+                          : activeTab === item.id
+                            ? `${item.activeBg} font-bold`
+                            : 'bg-slate-800/80 border-slate-700/80 text-slate-200 hover:bg-slate-700'
+                      }`}
+                    >
+                      <item.icon className={`w-4 h-4 ${item.color} shrink-0`} />
+                      <div>
+                        <span className="block font-bold">{item.label}</span>
+                        <span
+                          className={`text-[10px] ${
+                            item.isLogout ? 'text-rose-400/80' : 'text-slate-400'
+                          }`}
+                        >
+                          {item.desc}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                });
+              })()}
             </div>
           </div>
         </div>

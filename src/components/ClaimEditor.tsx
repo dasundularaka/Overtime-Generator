@@ -69,6 +69,8 @@ import { subscribeToHolidays } from '../services/holidayService';
 import {
   fetchRoleRatesFromFirestore,
   subscribeToRoleRates,
+  getLocalRoleRates,
+  DEFAULT_ROLE_RATES,
 } from '../utils/branchRoleManager';
 
 interface ClaimEditorProps {
@@ -215,8 +217,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   // Holidays Calendar Sync State
   const [calendarHolidays, setCalendarHolidays] = useState<Holiday[]>([]);
 
-  // Corporate Role Rates Subscription
-  const [roleRates, setRoleRates] = useState<RoleRate[]>([]);
+  // Corporate Role Rates Subscription - initialized immediately from local cache
+  const [roleRates, setRoleRates] = useState<RoleRate[]>(getLocalRoleRates());
 
   useEffect(() => {
     fetchRoleRatesFromFirestore().then(list => {
@@ -278,26 +280,64 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   // Find the corporate RoleRate definition matching the user's role/designation
   const userRelevantRole = useMemo(() => {
     if (!targetProfile && !designation) return null;
+    // 1. Match by roleId
     if (targetProfile?.roleId) {
       const byId = roleRates.find(r => r.id === targetProfile.roleId);
       if (byId) return byId;
     }
+    // 2. Match by roleName
     if (targetProfile?.roleName) {
-      const byRoleName = roleRates.find(r => r.name.toLowerCase() === targetProfile.roleName?.toLowerCase());
+      const targetRoleName = targetProfile.roleName.toLowerCase().trim();
+      const byRoleName = roleRates.find(r => (r.name || '').toLowerCase().trim() === targetRoleName);
       if (byRoleName) return byRoleName;
     }
-    const title = targetProfile?.designation || designation;
+    // 3. Match by designation (exact)
+    const title = (targetProfile?.designation || designation || '').toLowerCase().trim();
     if (title) {
-      const byDesig = roleRates.find(r => r.name.toLowerCase() === title.toLowerCase());
+      const byDesig = roleRates.find(r => (r.name || '').toLowerCase().trim() === title);
       if (byDesig) return byDesig;
+      // 4. Match by substring / keyword (e.g. "Technical Officer", "Clerk", "Engineer")
+      const bySub = roleRates.find(r => {
+        const rn = (r.name || '').toLowerCase().trim();
+        return (rn.length > 2 && title.includes(rn)) || (title.length > 2 && rn.includes(title));
+      });
+      if (bySub) return bySub;
     }
+    // 5. Fallback check in default role rates
+    const fallbackDef = DEFAULT_ROLE_RATES.find(dr => {
+      const drn = dr.name.toLowerCase().trim();
+      return dr.id === targetProfile?.roleId || (title && (drn === title || title.includes(drn) || drn.includes(title)));
+    });
+    if (fallbackDef) return fallbackDef;
+
     return null;
   }, [targetProfile, designation, roleRates]);
 
-  // Lock status of the user's relevant role
-  const isRoleRatesLocked = Boolean(userRelevantRole?.isRatesLocked);
+  // Lock status of the user's relevant role: locked if corporate role is locked or profile is locked
+  const isRoleRatesLocked = Boolean(
+    (!isAdmin && targetProfile?.isRatesLocked) ||
+    userRelevantRole?.isRatesLocked ||
+    (targetProfile?.roleId && roleRates.some(r => r.id === targetProfile.roleId && r.isRatesLocked)) ||
+    (targetProfile?.designation && roleRates.some(r => (r.name || '').toLowerCase().trim() === targetProfile.designation.toLowerCase().trim() && r.isRatesLocked))
+  );
+
   // Standard users cannot edit if locked; Admins can always edit
   const canEditRates = isAdmin || !isRoleRatesLocked;
+
+  // Enforce locked rates in form: if locked by admin, standard users cannot change rates
+  useEffect(() => {
+    if (!isAdmin && isRoleRatesLocked && userRelevantRole) {
+      if (userRelevantRole.hourlyRateWorkingDays !== undefined) {
+        setHourlyRate(userRelevantRole.hourlyRateWorkingDays);
+      }
+      if (userRelevantRole.daysPaymentNonWorkingDays !== undefined) {
+        setDaysPay(userRelevantRole.daysPaymentNonWorkingDays);
+      }
+      if (userRelevantRole.hourlyRateNonWorkingDays !== undefined) {
+        setHourlyRateNonWorkingDays(userRelevantRole.hourlyRateNonWorkingDays);
+      }
+    }
+  }, [isAdmin, isRoleRatesLocked, userRelevantRole]);
 
   // Sync profile details into form
   useEffect(() => {
@@ -836,6 +876,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   ]);
 
   const handleRemunerationChange = (val: string) => {
+    if (!canEditRates) return;
     if (val === '') {
       setTotalRemuneration('');
       return;
@@ -1459,8 +1500,12 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                 type="number"
                 step="0.01"
                 disabled={!canEditRates}
+                readOnly={!canEditRates}
                 value={hourlyRate}
-                onChange={e => setHourlyRate(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                onChange={e => {
+                  if (!canEditRates) return;
+                  setHourlyRate(e.target.value === '' ? '' : parseFloat(e.target.value));
+                }}
                 placeholder="e.g. 1850.00"
                 className={`w-full rounded-lg border py-1.5 pl-9 pr-2.5 font-mono font-bold text-xs ${
                   !canEditRates
@@ -1487,8 +1532,12 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                 type="number"
                 step="0.01"
                 disabled={!canEditRates}
+                readOnly={!canEditRates}
                 value={daysPay}
-                onChange={e => setDaysPay(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                onChange={e => {
+                  if (!canEditRates) return;
+                  setDaysPay(e.target.value === '' ? '' : parseFloat(e.target.value));
+                }}
                 placeholder="e.g. 12500.00"
                 className={`w-full rounded-lg border py-1.5 pl-9 pr-2.5 font-mono font-bold text-xs ${
                   !canEditRates
@@ -1515,8 +1564,12 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                 type="number"
                 step="0.01"
                 disabled={!canEditRates}
+                readOnly={!canEditRates}
                 value={hourlyRateNonWorkingDays}
-                onChange={e => setHourlyRateNonWorkingDays(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                onChange={e => {
+                  if (!canEditRates) return;
+                  setHourlyRateNonWorkingDays(e.target.value === '' ? '' : parseFloat(e.target.value));
+                }}
                 placeholder="e.g. 2312.50"
                 className={`w-full rounded-lg border py-1.5 pl-9 pr-2.5 font-mono font-bold text-xs ${
                   !canEditRates
@@ -1542,13 +1595,17 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                 type="number"
                 step="0.01"
                 disabled={!canEditRates}
+                readOnly={!canEditRates}
                 value={totalRemuneration}
-                onChange={e => handleRemunerationChange(e.target.value)}
+                onChange={e => {
+                  if (!canEditRates) return;
+                  handleRemunerationChange(e.target.value);
+                }}
                 placeholder="e.g. 275000.00"
                 className={`w-full rounded-lg border py-1.5 pl-9 pr-2.5 font-mono text-xs ${
                   !canEditRates
                     ? 'border-slate-200 bg-slate-100 text-slate-600 cursor-not-allowed select-none'
-                    : 'border-slate-300 bg-white text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
+                    : 'border-emerald-300 bg-emerald-50/30 text-emerald-950 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500'
                 }`}
               />
             </div>

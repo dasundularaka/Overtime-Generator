@@ -18,6 +18,7 @@ import {
   UserCheck,
   AlertTriangle,
   Banknote,
+  Building2,
 } from 'lucide-react';
 import { collection, getDocs, query, where, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase/config';
@@ -228,16 +229,25 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <div className="flex flex-col sm:flex-row md:flex-col gap-2.5 shrink-0">
             <button
               onClick={() => onNavigate('new-claim')}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-3 text-xs font-bold shadow-lg transition"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-3 text-xs font-bold shadow-lg transition cursor-pointer"
             >
               <PlusCircle className="w-4 h-4" />
               <span>Submit Timesheet</span>
             </button>
 
+            <button
+              onClick={() => onNavigate('branches')}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2.5 text-xs font-semibold border border-slate-700 transition cursor-pointer"
+              title="Access corporate bank branch network directory"
+            >
+              <Building2 className="w-4 h-4 text-emerald-400" />
+              <span>Branch Network</span>
+            </button>
+
             {isAdmin && (
               <button
                 onClick={() => onNavigate('users')}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 px-4 py-2.5 text-xs font-semibold border border-purple-500/40 transition"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 px-4 py-2.5 text-xs font-semibold border border-purple-500/40 transition cursor-pointer"
               >
                 <UserCheck className="w-4 h-4" />
                 <span>Assign User OT Limits</span>

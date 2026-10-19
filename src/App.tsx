@@ -32,7 +32,7 @@ function AppContent() {
     }
   }, [isAdmin]);
 
-  // Safeguard: non-admins cannot stay on designer, users, audit, branches, roles, or employees tabs
+  // Safeguard: non-admins cannot stay on designer, users, audit, roles, or employees tabs (branches is accessible to all staff)
   useEffect(() => {
     if (
       !loading &&
@@ -40,7 +40,6 @@ function AppContent() {
       (activeTab === 'designer' ||
         activeTab === 'users' ||
         activeTab === 'audit' ||
-        activeTab === 'branches' ||
         activeTab === 'roles' ||
         activeTab === 'employees')
     ) {
