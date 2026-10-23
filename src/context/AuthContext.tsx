@@ -9,6 +9,8 @@ import {
   sendPasswordResetEmail,
   signOut as fbSignOut,
   GoogleAuthProvider,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
 } from 'firebase/auth';
 import {
   doc,
@@ -16,6 +18,7 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
+  deleteField,
   collection,
   query,
   where,
@@ -93,6 +96,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         data.photoURL = user.photoURL;
         updateDoc(userDocRef, { photoURL: user.photoURL }).catch(() => {});
       }
+      // If user has already completed mandatory password change, ensure reset flags are cleared
+      if (data.mustChangePassword === false) {
+        data.passwordMatchesPf = false;
+        data.isFirstLogin = false;
+      }
       // CRITICAL: NEVER overwrite data.name with Google displayName!
       // The name saved in the database by admin is the real name.
       return data;
@@ -112,6 +120,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           // CRITICAL: Preserve the real name set by admin! Do NOT overwrite with user.displayName
           const realName = preData.name || 'User';
+
+          if (preData.mustChangePassword === false) {
+            preData.passwordMatchesPf = false;
+            preData.isFirstLogin = false;
+          }
 
           const linkedProfile: UserProfile = {
             ...preData,
@@ -540,6 +553,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         const isVerified =
           (storedAccount && verifyAccountPassword(storedAccount, cleanPass)) ||
+          (candidateProfile.passwordHash && candidateProfile.passwordHash === cleanPass) ||
+          (candidateProfile.passwordHash && candidateProfile.passwordHash.toLowerCase() === cleanPass.toLowerCase()) ||
           // Direct PF matches as default password
           passUpper === candidatePf ||
           passUpper === formatPfNumber(candidatePf) ||
@@ -594,19 +609,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         passUpper === formatPfNumber(candidatePf) ||
         passUpper === standardPf ||
         (candidateDigits && candidateDigits.length >= 4 && passDigits === candidateDigits) ||
-        (finalProfile.initialPassword && cleanPass.toUpperCase() === finalProfile.initialPassword.toUpperCase());
+        (finalProfile.initialPassword ? cleanPass.toUpperCase() === finalProfile.initialPassword.toUpperCase() : false);
 
-      // If user's password is the same as PF number, flag mustChangePassword to display reset panel immediately
-      if (isPasswordSameAsPf || finalProfile.mustChangePassword || finalProfile.isFirstLogin) {
+      // If user's password is the same as PF number or admin requested change, require password change
+      if (isPasswordSameAsPf || finalProfile.mustChangePassword) {
         finalProfile = {
           ...finalProfile,
           mustChangePassword: true,
           isFirstLogin: true,
-          passwordMatchesPf: Boolean(
-            isPasswordSameAsPf ||
-            finalProfile.passwordMatchesPf ||
-            (finalProfile.initialPassword ? cleanPass.toUpperCase() === finalProfile.initialPassword.toUpperCase() : false)
-          ),
+          passwordMatchesPf: isPasswordSameAsPf,
+        };
+      } else {
+        // User authenticated with their custom private password - clear reset flags
+        finalProfile = {
+          ...finalProfile,
+          mustChangePassword: false,
+          isFirstLogin: false,
+          passwordMatchesPf: false,
         };
       }
 
@@ -715,42 +734,102 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateUserPassword = async (newPass: string) => {
     const cleanPass = newPass.trim();
+
+    // 1. Synchronize password in Firebase Auth
     if (auth.currentUser) {
       try {
         await updatePassword(auth.currentUser, cleanPass);
-      } catch (e) {
-        console.warn('Firebase updatePassword note:', e);
+      } catch (authErr: any) {
+        console.warn('Firebase updatePassword note:', authErr?.code || authErr?.message);
+        // If Firebase Auth requires fresh login, attempt re-authentication with previous credential
+        if (authErr?.code === 'auth/requires-recent-login' && auth.currentUser.email) {
+          const prevCred =
+            userProfile?.passwordHash ||
+            userProfile?.initialPassword ||
+            userProfile?.employeeNumber ||
+            userProfile?.pfNumber;
+          if (prevCred) {
+            try {
+              const cred = EmailAuthProvider.credential(auth.currentUser.email, prevCred);
+              await reauthenticateWithCredential(auth.currentUser, cred);
+              await updatePassword(auth.currentUser, cleanPass);
+            } catch (reauthErr) {
+              console.warn('Re-authentication before updatePassword failed:', reauthErr);
+            }
+          }
+        }
+      }
+    } else if (userProfile?.email) {
+      // If auth.currentUser was not established in Firebase Auth (e.g. offline/secondary mode), try to register or sign in
+      try {
+        const cred = await createUserWithEmailAndPassword(auth, userProfile.email, cleanPass);
+        setCurrentUser(cred.user);
+      } catch {
+        try {
+          const cred = await signInWithEmailAndPassword(auth, userProfile.email, cleanPass);
+          setCurrentUser(cred.user);
+        } catch {}
       }
     }
 
+    // 2. Firmly update Firestore user record and clear all first-time / PF password flags
     if (userProfile?.id) {
       const updatedProfile: UserProfile = {
         ...userProfile,
         mustChangePassword: false,
         isFirstLogin: false,
+        passwordMatchesPf: false,
+        passwordHash: cleanPass,
         updatedAt: new Date().toISOString(),
       };
+      delete (updatedProfile as any).initialPassword;
 
       try {
         await updateDoc(doc(db, 'users', userProfile.id), {
           mustChangePassword: false,
           isFirstLogin: false,
+          passwordMatchesPf: false,
+          passwordHash: cleanPass,
+          initialPassword: deleteField(),
           updatedAt: new Date().toISOString(),
         });
       } catch (e) {
-        console.warn('Firestore updateDoc note:', e);
+        console.warn('Firestore updateDoc on userProfile.id note:', e);
       }
 
+      // If auth.currentUser.uid differs from userProfile.id, update that doc too
+      if (auth.currentUser?.uid && auth.currentUser.uid !== userProfile.id) {
+        try {
+          await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+            mustChangePassword: false,
+            isFirstLogin: false,
+            passwordMatchesPf: false,
+            passwordHash: cleanPass,
+            initialPassword: deleteField(),
+            updatedAt: new Date().toISOString(),
+          });
+        } catch (e) {
+          console.warn('Firestore updateDoc on auth.currentUser.uid note:', e);
+        }
+      }
+
+      // 3. Update pfDirectory so future PF number logins recognize the new password
       const cleanPf = formatPfNumber(userProfile.employeeNumber || userProfile.pfNumber || '');
       if (cleanPf) {
         try {
           await updateDoc(doc(db, 'pfDirectory', cleanPf), {
             mustChangePassword: false,
+            passwordMatchesPf: false,
+            passwordHash: cleanPass,
+            initialPassword: deleteField(),
             updatedAt: new Date().toISOString(),
           });
-        } catch {}
+        } catch (dirErr) {
+          console.warn('pfDirectory updateDoc note:', dirErr);
+        }
       }
 
+      // 4. Update stored local account and active state
       upsertStoredAccount({
         ...updatedProfile,
         passwordHash: cleanPass,

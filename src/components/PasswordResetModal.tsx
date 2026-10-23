@@ -9,18 +9,22 @@ import {
   ShieldAlert,
   Loader2,
   ArrowRight,
+  X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { recordAuditLog } from '../utils/auditLogger';
+import { formatPfNumber } from '../utils/pfHelper';
 
 interface PasswordResetModalProps {
   isOpen: boolean;
   onPasswordChanged: () => void;
+  onClose?: () => void;
 }
 
 export const PasswordResetModal: React.FC<PasswordResetModalProps> = ({
   isOpen,
   onPasswordChanged,
+  onClose,
 }) => {
   const { userProfile, updateUserPassword, logout } = useAuth();
   const [newPassword, setNewPassword] = useState('');
@@ -31,6 +35,12 @@ export const PasswordResetModal: React.FC<PasswordResetModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isOpen) return null;
+
+  const isMandatory = Boolean(
+    userProfile?.mustChangePassword ||
+    userProfile?.isFirstLogin ||
+    userProfile?.passwordMatchesPf
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,10 +59,23 @@ export const PasswordResetModal: React.FC<PasswordResetModalProps> = ({
       return;
     }
 
-    // Reject using the same PF number as password
-    const pf = (userProfile?.employeeNumber || userProfile?.pfNumber || '').toUpperCase();
-    if (pf && cleanPass.toUpperCase() === pf) {
-      setError('Your new password cannot be the same as your PF Number. Please choose a secure password.');
+    // Reject using the same PF number or default credentials as password
+    const pf = (userProfile?.employeeNumber || userProfile?.pfNumber || '').toUpperCase().trim();
+    const pfDigits = pf.replace(/\D/g, '');
+    const cleanPassUpper = cleanPass.toUpperCase();
+    const passDigits = cleanPass.replace(/\D/g, '');
+    const formattedPf = pf ? formatPfNumber(pf) : '';
+
+    const isSameAsPf =
+      (pf && cleanPassUpper === pf) ||
+      (formattedPf && cleanPassUpper === formattedPf.toUpperCase()) ||
+      (pfDigits && cleanPassUpper === pfDigits) ||
+      (pfDigits && cleanPassUpper === `PF${pfDigits}`) ||
+      (pfDigits.length >= 4 && passDigits === pfDigits) ||
+      (userProfile?.initialPassword && cleanPassUpper === userProfile.initialPassword.toUpperCase());
+
+    if (isSameAsPf) {
+      setError('Your new password cannot be the same as your PF Number or default password. Please choose a secure private password.');
       return;
     }
 
@@ -71,7 +94,7 @@ export const PasswordResetModal: React.FC<PasswordResetModalProps> = ({
       setSuccess(true);
       setTimeout(() => {
         onPasswordChanged();
-      }, 1500);
+      }, 1000);
     } catch (err: any) {
       console.error('Failed to update password', err);
       setError(err.message || 'Failed to update password. Please try again.');
@@ -83,6 +106,18 @@ export const PasswordResetModal: React.FC<PasswordResetModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm animate-fade-in">
       <div className="w-full max-w-md rounded-3xl bg-white p-6 sm:p-8 shadow-2xl border border-slate-100 relative animate-scale-in">
+        {/* Optional Close Button (Only when not mandatory) */}
+        {!isMandatory && onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 p-1.5 rounded-full hover:bg-slate-100 transition cursor-pointer"
+            aria-label="Close modal"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        )}
+
         {/* Header Icon */}
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-tr from-indigo-500 to-blue-600 shadow-lg text-white mb-4">
           <KeyRound className="w-7 h-7" />

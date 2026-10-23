@@ -62,8 +62,8 @@ function AppContent() {
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 flex flex-col justify-center items-center p-4">
         <PasswordResetModal
           isOpen={true}
-          onPasswordChanged={() => {
-            refreshUserProfile();
+          onPasswordChanged={async () => {
+            await refreshUserProfile();
           }}
         />
       </div>
@@ -152,16 +152,6 @@ function AppContent() {
           </div>
         </div>
       </footer>
-
-      {/* Force Password Change Modal on First Login or Admin Reset */}
-      {currentUser && (userProfile?.mustChangePassword || userProfile?.isFirstLogin) && (
-        <PasswordResetModal
-          isOpen={true}
-          onPasswordChanged={() => {
-            refreshUserProfile();
-          }}
-        />
-      )}
 
       {/* Offline Status Toast */}
       <OfflineIndicator />

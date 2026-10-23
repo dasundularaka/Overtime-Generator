@@ -519,6 +519,7 @@ export const UserManagement: React.FC = () => {
             name: name.trim(),
             initialPassword: cleanPf,
             mustChangePassword: true,
+            passwordMatchesPf: true,
             createdAt: new Date().toISOString(),
           });
         } catch (dirErr) {
@@ -741,12 +742,14 @@ export const UserManagement: React.FC = () => {
         const rawPf = passwordModalUser.employeeNumber || passwordModalUser.pfNumber || '';
         const cleanPf = formatPfNumber(rawPf) || rawPf.trim().toUpperCase();
         const passToSet = pendingPasswordTarget.type === 'employeeNumber' ? cleanPf : (pendingPasswordTarget.passToSet || cleanPf);
+        const isResettingToPf = pendingPasswordTarget.type === 'employeeNumber' || passToSet.toUpperCase() === cleanPf.toUpperCase();
 
         // Firmly update Firestore user record and pfDirectory so password reset applies globally
         try {
           await updateDoc(doc(db, 'users', passwordModalUser.id), {
             mustChangePassword: true,
             isFirstLogin: true,
+            passwordMatchesPf: isResettingToPf,
             initialPassword: passToSet,
             passwordHash: passToSet,
             updatedAt: new Date().toISOString(),
@@ -758,6 +761,7 @@ export const UserManagement: React.FC = () => {
               name: passwordModalUser.name,
               initialPassword: passToSet,
               mustChangePassword: true,
+              passwordMatchesPf: isResettingToPf,
               updatedAt: new Date().toISOString(),
             }, { merge: true });
           }
