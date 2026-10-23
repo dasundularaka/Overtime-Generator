@@ -650,7 +650,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Record administrative audit log
       recordAuditLog({
         action: 'USER_LOGIN',
-        actionLabel: 'User signed in to system',
+        actionLabel: 'User Signed In with PF Number',
         targetType: 'auth',
         targetId: finalProfile.id,
         targetDescription: `${finalProfile.name} (${finalProfile.employeeNumber || finalProfile.pfNumber})`,
@@ -659,6 +659,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         userPfNumber: finalProfile.employeeNumber || finalProfile.pfNumber,
         userBranch: finalProfile.branch,
         userDepartment: finalProfile.department,
+        afterState: {
+          sessionActive: true,
+          role: finalProfile.role,
+          claimType: finalProfile.claimType,
+          branch: finalProfile.branch,
+          department: finalProfile.department,
+        },
         details: {
           role: finalProfile.role,
           claimType: finalProfile.claimType,
@@ -719,10 +726,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     recordAuditLog({
-      action: 'PASSWORD_RESET',
-      actionLabel: 'User requested password recovery',
+      action: 'USER_PASSWORD_RECOVERY_REQUEST',
+      actionLabel: 'Submitted Password Recovery Request',
       targetType: 'user',
       targetDescription: `${clean} (${targetEmail})`,
+      afterState: {
+        recoveryEmailSent: true,
+        targetEmail: targetEmail.toLowerCase().trim(),
+        pfNumber: cleanPf || undefined,
+      },
       details: {
         identifier: clean,
         targetEmail: targetEmail.toLowerCase().trim(),
@@ -843,10 +855,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (userProfile) {
       recordAuditLog({
         action: 'USER_LOGOUT',
-        actionLabel: 'User signed out of system',
+        actionLabel: 'User Signed Out of System',
         targetType: 'auth',
         targetId: userProfile.id,
         targetDescription: `${userProfile.name} (${userProfile.employeeNumber || userProfile.pfNumber})`,
+        beforeState: {
+          sessionActive: true,
+          role: userProfile.role,
+          branch: userProfile.branch,
+          department: userProfile.department,
+        },
+        afterState: {
+          sessionActive: false,
+        },
       });
     }
 

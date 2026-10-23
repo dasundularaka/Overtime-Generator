@@ -258,31 +258,70 @@ export interface AppSettings {
 
 // ---------------- Administrative Audit Log ----------------
 
+export interface AuditFieldDiff {
+  field: string;
+  label: string;
+  before: any;
+  after: any;
+  formattedBefore?: string;
+  formattedAfter?: string;
+  type?: 'changed' | 'added' | 'removed';
+}
+
 export type AuditActionType =
+  // User Management
   | 'USER_CREATE'
   | 'USER_UPDATE'
   | 'USER_DELETE'
-  | 'BRANCH_CREATE'
-  | 'BRANCH_UPDATE'
-  | 'BRANCH_DELETE'
-  | 'ROLE_CREATE'
-  | 'ROLE_UPDATE'
-  | 'ROLE_DELETE'
-  | 'DEPARTMENT_CREATE'
-  | 'DEPARTMENT_DELETE'
-  | 'PASSWORD_RESET'
-  | 'PASSWORD_CHANGE'
+  | 'USER_LOGIN'
+  | 'USER_LOGOUT'
+  | 'USER_PASSWORD_RESET_ADMIN'
+  | 'USER_PASSWORD_RESET_EMAIL'
+  | 'USER_PASSWORD_RECOVERY_REQUEST'
+  | 'USER_PASSWORD_CHANGE'
+  // Claims
   | 'CLAIM_CREATE'
   | 'CLAIM_UPDATE'
   | 'CLAIM_DELETE'
-  | 'TEMPLATE_SAVE'
-  | 'TEMPLATE_DELETE'
+  | 'CLAIM_BULK_DELETE'
+  | 'CLAIM_DUPLICATE'
+  | 'CLAIM_EXPORT_PDF'
+  // Roles & Designations
+  | 'ROLE_CREATE'
+  | 'ROLE_UPDATE'
+  | 'ROLE_DELETE'
+  | 'ROLE_RATE_LOCK_TOGGLE'
+  // Branches
+  | 'BRANCH_CREATE'
+  | 'BRANCH_UPDATE'
+  | 'BRANCH_DELETE'
+  // Departments
+  | 'DEPARTMENT_CREATE'
+  | 'DEPARTMENT_DELETE'
+  // Holidays & Calendar
+  | 'HOLIDAY_ADD'
+  | 'HOLIDAY_UPDATE'
+  | 'HOLIDAY_DELETE'
   | 'HOLIDAY_IMPORT'
+  // Templates
+  | 'TEMPLATE_CREATE'
+  | 'TEMPLATE_UPDATE'
+  | 'TEMPLATE_DELETE'
+  | 'TEMPLATE_SET_DEFAULT'
+  // Settings & System Data
   | 'SETTINGS_UPDATE'
+  | 'DATA_BACKUP_EXPORT'
+  | 'DATA_BACKUP_RESTORE'
+  | 'DATA_FACTORY_RESET'
+  | 'DATA_PERSONAL_EXPORT'
+  | 'GOOGLE_WORKSPACE_CONNECT'
+  | 'GOOGLE_WORKSPACE_DISCONNECT'
   | 'EMAIL_DISPATCH'
   | 'CLOUD_FUNCTION_EMAIL_DISPATCH'
-  | 'USER_LOGIN'
-  | 'USER_LOGOUT';
+  // Backward compatibility aliases
+  | 'PASSWORD_RESET'
+  | 'PASSWORD_CHANGE'
+  | 'TEMPLATE_SAVE';
 
 export interface AuditLogEntry {
   id: string;
@@ -297,9 +336,13 @@ export interface AuditLogEntry {
   userDepartment?: string;
   userRole?: UserRole;
   // Target Information
-  targetType: 'user' | 'claim' | 'template' | 'holiday' | 'settings' | 'auth' | 'branch' | 'role' | 'department';
+  targetType: 'user' | 'claim' | 'template' | 'holiday' | 'settings' | 'auth' | 'branch' | 'role' | 'department' | 'backup';
   targetId?: string;
   targetDescription: string;
+  // Before vs After changes comparison
+  diff?: AuditFieldDiff[];
+  beforeState?: Record<string, any>;
+  afterState?: Record<string, any>;
   // Additional metadata & changed fields
   details?: Record<string, any>;
   ipOrDevice?: string;

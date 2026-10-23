@@ -1086,13 +1086,47 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       saveClaim(claim);
       await setDoc(doc(db, 'claims', claim.id), sanitizeFirestoreData(claim));
 
-      // Record administrative audit log
+      // Record administrative audit log with comprehensive before vs after state comparison
       await recordAuditLog({
         action: initialClaim ? 'CLAIM_UPDATE' : 'CLAIM_CREATE',
-        actionLabel: initialClaim ? 'Updated overtime claim' : 'Created new overtime claim',
+        actionLabel: initialClaim ? 'Updated Overtime Claim Timesheet' : 'Created New Overtime Claim Timesheet',
         targetType: 'claim',
         targetId: claim.id,
         targetDescription: `${claim.claimNumber} (${claim.employeeName} - ${claim.month}/${claim.year})`,
+        beforeState: initialClaim
+          ? {
+              employeeName: initialClaim.employeeName,
+              designation: initialClaim.designation,
+              branch: initialClaim.branch,
+              department: initialClaim.department,
+              month: initialClaim.month,
+              year: initialClaim.year,
+              totalHoursFormatted: initialClaim.totalHoursFormatted,
+              totalMinutes: initialClaim.totalMinutes,
+              totalOtPayment: initialClaim.totalOtPayment,
+              hourlyRate: initialClaim.hourlyRate,
+              daysPay: initialClaim.daysPay,
+              otDaysCount: initialClaim.otDaysCount,
+              claimType: initialClaim.claimType,
+              status: initialClaim.status,
+            }
+          : undefined,
+        afterState: {
+          employeeName: claim.employeeName,
+          designation: claim.designation,
+          branch: claim.branch,
+          department: claim.department,
+          month: claim.month,
+          year: claim.year,
+          totalHoursFormatted: claim.totalHoursFormatted,
+          totalMinutes: claim.totalMinutes,
+          totalOtPayment: claim.totalOtPayment,
+          hourlyRate: claim.hourlyRate,
+          daysPay: claim.daysPay,
+          otDaysCount: claim.otDaysCount,
+          claimType: claim.claimType,
+          status: claim.status,
+        },
         details: {
           month: claim.month,
           year: claim.year,
@@ -1220,6 +1254,23 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
       // Also save to Firestore database
       await setDoc(doc(db, 'claims', claim.id), sanitizeFirestoreData(claim));
+
+      // Record administrative audit log for PDF generation/export
+      await recordAuditLog({
+        action: 'CLAIM_EXPORT_PDF',
+        actionLabel: 'Exported Official Claim Timesheet PDF',
+        targetType: 'claim',
+        targetId: claim.id,
+        targetDescription: `${claim.claimNumber} (${claim.employeeName} - ${claim.month}/${claim.year})`,
+        afterState: {
+          filename,
+          totalHours: claim.totalHoursFormatted,
+          totalOtPayment: claim.totalOtPayment,
+          month: claim.month,
+          year: claim.year,
+        },
+      });
+
       setClaimSavedSuccess(true);
       if (onClaimSaved) onClaimSaved(claim);
       setTimeout(() => setClaimSavedSuccess(false), 3000);

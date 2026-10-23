@@ -213,10 +213,12 @@ export const BranchManagement: React.FC = () => {
 
       await recordAuditLog({
         action: editingBranch ? 'BRANCH_UPDATE' : 'BRANCH_CREATE',
-        actionLabel: editingBranch ? 'Updated branch network details' : 'Added new branch to network',
+        actionLabel: editingBranch ? 'Updated Branch Network Details' : 'Added New Branch to Network',
         targetType: 'branch',
         targetId: payload.id,
         targetDescription: `${payload.name} (Code: ${payload.branchCode})`,
+        beforeState: editingBranch || undefined,
+        afterState: payload,
         details: {
           branchCode: payload.branchCode,
           telephone: payload.telephone,
@@ -248,10 +250,11 @@ export const BranchManagement: React.FC = () => {
 
       await recordAuditLog({
         action: 'BRANCH_DELETE',
-        actionLabel: 'Deleted branch from network',
+        actionLabel: 'Deleted Operating Branch from Network',
         targetType: 'branch',
         targetId: branchToDelete.id,
         targetDescription: `${branchToDelete.name} (Code: ${branchToDelete.branchCode})`,
+        beforeState: branchToDelete,
       });
 
       setActionSuccess(`Branch "${branchToDelete.name}" deleted successfully.`);

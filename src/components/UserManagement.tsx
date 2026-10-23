@@ -331,10 +331,20 @@ export const UserManagement: React.FC = () => {
       if (department && department.trim()) {
         const dName = department.trim();
         if (!departments.some(d => d.name.toLowerCase() === dName.toLowerCase())) {
+          const newDeptId = `dept_${Date.now()}`;
           saveDepartment({
-            id: `dept_${Date.now()}`,
+            id: newDeptId,
             name: dName,
             createdAt: new Date().toISOString(),
+          }).catch(() => {});
+
+          recordAuditLog({
+            action: 'DEPARTMENT_CREATE',
+            actionLabel: 'Added Corporate Department',
+            targetType: 'department',
+            targetId: newDeptId,
+            targetDescription: dName,
+            afterState: { name: dName },
           }).catch(() => {});
         }
       }
@@ -428,13 +438,18 @@ export const UserManagement: React.FC = () => {
           }
         }
 
-        // Record administrative audit log
+        // Record administrative audit log with comprehensive before vs after comparison
         await recordAuditLog({
           action: 'USER_UPDATE',
-          actionLabel: 'Updated user profile & overtime limits',
+          actionLabel: 'Updated Employee Profile & Rates',
           targetType: 'user',
           targetId: editingUser.id,
           targetDescription: `${name.trim()} (${cleanPf})`,
+          beforeState: editingUser,
+          afterState: {
+            ...editingUser,
+            ...updatedData,
+          },
           details: {
             role,
             claimType,
@@ -536,10 +551,11 @@ export const UserManagement: React.FC = () => {
         // 4. Record administrative audit log
         await recordAuditLog({
           action: 'USER_CREATE',
-          actionLabel: 'Created employee user account',
+          actionLabel: 'Created Employee Profile & PF Credentials',
           targetType: 'user',
           targetId: targetUid,
           targetDescription: `${name.trim()} (${cleanPf})`,
+          afterState: newProfile,
           details: {
             email: cleanEmail,
             role,
@@ -618,10 +634,11 @@ export const UserManagement: React.FC = () => {
       // Record administrative audit log
       await recordAuditLog({
         action: 'USER_DELETE',
-        actionLabel: 'Deleted user account and profile',
+        actionLabel: 'Deleted User Profile & Credentials',
         targetType: 'user',
         targetId: userToDelete.id,
         targetDescription: `${userToDelete.name} (${userToDelete.employeeNumber || userToDelete.pfNumber || 'N/A'})`,
+        beforeState: userToDelete,
         details: {
           email: userToDelete.email,
           role: userToDelete.role,
@@ -727,11 +744,19 @@ export const UserManagement: React.FC = () => {
 
         // Record administrative audit log
         await recordAuditLog({
-          action: 'PASSWORD_RESET',
-          actionLabel: 'Dispatched password reset email to user',
+          action: 'USER_PASSWORD_RESET_EMAIL',
+          actionLabel: 'Dispatched Password Reset Email Link',
           targetType: 'user',
           targetId: passwordModalUser.id,
           targetDescription: `${passwordModalUser.name} (${passwordModalUser.employeeNumber || passwordModalUser.pfNumber})`,
+          beforeState: {
+            notificationSent: false,
+            targetEmail: passwordModalUser.email,
+          },
+          afterState: {
+            notificationSent: true,
+            targetEmail: passwordModalUser.email,
+          },
           details: {
             method: 'email',
             targetEmail: passwordModalUser.email,
@@ -790,13 +815,24 @@ export const UserManagement: React.FC = () => {
 
         // Record administrative audit log
         await recordAuditLog({
-          action: 'PASSWORD_CHANGE',
+          action: 'USER_PASSWORD_RESET_ADMIN',
           actionLabel: pendingPasswordTarget.type === 'employeeNumber'
-            ? 'Reset user password to default PF Number'
-            : 'Applied custom administrative password reset',
+            ? 'Reset User Password to Default PF Number'
+            : 'Applied Custom Administrative Password Reset',
           targetType: 'user',
           targetId: passwordModalUser.id,
           targetDescription: `${passwordModalUser.name} (${passwordModalUser.employeeNumber || passwordModalUser.pfNumber})`,
+          beforeState: {
+            mustChangePassword: passwordModalUser.mustChangePassword,
+            isFirstLogin: passwordModalUser.isFirstLogin,
+            passwordMatchesPf: passwordModalUser.passwordMatchesPf,
+          },
+          afterState: {
+            mustChangePassword: true,
+            isFirstLogin: true,
+            passwordMatchesPf: isResettingToPf,
+            initialPassword: passToSet,
+          },
           details: {
             method: pendingPasswordTarget.type,
             targetEmail: passwordModalUser.email,

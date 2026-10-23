@@ -84,11 +84,22 @@ export const PasswordResetModal: React.FC<PasswordResetModalProps> = ({
       await updateUserPassword(cleanPass);
 
       await recordAuditLog({
-        action: 'PASSWORD_CHANGE',
-        actionLabel: 'User updated personal account password',
+        action: 'USER_PASSWORD_CHANGE',
+        actionLabel: 'Updated Account Password to Private Password',
         targetType: 'user',
         targetId: userProfile?.id,
         targetDescription: `${userProfile?.name} (${userProfile?.employeeNumber || userProfile?.pfNumber})`,
+        beforeState: {
+          mustChangePassword: userProfile?.mustChangePassword,
+          passwordMatchesPf: userProfile?.passwordMatchesPf,
+          isFirstLogin: userProfile?.isFirstLogin,
+        },
+        afterState: {
+          mustChangePassword: false,
+          passwordMatchesPf: false,
+          isFirstLogin: false,
+          passwordUpdated: true,
+        },
       });
 
       setSuccess(true);

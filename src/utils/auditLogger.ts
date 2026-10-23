@@ -1,11 +1,253 @@
 import { collection, doc, setDoc, getDocs, query, orderBy, limit } from 'firebase/firestore';
 import { db } from '../firebase/config';
-import { AuditLogEntry, AuditActionType } from '../types';
+import { AuditLogEntry, AuditActionType, AuditFieldDiff } from '../types';
 import { getActiveSession } from './localAuthManager';
 import { sanitizeFirestoreData } from './firestoreUtils';
 
 const AUDIT_STORAGE_KEY = 'ot_audit_logs_v2';
 const MAX_LOCAL_LOGS = 500;
+
+/**
+ * Common human-friendly label dictionary for data model attributes
+ */
+const FIELD_LABEL_MAP: Record<string, string> = {
+  name: 'Full Name',
+  email: 'Email Address',
+  employeeNumber: 'PF Number (Username)',
+  pfNumber: 'PF Number',
+  role: 'System Access Role',
+  roleId: 'Assigned Role Designation',
+  roleName: 'Role Title',
+  claimType: 'Claim Type (OT / OP)',
+  designation: 'Designation',
+  branch: 'Branch / Office Location',
+  branchCode: 'Branch Code',
+  department: 'Department',
+  hourlyRate: 'Hourly Rate - Working Days (Rs.)',
+  daysPay: 'Day\'s Pay - Non-Working Days (Rs.)',
+  hourlyRateNonWorkingDays: 'Hourly Rate - Non-Working Days (Rs.)',
+  specialHourlyRate: 'Special Assigned Rate (Rs.)',
+  totalRemuneration: 'Basic Remuneration / Salary (Rs.)',
+  isRatesLocked: 'Rates Modification Lock',
+  mustChangePassword: 'Force Password Change Flag',
+  isFirstLogin: 'First Login Status',
+  passwordMatchesPf: 'Password Matches PF Flag',
+  maxOtHoursPerDay: 'Max Overtime Hours / Day',
+  shiftStartTime: 'Standard Shift Start Time',
+  shiftEndTime: 'Standard Shift End Time',
+  assignedTemplateIds: 'Assigned Claim Templates',
+  telephone: 'Telephone Number',
+  address: 'Physical Address',
+  notes: 'Internal Notes',
+  mapLink: 'Google Maps Link',
+  month: 'Claim Period Month',
+  year: 'Claim Period Year',
+  claimNumber: 'Claim Reference Number',
+  totalHoursFormatted: 'Total Overtime Hours',
+  totalMinutes: 'Total Overtime Minutes',
+  totalDecimalHours: 'Decimal Hours',
+  totalOtPayment: 'Total Overtime Payment (Rs.)',
+  otPaymentDueA: 'Standard OT Payment A (Rs.)',
+  daysPayTotal: 'Day\'s Pay Payment (Rs.)',
+  otPaymentDueB: 'Special OT Payment B (Rs.)',
+  otDaysCount: 'Number of Claimed OT Days',
+  status: 'Claim Status',
+  templateId: 'Used Template ID',
+  timeFormat: 'Time Input Format',
+  otDisplayFormat: 'OT Duration Display Format',
+  defaultFont: 'Default PDF Font',
+  globalPrinterOffsetX: 'Global Printer X Offset (mm)',
+  globalPrinterOffsetY: 'Global Printer Y Offset (mm)',
+  activeTemplateId: 'Active Organization Template',
+  date: 'Holiday / Event Date',
+  type: 'Holiday Classification',
+  description: 'Description',
+  targetEmail: 'Target Notification Email',
+  method: 'Reset Verification Method',
+  initialPassword: 'Default Temporary Password',
+};
+
+/**
+ * Converts a raw property key into a readable capitalized label
+ */
+export function formatKeyToLabel(key: string, customLabels?: Record<string, string>): string {
+  if (customLabels && customLabels[key]) return customLabels[key];
+  if (FIELD_LABEL_MAP[key]) return FIELD_LABEL_MAP[key];
+
+  // Convert camelCase or snake_case to Title Case
+  return key
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/[_-]/g, ' ')
+    .replace(/^\w/, c => c.toUpperCase())
+    .trim();
+}
+
+/**
+ * Formats any JavaScript value into a human-scannable string
+ */
+export function formatValue(val: any): string {
+  if (val === undefined || val === null || val === '') {
+    return '—';
+  }
+  if (typeof val === 'boolean') {
+    return val ? 'Yes' : 'No';
+  }
+  if (typeof val === 'number') {
+    return val.toLocaleString('en-US');
+  }
+  if (Array.isArray(val)) {
+    if (val.length === 0) return 'None (0)';
+    if (val.every(item => typeof item === 'string' || typeof item === 'number')) {
+      return val.join(', ');
+    }
+    return `${val.length} entries`;
+  }
+  if (typeof val === 'object') {
+    return JSON.stringify(val);
+  }
+  return String(val);
+}
+
+/**
+ * Calculates a field-by-field diff comparing previous state (before) with new state (after)
+ */
+export function calculateObjectDiff(
+  before: Record<string, any> | null | undefined,
+  after: Record<string, any> | null | undefined,
+  customLabels?: Record<string, string>,
+  ignoredFields: string[] = ['updatedAt', 'createdAt', 'id', 'passwordHash', 'initialPassword', 'photoURL']
+): AuditFieldDiff[] {
+  const diffs: AuditFieldDiff[] = [];
+  const b = before || {};
+  const a = after || {};
+
+  // Case 1: Record Creation (No before state)
+  if (!before && after) {
+    const keys = Object.keys(a).filter(k => !ignoredFields.includes(k));
+    for (const key of keys) {
+      if (a[key] !== undefined && a[key] !== null && a[key] !== '') {
+        diffs.push({
+          field: key,
+          label: formatKeyToLabel(key, customLabels),
+          before: null,
+          after: a[key],
+          formattedBefore: '(New Record)',
+          formattedAfter: formatValue(a[key]),
+          type: 'added',
+        });
+      }
+    }
+    return diffs;
+  }
+
+  // Case 2: Record Deletion (No after state)
+  if (before && !after) {
+    const keys = Object.keys(b).filter(k => !ignoredFields.includes(k));
+    for (const key of keys) {
+      if (b[key] !== undefined && b[key] !== null && b[key] !== '') {
+        diffs.push({
+          field: key,
+          label: formatKeyToLabel(key, customLabels),
+          before: b[key],
+          after: null,
+          formattedBefore: formatValue(b[key]),
+          formattedAfter: '(Deleted)',
+          type: 'removed',
+        });
+      }
+    }
+    return diffs;
+  }
+
+  // Case 3: Record Update (Compare both states)
+  const allKeys = Array.from(new Set([...Object.keys(b), ...Object.keys(a)])).filter(
+    k => !ignoredFields.includes(k)
+  );
+
+  for (const key of allKeys) {
+    const valBefore = b[key];
+    const valAfter = a[key];
+
+    // Deep equality comparison for arrays/objects or direct primitive match
+    const isSame =
+      valBefore === valAfter ||
+      (typeof valBefore === 'object' &&
+        typeof valAfter === 'object' &&
+        JSON.stringify(valBefore) === JSON.stringify(valAfter));
+
+    if (!isSame) {
+      const isAdded = (valBefore === undefined || valBefore === null || valBefore === '') && (valAfter !== undefined && valAfter !== null && valAfter !== '');
+      const isRemoved = (valBefore !== undefined && valBefore !== null && valBefore !== '') && (valAfter === undefined || valAfter === null || valAfter === '');
+
+      diffs.push({
+        field: key,
+        label: formatKeyToLabel(key, customLabels),
+        before: valBefore ?? null,
+        after: valAfter ?? null,
+        formattedBefore: formatValue(valBefore),
+        formattedAfter: formatValue(valAfter),
+        type: isAdded ? 'added' : isRemoved ? 'removed' : 'changed',
+      });
+    }
+  }
+
+  return diffs;
+}
+
+/**
+ * Extracts or reconstructs a visual diff from an existing AuditLogEntry
+ */
+export function extractDiffFromLog(log: AuditLogEntry): AuditFieldDiff[] {
+  // 1. Direct diff array already stored
+  if (log.diff && Array.isArray(log.diff) && log.diff.length > 0) {
+    return log.diff;
+  }
+
+  // 2. Computed from beforeState and afterState
+  if (log.beforeState || log.afterState) {
+    return calculateObjectDiff(log.beforeState, log.afterState);
+  }
+
+  // 3. Fallback extraction from details object
+  if (log.details && typeof log.details === 'object') {
+    // If details contains { before, after }
+    if (log.details.before || log.details.after) {
+      return calculateObjectDiff(log.details.before, log.details.after);
+    }
+
+    // If details is a flat dictionary of modified attributes
+    const diffs: AuditFieldDiff[] = [];
+    const entries = Object.entries(log.details);
+    for (const [key, val] of entries) {
+      if (key === 'originalClaimId' || key === 'deletedClaimIds') continue;
+
+      if (val && typeof val === 'object' && 'before' in val && 'after' in val) {
+        diffs.push({
+          field: key,
+          label: formatKeyToLabel(key),
+          before: val.before,
+          after: val.after,
+          formattedBefore: formatValue(val.before),
+          formattedAfter: formatValue(val.after),
+          type: 'changed',
+        });
+      } else {
+        diffs.push({
+          field: key,
+          label: formatKeyToLabel(key),
+          before: null,
+          after: val,
+          formattedBefore: '—',
+          formattedAfter: formatValue(val),
+          type: 'changed',
+        });
+      }
+    }
+    return diffs;
+  }
+
+  return [];
+}
 
 /**
  * Returns locally cached audit logs
@@ -36,7 +278,8 @@ function saveLocalAuditLog(entry: AuditLogEntry): void {
 
 /**
  * Records an administrative audit log entry to ensure traceability across the system.
- * Automatically captures Actor Name, PF No, Branch, Timestamp and Target details.
+ * Automatically captures Actor Name, PF No, Branch, Timestamp, Target details,
+ * and exact Before vs After changes comparison.
  */
 export async function recordAuditLog(
   params: {
@@ -45,6 +288,10 @@ export async function recordAuditLog(
     targetType: AuditLogEntry['targetType'];
     targetDescription: string;
     targetId?: string;
+    // Before vs After state comparison
+    diff?: AuditFieldDiff[];
+    beforeState?: Record<string, any>;
+    afterState?: Record<string, any>;
     details?: Record<string, any>;
     // Optional overrides for actor
     userId?: string;
@@ -57,6 +304,12 @@ export async function recordAuditLog(
   const session = getActiveSession();
   const id = `log_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   const timestamp = new Date().toISOString();
+
+  // Compute diff if beforeState and afterState were provided but diff was omitted
+  let finalDiff = params.diff;
+  if (!finalDiff && (params.beforeState || params.afterState)) {
+    finalDiff = calculateObjectDiff(params.beforeState, params.afterState);
+  }
 
   const entry: AuditLogEntry = {
     id,
@@ -72,6 +325,9 @@ export async function recordAuditLog(
     targetType: params.targetType,
     targetId: params.targetId,
     targetDescription: params.targetDescription,
+    diff: finalDiff && finalDiff.length > 0 ? finalDiff : undefined,
+    beforeState: params.beforeState,
+    afterState: params.afterState,
     details: params.details || {},
   };
 
@@ -91,7 +347,7 @@ export async function recordAuditLog(
 /**
  * Fetches audit logs from Firestore, merging with local storage cache.
  */
-export async function fetchAuditLogs(maxCount: number = 200): Promise<AuditLogEntry[]> {
+export async function fetchAuditLogs(maxCount: number = 300): Promise<AuditLogEntry[]> {
   const localLogs = getLocalAuditLogs();
   const firestoreLogs: AuditLogEntry[] = [];
 
@@ -121,7 +377,7 @@ export async function fetchAuditLogs(maxCount: number = 200): Promise<AuditLogEn
 }
 
 /**
- * Exports audit logs into a CSV format string and triggers a browser download.
+ * Exports audit logs into a CSV format string with Before vs After changes breakdown.
  */
 export function exportAuditLogsToCsv(logs: AuditLogEntry[]): void {
   const headers = [
@@ -137,11 +393,19 @@ export function exportAuditLogsToCsv(logs: AuditLogEntry[]): void {
     'Target Type',
     'Target ID',
     'Target Description',
+    'Changes (Before -> After)',
     'Details Summary',
   ];
 
   const rows = logs.map(l => {
+    const diffs = extractDiffFromLog(l);
+    const changesSummary = diffs
+      .map(d => `${d.label}: ${d.formattedBefore} -> ${d.formattedAfter}`)
+      .join(' | ')
+      .replace(/"/g, '""');
+
     const detailsSummary = l.details ? JSON.stringify(l.details).replace(/"/g, '""') : '';
+
     return [
       `"${l.id}"`,
       `"${new Date(l.timestamp).toLocaleString('en-US')}"`,
@@ -155,6 +419,7 @@ export function exportAuditLogsToCsv(logs: AuditLogEntry[]): void {
       `"${l.targetType}"`,
       `"${(l.targetId || '').replace(/"/g, '""')}"`,
       `"${(l.targetDescription || '').replace(/"/g, '""')}"`,
+      `"${changesSummary}"`,
       `"${detailsSummary}"`,
     ].join(',');
   });

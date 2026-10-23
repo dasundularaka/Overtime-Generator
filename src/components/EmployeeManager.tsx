@@ -272,10 +272,12 @@ export const EmployeeManager: React.FC = () => {
 
     recordAuditLog({
       action: editingEmployee ? 'USER_UPDATE' : 'USER_CREATE',
-      actionLabel: editingEmployee ? 'Updated employee profile' : 'Created employee profile',
+      actionLabel: editingEmployee ? 'Updated Employee Profile & Shift Times' : 'Created New Employee Profile',
       targetType: 'user',
       targetId: payload.id,
       targetDescription: `${payload.name} (${payload.employeeNumber})`,
+      beforeState: editingEmployee || undefined,
+      afterState: payload,
       details: {
         branch: payload.branch,
         department: payload.department,
@@ -317,10 +319,11 @@ export const EmployeeManager: React.FC = () => {
 
       recordAuditLog({
         action: 'USER_DELETE',
-        actionLabel: 'Deleted employee profile',
+        actionLabel: 'Deleted Employee Profile',
         targetType: 'user',
         targetId: employeeToDelete.id,
         targetDescription: `${employeeToDelete.name} (${employeeToDelete.employeeNumber})`,
+        beforeState: employeeToDelete,
       });
 
       if (settings.defaultEmployeeId === employeeToDelete.id) {

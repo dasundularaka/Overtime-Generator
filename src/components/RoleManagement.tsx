@@ -122,11 +122,17 @@ export const RoleManagement: React.FC = () => {
     try {
       await toggleRoleRateLock(r.id, nextLockState);
       await recordAuditLog({
-        action: 'ROLE_UPDATE',
-        actionLabel: nextLockState ? 'Locked role overtime rates' : 'Unlocked role overtime rates',
+        action: 'ROLE_RATE_LOCK_TOGGLE',
+        actionLabel: nextLockState ? 'Locked Role Overtime Rates' : 'Unlocked Role Overtime Rates',
         targetType: 'role',
         targetId: r.id,
         targetDescription: `${r.name} (${nextLockState ? 'Locked' : 'Unlocked'})`,
+        beforeState: {
+          isRatesLocked: r.isRatesLocked,
+        },
+        afterState: {
+          isRatesLocked: nextLockState,
+        },
         details: { isRatesLocked: nextLockState },
       });
       setActionSuccess(`Role "${r.name}" rates are now ${nextLockState ? 'LOCKED (Users cannot edit)' : 'UNLOCKED (Users can edit)'}.`);
@@ -183,10 +189,12 @@ export const RoleManagement: React.FC = () => {
 
       await recordAuditLog({
         action: editingRole ? 'ROLE_UPDATE' : 'ROLE_CREATE',
-        actionLabel: editingRole ? 'Updated role overtime rates' : 'Created new role with overtime rates',
+        actionLabel: editingRole ? 'Updated Role Overtime Rates' : 'Created New Staff Role & Rates',
         targetType: 'role',
         targetId: payload.id,
         targetDescription: payload.name,
+        beforeState: editingRole || undefined,
+        afterState: payload,
         details: {
           claimType: payload.claimType,
           hourlyRateWorkingDays: payload.hourlyRateWorkingDays,
@@ -215,10 +223,11 @@ export const RoleManagement: React.FC = () => {
 
       await recordAuditLog({
         action: 'ROLE_DELETE',
-        actionLabel: 'Deleted corporate role rate definition',
+        actionLabel: 'Deleted Staff Role Designation',
         targetType: 'role',
         targetId: roleToDelete.id,
         targetDescription: roleToDelete.name,
+        beforeState: roleToDelete,
       });
 
       setActionSuccess(`Role "${roleToDelete.name}" deleted successfully.`);

@@ -293,13 +293,30 @@ export const TemplateDesigner: React.FC = () => {
         return [saved, ...prev];
       });
 
-      // Record administrative audit log
+      // Record administrative audit log with before and after comparison
+      const isNewTemplate = !templateList.some(t => t.id === saved.id);
       await recordAuditLog({
-        action: 'TEMPLATE_SAVE',
-        actionLabel: 'Saved A4 form template layout',
+        action: isNewTemplate ? 'TEMPLATE_CREATE' : 'TEMPLATE_UPDATE',
+        actionLabel: isNewTemplate ? 'Created New A4 Form Template' : 'Updated A4 Form Template Layout',
         targetType: 'template',
         targetId: saved.id,
         targetDescription: saved.name,
+        beforeState: isNewTemplate
+          ? undefined
+          : {
+              name: template.name,
+              isDefault: template.isDefault,
+              printerOffsetX: template.printerOffsetX,
+              printerOffsetY: template.printerOffsetY,
+              fieldsCount: template.fields?.length || 0,
+            },
+        afterState: {
+          name: saved.name,
+          isDefault: willBeDefault,
+          printerOffsetX: saved.printerOffsetX,
+          printerOffsetY: saved.printerOffsetY,
+          fieldsCount: saved.fields?.length || 0,
+        },
         details: {
           isDefault: willBeDefault,
           fieldsCount: saved.fields?.length || 0,
@@ -410,10 +427,15 @@ export const TemplateDesigner: React.FC = () => {
 
       await recordAuditLog({
         action: 'TEMPLATE_DELETE',
-        actionLabel: 'Deleted A4 form template',
+        actionLabel: 'Deleted A4 Form Template',
         targetType: 'template',
         targetId: template.id,
         targetDescription: template.name,
+        beforeState: {
+          name: template.name,
+          isDefault: template.isDefault,
+          fieldsCount: template.fields?.length || 0,
+        },
       });
 
       const remaining = templateList.filter(t => t.id !== template.id);

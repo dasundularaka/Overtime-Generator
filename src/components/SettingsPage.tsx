@@ -63,6 +63,7 @@ export const SettingsPage: React.FC = () => {
     return () => unsub();
   }, []);
 
+  const initialSettingsRef = useRef<AppSettings>(getSettings());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSave = (e: React.FormEvent) => {
@@ -71,13 +72,38 @@ export const SettingsPage: React.FC = () => {
   };
 
   const confirmCommitSaveSettings = () => {
+    const prev = initialSettingsRef.current;
     saveSettings(settings);
 
     recordAuditLog({
       action: 'SETTINGS_UPDATE',
-      actionLabel: 'Updated application settings and time rules',
+      actionLabel: 'Updated Application Settings & Time Rules',
       targetType: 'settings',
-      targetDescription: 'Application Configuration',
+      targetDescription: 'Application Configuration & Printer Offsets',
+      beforeState: {
+        shiftStartTime: prev.shiftStartTime,
+        shiftEndTime: prev.shiftEndTime,
+        otStepMinutes: prev.otStepMinutes,
+        timeFormat: prev.timeFormat,
+        otDisplayFormat: prev.otDisplayFormat,
+        defaultDepartment: prev.defaultDepartment,
+        defaultBranch: prev.defaultBranch,
+        globalPrinterOffsetX: prev.globalPrinterOffsetX,
+        globalPrinterOffsetY: prev.globalPrinterOffsetY,
+        activeTemplateId: prev.activeTemplateId,
+      },
+      afterState: {
+        shiftStartTime: settings.shiftStartTime,
+        shiftEndTime: settings.shiftEndTime,
+        otStepMinutes: settings.otStepMinutes,
+        timeFormat: settings.timeFormat,
+        otDisplayFormat: settings.otDisplayFormat,
+        defaultDepartment: settings.defaultDepartment,
+        defaultBranch: settings.defaultBranch,
+        globalPrinterOffsetX: settings.globalPrinterOffsetX,
+        globalPrinterOffsetY: settings.globalPrinterOffsetY,
+        activeTemplateId: settings.activeTemplateId,
+      },
       details: {
         shiftStartTime: settings.shiftStartTime,
         shiftEndTime: settings.shiftEndTime,
@@ -87,6 +113,7 @@ export const SettingsPage: React.FC = () => {
       },
     });
 
+    initialSettingsRef.current = settings;
     setSaveSuccess(true);
     setIsConfirmSaveSettingsOpen(false);
     setTimeout(() => setSaveSuccess(false), 2500);
@@ -104,6 +131,18 @@ export const SettingsPage: React.FC = () => {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     setBackupStatus('All records, claims, and templates exported into JSON backup.');
+
+    recordAuditLog({
+      action: 'DATA_BACKUP_EXPORT',
+      actionLabel: 'Exported Full System JSON Backup',
+      targetType: 'backup',
+      targetDescription: 'Complete export of all employee profiles, claim timesheets, and templates',
+      afterState: {
+        employeesCount: employees.length,
+        templatesCount: templates.length,
+        exportedAt: new Date().toISOString(),
+      },
+    });
   };
 
   const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -117,6 +156,19 @@ export const SettingsPage: React.FC = () => {
       if (res.success) {
         setSettings(getSettings());
         setBackupStatus(res.message);
+
+        recordAuditLog({
+          action: 'DATA_BACKUP_RESTORE',
+          actionLabel: 'Restored System Backup from JSON',
+          targetType: 'backup',
+          targetDescription: file.name,
+          afterState: {
+            fileName: file.name,
+            fileSizeKb: Math.round(file.size / 1024),
+            restoredAt: new Date().toISOString(),
+          },
+        });
+
         setTimeout(() => window.location.reload(), 1500);
       } else {
         setBackupStatus('Import Error: ' + res.message);
@@ -126,6 +178,20 @@ export const SettingsPage: React.FC = () => {
   };
 
   const confirmFactoryReset = () => {
+    recordAuditLog({
+      action: 'DATA_FACTORY_RESET',
+      actionLabel: 'Executed System Factory Reset',
+      targetType: 'backup',
+      targetDescription: 'Complete wipe and reset to factory defaults',
+      beforeState: {
+        employeesCount: employees.length,
+        templatesCount: templates.length,
+      },
+      afterState: {
+        status: 'reset_to_factory_defaults',
+      },
+    });
+
     resetAllApplicationData();
     setIsResetConfirmOpen(false);
     window.location.reload();
@@ -180,6 +246,17 @@ export const SettingsPage: React.FC = () => {
       URL.revokeObjectURL(url);
       setPersonalBackupStatus('Your personal claims and profile data were downloaded successfully.');
       setTimeout(() => setPersonalBackupStatus(null), 4000);
+
+      recordAuditLog({
+        action: 'DATA_PERSONAL_EXPORT',
+        actionLabel: 'Exported Personal Overtime Claim Records',
+        targetType: 'claim',
+        targetDescription: `${userProfile?.name} personal claims (${myClaims.length} records)`,
+        afterState: {
+          claimsCount: myClaims.length,
+          exportedAt: new Date().toISOString(),
+        },
+      });
     } catch (err: any) {
       setPersonalBackupStatus('Export note: ' + err.message);
     }
@@ -658,6 +735,15 @@ export const SettingsPage: React.FC = () => {
                   setIsGoogleConnected(true);
                   setGoogleWorkspaceMessage('Google Workspace successfully connected! Drive preview and Gmail dispatch are now active.');
                   setTimeout(() => setGoogleWorkspaceMessage(null), 4000);
+
+                  recordAuditLog({
+                    action: 'GOOGLE_WORKSPACE_CONNECT',
+                    actionLabel: 'Connected Google Workspace Account',
+                    targetType: 'settings',
+                    targetDescription: 'Authorized Drive Preview & Gmail Dispatch',
+                    beforeState: { googleConnected: false },
+                    afterState: { googleConnected: true, scopes: 'drive.file, gmail.send' },
+                  });
                 } catch (err: any) {
                   setGoogleWorkspaceMessage('Connection note: ' + err.message);
                 } finally {
@@ -681,6 +767,15 @@ export const SettingsPage: React.FC = () => {
                   setIsGoogleConnected(false);
                   setGoogleWorkspaceMessage('Disconnected Google Workspace session.');
                   setTimeout(() => setGoogleWorkspaceMessage(null), 3000);
+
+                  recordAuditLog({
+                    action: 'GOOGLE_WORKSPACE_DISCONNECT',
+                    actionLabel: 'Disconnected Google Workspace Account',
+                    targetType: 'settings',
+                    targetDescription: 'Revoked active Google Workspace session token',
+                    beforeState: { googleConnected: true },
+                    afterState: { googleConnected: false },
+                  });
                 }}
                 className="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-600 text-xs font-semibold transition cursor-pointer"
               >

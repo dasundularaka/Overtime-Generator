@@ -65,10 +65,19 @@ export async function triggerWelcomeEmailForUser(
       // Record administrative audit log
       await recordAuditLog({
         action: 'EMAIL_DISPATCH',
-        actionLabel: 'Dispatched automated welcome email via Gmail',
+        actionLabel: 'Dispatched Automated Welcome Email via Gmail',
         targetType: 'user',
         targetId: user.id,
         targetDescription: `${name} (${cleanPf || cleanEmail})`,
+        beforeState: {
+          welcomeEmailDispatched: false,
+        },
+        afterState: {
+          welcomeEmailDispatched: true,
+          recipientEmail: cleanEmail,
+          gmailMessageId: gmailResult.messageId,
+          dispatchedAt: new Date().toISOString(),
+        },
         details: {
           recipientEmail: cleanEmail,
           gmailMessageId: gmailResult.messageId,

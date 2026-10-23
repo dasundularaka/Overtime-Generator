@@ -222,11 +222,27 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
       await setDoc(doc(db, 'claims', newId), sanitizeFirestoreData(duplicated));
 
       await recordAuditLog({
-        action: 'CLAIM_CREATE',
-        actionLabel: 'Duplicated overtime claim',
+        action: 'CLAIM_DUPLICATE',
+        actionLabel: 'Duplicated Overtime Claim Timesheet',
         targetType: 'claim',
         targetId: newId,
         targetDescription: `${duplicated.claimNumber} (${duplicated.employeeName} - ${duplicated.month}/${duplicated.year})`,
+        beforeState: {
+          originalClaimNumber: claimToDuplicate.claimNumber,
+          employeeName: claimToDuplicate.employeeName,
+          month: claimToDuplicate.month,
+          year: claimToDuplicate.year,
+          totalHoursFormatted: claimToDuplicate.totalHoursFormatted,
+          totalOtPayment: claimToDuplicate.totalOtPayment,
+        },
+        afterState: {
+          newClaimNumber: duplicated.claimNumber,
+          employeeName: duplicated.employeeName,
+          month: duplicated.month,
+          year: duplicated.year,
+          totalHoursFormatted: duplicated.totalHoursFormatted,
+          totalOtPayment: duplicated.totalOtPayment,
+        },
         details: {
           originalClaimId: claimToDuplicate.id,
           month: duplicated.month,
@@ -256,10 +272,20 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
 
       await recordAuditLog({
         action: 'CLAIM_DELETE',
-        actionLabel: 'Deleted overtime claim',
+        actionLabel: 'Deleted Overtime Claim Timesheet',
         targetType: 'claim',
         targetId: claimToDelete.id,
         targetDescription: `${claimToDelete.claimNumber} (${claimToDelete.employeeName} - ${claimToDelete.month}/${claimToDelete.year})`,
+        beforeState: {
+          claimNumber: claimToDelete.claimNumber,
+          employeeName: claimToDelete.employeeName,
+          month: claimToDelete.month,
+          year: claimToDelete.year,
+          totalHoursFormatted: claimToDelete.totalHoursFormatted,
+          totalOtPayment: claimToDelete.totalOtPayment,
+          branch: claimToDelete.branch,
+          department: claimToDelete.department,
+        },
         details: {
           month: claimToDelete.month,
           year: claimToDelete.year,
@@ -351,11 +377,18 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
       }
 
       await recordAuditLog({
-        action: 'CLAIM_DELETE',
-        actionLabel: `Bulk deleted ${count} overtime claims`,
+        action: 'CLAIM_BULK_DELETE',
+        actionLabel: `Bulk Deleted ${count} Overtime Claims`,
         targetType: 'claim',
         targetId: `bulk_${Date.now()}`,
         targetDescription: `${count} selected overtime claims`,
+        beforeState: {
+          claimsSelected: count,
+          claimIds: selectedClaimIds,
+        },
+        afterState: {
+          claimsSelected: 0,
+        },
         details: {
           count,
           deletedClaimIds: selectedClaimIds,

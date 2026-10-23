@@ -112,11 +112,13 @@ export const CalendarManager: React.FC = () => {
       });
 
       await recordAuditLog({
-        action: 'HOLIDAY_IMPORT',
-        actionLabel: editingHoliday ? 'Updated holiday calendar entry' : 'Added calendar holiday',
+        action: editingHoliday ? 'HOLIDAY_UPDATE' : 'HOLIDAY_ADD',
+        actionLabel: editingHoliday ? 'Updated Calendar Holiday / Event' : 'Added Custom Calendar Holiday',
         targetType: 'holiday',
         targetId: saved.id,
         targetDescription: `${saved.name} (${saved.date})`,
+        beforeState: editingHoliday || undefined,
+        afterState: saved,
         details: {
           type: saved.type,
           date: saved.date,
@@ -140,11 +142,12 @@ export const CalendarManager: React.FC = () => {
       await deleteHoliday(holidayToDelete.id);
 
       await recordAuditLog({
-        action: 'HOLIDAY_IMPORT',
-        actionLabel: 'Deleted calendar holiday',
+        action: 'HOLIDAY_DELETE',
+        actionLabel: 'Deleted Calendar Holiday Entry',
         targetType: 'holiday',
         targetId: holidayToDelete.id,
         targetDescription: `${holidayToDelete.name} (${holidayToDelete.date})`,
+        beforeState: holidayToDelete,
       });
 
       setIsDeleteModalOpen(false);
@@ -164,9 +167,13 @@ export const CalendarManager: React.FC = () => {
 
       await recordAuditLog({
         action: 'HOLIDAY_IMPORT',
-        actionLabel: 'Imported standard public and bank holidays',
+        actionLabel: 'Imported Sri Lanka Standard Holidays',
         targetType: 'holiday',
-        targetDescription: `Imported ${count} standard holidays`,
+        targetDescription: `Imported ${count} standard public and bank holidays`,
+        afterState: {
+          importedCount: count,
+          calendarYear: new Date().getFullYear(),
+        },
         details: { count },
       });
 

@@ -169,10 +169,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
       await recordAuditLog({
         action: 'CLAIM_DELETE',
-        actionLabel: 'Deleted overtime claim',
+        actionLabel: 'Deleted Overtime Claim Timesheet',
         targetType: 'claim',
         targetId: claimToDeleteRecord.id,
         targetDescription: `${claimToDeleteRecord.claimNumber} (${claimToDeleteRecord.employeeName} - ${claimToDeleteRecord.month}/${claimToDeleteRecord.year})`,
+        beforeState: {
+          claimNumber: claimToDeleteRecord.claimNumber,
+          employeeName: claimToDeleteRecord.employeeName,
+          month: claimToDeleteRecord.month,
+          year: claimToDeleteRecord.year,
+          totalHoursFormatted: claimToDeleteRecord.totalHoursFormatted,
+          totalOtPayment: claimToDeleteRecord.totalOtPayment,
+        },
         details: {
           month: claimToDeleteRecord.month,
           year: claimToDeleteRecord.year,
