@@ -109,7 +109,9 @@ export function formatValue(val: any): string {
 }
 
 /**
- * Calculates a field-by-field diff comparing previous state (before) with new state (after)
+ * Calculates genuine field-by-field modifications comparing previous state (before) with new state (after).
+ * ONLY real changes where a previously existing value was altered to a different new value are included.
+ * Initial entity creations, atomic events, and unedited properties are excluded.
  */
 export function calculateObjectDiff(
   before: Record<string, any> | null | undefined,
@@ -117,49 +119,15 @@ export function calculateObjectDiff(
   customLabels?: Record<string, string>,
   ignoredFields: string[] = ['updatedAt', 'createdAt', 'id', 'passwordHash', 'initialPassword', 'photoURL']
 ): AuditFieldDiff[] {
+  // If either state is absent, this is an event/creation/deletion, NOT an in-place modification
+  if (!before || !after) {
+    return [];
+  }
+
   const diffs: AuditFieldDiff[] = [];
-  const b = before || {};
-  const a = after || {};
+  const b = before;
+  const a = after;
 
-  // Case 1: Record Creation (No before state)
-  if (!before && after) {
-    const keys = Object.keys(a).filter(k => !ignoredFields.includes(k));
-    for (const key of keys) {
-      if (a[key] !== undefined && a[key] !== null && a[key] !== '') {
-        diffs.push({
-          field: key,
-          label: formatKeyToLabel(key, customLabels),
-          before: null,
-          after: a[key],
-          formattedBefore: '(New Record)',
-          formattedAfter: formatValue(a[key]),
-          type: 'added',
-        });
-      }
-    }
-    return diffs;
-  }
-
-  // Case 2: Record Deletion (No after state)
-  if (before && !after) {
-    const keys = Object.keys(b).filter(k => !ignoredFields.includes(k));
-    for (const key of keys) {
-      if (b[key] !== undefined && b[key] !== null && b[key] !== '') {
-        diffs.push({
-          field: key,
-          label: formatKeyToLabel(key, customLabels),
-          before: b[key],
-          after: null,
-          formattedBefore: formatValue(b[key]),
-          formattedAfter: '(Deleted)',
-          type: 'removed',
-        });
-      }
-    }
-    return diffs;
-  }
-
-  // Case 3: Record Update (Compare both states)
   const allKeys = Array.from(new Set([...Object.keys(b), ...Object.keys(a)])).filter(
     k => !ignoredFields.includes(k)
   );
@@ -168,25 +136,36 @@ export function calculateObjectDiff(
     const valBefore = b[key];
     const valAfter = a[key];
 
-    // Deep equality comparison for arrays/objects or direct primitive match
+    // Normalize empty values
+    const isBeforeEmpty = valBefore === undefined || valBefore === null || valBefore === '';
+    const isAfterEmpty = valAfter === undefined || valAfter === null || valAfter === '';
+
+    // If both are empty or undefined, no real change occurred
+    if (isBeforeEmpty && isAfterEmpty) continue;
+
+    // Deep equality comparison
+    const formattedB = formatValue(valBefore);
+    const formattedA = formatValue(valAfter);
+
+    if (formattedB === formattedA) continue;
+
     const isSame =
       valBefore === valAfter ||
       (typeof valBefore === 'object' &&
         typeof valAfter === 'object' &&
-        JSON.stringify(valBefore) === JSON.stringify(valAfter));
+        JSON.stringify(valBefore) === JSON.stringify(valAfter)) ||
+      (typeof valBefore === 'number' && typeof valAfter === 'number' && valBefore === valAfter) ||
+      (String(valBefore ?? '').trim() === String(valAfter ?? '').trim());
 
     if (!isSame) {
-      const isAdded = (valBefore === undefined || valBefore === null || valBefore === '') && (valAfter !== undefined && valAfter !== null && valAfter !== '');
-      const isRemoved = (valBefore !== undefined && valBefore !== null && valBefore !== '') && (valAfter === undefined || valAfter === null || valAfter === '');
-
       diffs.push({
         field: key,
         label: formatKeyToLabel(key, customLabels),
         before: valBefore ?? null,
         after: valAfter ?? null,
-        formattedBefore: formatValue(valBefore),
-        formattedAfter: formatValue(valAfter),
-        type: isAdded ? 'added' : isRemoved ? 'removed' : 'changed',
+        formattedBefore: formattedB,
+        formattedAfter: formattedA,
+        type: isBeforeEmpty ? 'added' : isAfterEmpty ? 'removed' : 'changed',
       });
     }
   }
@@ -195,57 +174,37 @@ export function calculateObjectDiff(
 }
 
 /**
- * Extracts or reconstructs a visual diff from an existing AuditLogEntry
+ * Extracts ONLY REAL, verified field modifications from an AuditLogEntry.
+ * Excludes initial record creations, logins, exports, and generic details.
  */
 export function extractDiffFromLog(log: AuditLogEntry): AuditFieldDiff[] {
-  // 1. Direct diff array already stored
+  // 1. Direct diff array stored in log
   if (log.diff && Array.isArray(log.diff) && log.diff.length > 0) {
-    return log.diff;
+    return log.diff.filter(d => {
+      if (!d) return false;
+      // Exclude identical before/after
+      if (d.formattedBefore === d.formattedAfter) return false;
+      // Exclude creations where before is (New Record) unless user explicitly modified it
+      if (d.formattedBefore === '(New Record)' || d.formattedBefore === '—') {
+        return false;
+      }
+      return true;
+    });
   }
 
-  // 2. Computed from beforeState and afterState
-  if (log.beforeState || log.afterState) {
+  // 2. Computed from real beforeState and afterState
+  if (log.beforeState && log.afterState) {
     return calculateObjectDiff(log.beforeState, log.afterState);
   }
 
-  // 3. Fallback extraction from details object
+  // 3. Fallback extraction ONLY if details has explicit before and after objects
   if (log.details && typeof log.details === 'object') {
-    // If details contains { before, after }
-    if (log.details.before || log.details.after) {
+    if (log.details.before && log.details.after) {
       return calculateObjectDiff(log.details.before, log.details.after);
     }
-
-    // If details is a flat dictionary of modified attributes
-    const diffs: AuditFieldDiff[] = [];
-    const entries = Object.entries(log.details);
-    for (const [key, val] of entries) {
-      if (key === 'originalClaimId' || key === 'deletedClaimIds') continue;
-
-      if (val && typeof val === 'object' && 'before' in val && 'after' in val) {
-        diffs.push({
-          field: key,
-          label: formatKeyToLabel(key),
-          before: val.before,
-          after: val.after,
-          formattedBefore: formatValue(val.before),
-          formattedAfter: formatValue(val.after),
-          type: 'changed',
-        });
-      } else {
-        diffs.push({
-          field: key,
-          label: formatKeyToLabel(key),
-          before: null,
-          after: val,
-          formattedBefore: '—',
-          formattedAfter: formatValue(val),
-          type: 'changed',
-        });
-      }
-    }
-    return diffs;
   }
 
+  // Pure events (e.g. login, logout, create, export) have no real changes
   return [];
 }
 
