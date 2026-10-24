@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { initializeFirestore, getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import bundledConfig from '../firebase-applet-config.json';
 
 export const firebaseConfig = {
@@ -17,9 +17,26 @@ export const firebaseConfig = {
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
 const targetDbId = firebaseConfig.firestoreDatabaseId;
-export const db = (targetDbId && targetDbId !== '(default)' && targetDbId !== 'default')
-  ? getFirestore(app, targetDbId)
-  : getFirestore(app);
+const dbId = (targetDbId && targetDbId !== '(default)' && targetDbId !== 'default') ? targetDbId : undefined;
+
+function getOrInitFirestore() {
+  const isBrowser = typeof window !== 'undefined';
+  const firestoreSettings = isBrowser
+    ? {
+        experimentalForceLongPolling: true,
+      }
+    : {};
+
+  try {
+    return dbId
+      ? initializeFirestore(app, firestoreSettings, dbId)
+      : initializeFirestore(app, firestoreSettings);
+  } catch {
+    return dbId ? getFirestore(app, dbId) : getFirestore(app);
+  }
+}
+
+export const db = getOrInitFirestore();
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
