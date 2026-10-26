@@ -34,6 +34,7 @@ import {
   getDocs,
   query,
   where,
+  deleteDoc,
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { handleFirestoreError, OperationType } from '../firebase/errors';
@@ -63,6 +64,8 @@ import {
   saveClaim,
   saveDraftClaim,
   clearDraftClaim,
+  deleteClaim,
+  getClaims,
 } from '../utils/storage';
 import { recordAuditLog } from '../utils/auditLogger';
 import { generateOvertimePdf, printPdfDocument } from '../utils/pdfGenerator';
@@ -207,7 +210,6 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     }
   });
   const [isAutoSaving, setIsAutoSaving] = useState<boolean>(false);
-  const [isManualDraftSaving, setIsManualDraftSaving] = useState<boolean>(false);
   const [lastAutoSaveTime, setLastAutoSaveTime] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
   const [draftToastMessage, setDraftToastMessage] = useState<string | null>(null);
@@ -437,8 +439,12 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       setTotalRemuneration(targetProfile.totalRemuneration !== undefined ? targetProfile.totalRemuneration : '');
     }
 
-    // Auto-populate full month dates with flagged holidays
-    setRows(generateFullMonthRows(claimMonth, claimYear, isSpecialAssignedOt));
+    // Auto-populate or resume existing uncompleted draft for this month (max 1 draft per user per month)
+    findAndApplyMonthDraft(claimMonth, claimYear).then(found => {
+      if (!found) {
+        setRows(generateFullMonthRows(claimMonth, claimYear, isSpecialAssignedOt));
+      }
+    });
   }, [initialClaim, userProfile, selectedUserId, allUsers, roleRates]);
 
   // Generate full month of dates and flag holidays & weekends
@@ -482,17 +488,125 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     return fullRows;
   }
 
-  const handleMonthChange = (newMonth: string) => {
+  // Finds if an uncompleted draft exists for the given user, month, and year.
+  // Reuses that draft document so that at most ONE draft per month ever exists!
+  const findAndApplyMonthDraft = async (
+    targetMonth: string,
+    targetYear: number,
+    customUid?: string,
+    customPf?: string
+  ): Promise<boolean> => {
+    if (initialClaim) return false;
+    const effectiveUid = customUid || selectedUserId || currentUser?.uid || userProfile?.id || '';
+    const effectivePf = customPf || employeeNumber || userProfile?.employeeNumber || '';
+    const cleanUid = (effectiveUid || 'usr').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const deterministicDraftId = 'clm_draft_' + cleanUid + '_' + targetYear + '_' + targetMonth.toLowerCase();
+
+    // 1. Check local storage first (instant response)
+    const localClaims = getClaims(effectiveUid);
+    const localDrafts = localClaims.filter(
+      c =>
+        c.status === 'draft' &&
+        c.month === targetMonth &&
+        c.year === targetYear &&
+        (c.userId === effectiveUid || (effectivePf && c.employeeNumber === effectivePf))
+    );
+
+    // 2. Check Firestore for latest drafts
+    let cloudDrafts: ClaimRecord[] = [];
+    try {
+      if (effectiveUid) {
+        const q = query(
+          collection(db, 'claims'),
+          where('status', '==', 'draft'),
+          where('month', '==', targetMonth),
+          where('year', '==', targetYear),
+          where('userId', '==', effectiveUid)
+        );
+        const snap = await getDocs(q);
+        cloudDrafts = snap.docs.map(d => ({ ...d.data(), id: d.id } as ClaimRecord));
+      }
+    } catch (err) {
+      console.warn('Draft query notice:', err);
+    }
+
+    // Combine and deduplicate
+    const combined = new Map<string, ClaimRecord>();
+    cloudDrafts.forEach(d => combined.set(d.id, d));
+    localDrafts.forEach(d => {
+      if (!combined.has(d.id)) combined.set(d.id, d);
+    });
+
+    const matchingDrafts = Array.from(combined.values()).sort(
+      (a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()
+    );
+
+    if (matchingDrafts.length > 0) {
+      const primaryDraft = matchingDrafts[0];
+      setActiveClaimId(primaryDraft.id);
+      setActiveClaimNumber(primaryDraft.claimNumber);
+      if (primaryDraft.rows && primaryDraft.rows.length > 0) {
+        setRows(primaryDraft.rows);
+      } else {
+        setRows(generateFullMonthRows(targetMonth, targetYear, isSpecialAssignedOt));
+      }
+      if (primaryDraft.employeeName) setEmployeeName(primaryDraft.employeeName);
+      if (primaryDraft.employeeNumber) setEmployeeNumber(primaryDraft.employeeNumber);
+      if (primaryDraft.designation) setDesignation(primaryDraft.designation);
+      if (primaryDraft.branch) setBranch(primaryDraft.branch);
+      if (primaryDraft.department) setDepartment(primaryDraft.department);
+      if (primaryDraft.claimType) setClaimType(primaryDraft.claimType);
+      if (primaryDraft.hourlyRate !== undefined) setHourlyRate(primaryDraft.hourlyRate);
+      if (primaryDraft.daysPay !== undefined) setDaysPay(primaryDraft.daysPay);
+      if (primaryDraft.otPaymentDueB !== undefined) setOtPaymentDueB(primaryDraft.otPaymentDueB);
+      if (primaryDraft.totalRemuneration !== undefined) setTotalRemuneration(primaryDraft.totalRemuneration);
+
+      const timeFormatted = new Date(primaryDraft.updatedAt || Date.now()).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      setLastAutoSaveTime(timeFormatted);
+      setDraftToastMessage('Loaded uncompleted draft for ' + targetMonth + ' ' + targetYear + ' (' + primaryDraft.claimNumber + '). Changes will update this draft.');
+      setTimeout(() => setDraftToastMessage(null), 4000);
+
+      // Clean up any extra duplicate drafts for this user & month so ONLY ONE draft exists!
+      if (matchingDrafts.length > 1) {
+        const extraDrafts = matchingDrafts.slice(1);
+        for (const extra of extraDrafts) {
+          deleteClaim(extra.id, effectiveUid);
+          try {
+            await deleteDoc(doc(db, 'claims', extra.id));
+          } catch (_) {}
+        }
+      }
+      return true;
+    }
+
+    // No existing draft for this month: set deterministic ID so future auto-saves target this single draft
+    setActiveClaimId(deterministicDraftId);
+    setActiveClaimNumber(
+      'CLM-' + targetYear + '-' + String(MONTH_NAMES.indexOf(targetMonth) + 1).padStart(2, '0') + '-' + Math.floor(100 + Math.random() * 900)
+    );
+    return false;
+  };
+
+  const handleMonthChange = async (newMonth: string) => {
     setClaimMonth(newMonth);
     if (!initialClaim) {
-      setRows(generateFullMonthRows(newMonth, claimYear, isSpecialAssignedOt));
+      const found = await findAndApplyMonthDraft(newMonth, claimYear);
+      if (!found) {
+        setRows(generateFullMonthRows(newMonth, claimYear, isSpecialAssignedOt));
+      }
     }
   };
 
-  const handleYearChange = (newYear: number) => {
+  const handleYearChange = async (newYear: number) => {
     setClaimYear(newYear);
     if (!initialClaim) {
-      setRows(generateFullMonthRows(claimMonth, newYear, isSpecialAssignedOt));
+      const found = await findAndApplyMonthDraft(claimMonth, newYear);
+      if (!found) {
+        setRows(generateFullMonthRows(claimMonth, newYear, isSpecialAssignedOt));
+      }
     }
   };
 
@@ -1125,16 +1239,20 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   }, [rows, employeeName, employeeNumber]);
 
   // Saves the in-progress timesheet as draft to Firestore and localStorage
-  const performSaveDraft = async (isAuto: boolean = true) => {
+  const performSaveDraft = async () => {
     if (isSubmittedRef.current) return;
-    if (isAuto && !autoSaveDraftEnabled) return;
+    if (!autoSaveDraftEnabled) return;
     if (!hasUncompletedData) return;
 
     try {
-      if (isAuto) setIsAutoSaving(true);
-      else setIsManualDraftSaving(true);
+      setIsAutoSaving(true);
 
-      const claimIdToUse = activeClaimId || initialClaim?.id || ('clm_draft_' + Date.now());
+      const effectiveUid = selectedUserId || currentUser?.uid || userProfile?.id || 'usr';
+      const cleanUid = effectiveUid.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const deterministicDraftId = 'clm_draft_' + cleanUid + '_' + claimYear + '_' + claimMonth.toLowerCase();
+
+      // If user is editing an existing claim, keep its ID. Otherwise use activeClaimId or deterministic draft ID.
+      const claimIdToUse = activeClaimId || initialClaim?.id || deterministicDraftId;
       if (!activeClaimId) setActiveClaimId(claimIdToUse);
 
       const claimNumberToUse =
@@ -1143,6 +1261,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         `CLM-${claimYear}-${String(MONTH_NAMES.indexOf(claimMonth) + 1).padStart(2, '0')}-${Math.floor(100 + Math.random() * 900)}`;
       if (!activeClaimNumber) setActiveClaimNumber(claimNumberToUse);
 
+      // Auto-save always builds as draft status. If user was editing an existing submitted item,
+      // this transitions it to 'draft' so if left uncompleted, it automatically appears in the Drafts list.
       const draftClaim = buildClaimRecord('draft');
       draftClaim.id = claimIdToUse;
       draftClaim.claimNumber = claimNumberToUse;
@@ -1166,7 +1286,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         rem: draftClaim.totalRemuneration,
       });
 
-      if (isAuto && lastSavedHashRef.current === currentHash) {
+      if (lastSavedHashRef.current === currentHash) {
         setIsAutoSaving(false);
         return;
       }
@@ -1182,16 +1302,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       const timeFormatted = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       setLastAutoSaveTime(timeFormatted);
       setHasUnsavedChanges(false);
-
-      if (!isAuto) {
-        setDraftToastMessage(`Timesheet successfully saved as draft at ${timeFormatted}. You can find it in your History.`);
-        setTimeout(() => setDraftToastMessage(null), 3500);
-      }
     } catch (err) {
       console.warn('Draft save notice:', err);
     } finally {
       setIsAutoSaving(false);
-      setIsManualDraftSaving(false);
     }
   };
 
@@ -1201,7 +1315,6 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       isInitialMountRef.current = false;
       return;
     }
-
     if (!autoSaveDraftEnabled) return;
     if (isSubmittedRef.current) return;
     if (!hasUncompletedData) return;
@@ -1209,7 +1322,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     setHasUnsavedChanges(true);
 
     const timer = setTimeout(() => {
-      performSaveDraft(true);
+      performSaveDraft();
     }, 1800);
 
     return () => clearTimeout(timer);
@@ -1236,7 +1349,12 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   useEffect(() => {
     const handleBeforeUnload = () => {
       if (autoSaveDraftEnabled && !isSubmittedRef.current && hasUncompletedData) {
+        const effectiveUid = selectedUserId || currentUser?.uid || userProfile?.id || 'usr';
+        const cleanUid = effectiveUid.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const deterministicDraftId = 'clm_draft_' + cleanUid + '_' + claimYear + '_' + claimMonth.toLowerCase();
         const draft = buildClaimRecord('draft');
+        draft.id = activeClaimId || initialClaim?.id || deterministicDraftId;
+        draft.claimNumber = activeClaimNumber || initialClaim?.claimNumber || draft.claimNumber;
         saveClaim(draft);
         saveDraftClaim(draft, draft.userId);
       }
@@ -1246,12 +1364,17 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       if (autoSaveDraftEnabled && !isSubmittedRef.current && hasUncompletedData) {
+        const effectiveUid = selectedUserId || currentUser?.uid || userProfile?.id || 'usr';
+        const cleanUid = effectiveUid.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const deterministicDraftId = 'clm_draft_' + cleanUid + '_' + claimYear + '_' + claimMonth.toLowerCase();
         const draft = buildClaimRecord('draft');
+        draft.id = activeClaimId || initialClaim?.id || deterministicDraftId;
+        draft.claimNumber = activeClaimNumber || initialClaim?.claimNumber || draft.claimNumber;
         saveClaim(draft);
         saveDraftClaim(draft, draft.userId);
       }
     };
-  }, [autoSaveDraftEnabled, hasUncompletedData, rows, employeeName, employeeNumber, claimMonth, claimYear]);
+  }, [autoSaveDraftEnabled, hasUncompletedData, rows, employeeName, employeeNumber, claimMonth, claimYear, activeClaimId, activeClaimNumber, selectedUserId]);
 
   // Trigger confirmation dialog for Save / Submit Claim
   const handleSaveClaim = () => {
@@ -1266,9 +1389,23 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     isSubmittedRef.current = true;
     const claim = buildClaimRecord('submitted');
 
+    // If finalizing an in-progress draft, mint a permanent claim ID and remove old draft from draft list
+    let draftIdToDelete: string | null = null;
+    if (claim.id.startsWith('clm_draft_')) {
+      draftIdToDelete = claim.id;
+      const finalClaimId = 'clm_' + Date.now() + '_' + Math.floor(100 + Math.random() * 900);
+      claim.id = finalClaimId;
+    }
+
     try {
       saveClaim(claim);
       clearDraftClaim(claim.userId);
+      if (draftIdToDelete) {
+        deleteClaim(draftIdToDelete, claim.userId);
+        try {
+          await deleteDoc(doc(db, 'claims', draftIdToDelete));
+        } catch (_) {}
+      }
       await setDoc(doc(db, 'claims', claim.id), sanitizeFirestoreData(claim));
 
       // Record administrative audit log with comprehensive before vs after state comparison
@@ -1438,6 +1575,24 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       a.click();
       document.body.removeChild(a);
 
+      // If finalizing an in-progress draft, mint a permanent claim ID and remove old draft from draft list
+      let draftIdToDelete: string | null = null;
+      if (claim.id.startsWith('clm_draft_')) {
+        draftIdToDelete = claim.id;
+        const finalClaimId = 'clm_' + Date.now() + '_' + Math.floor(100 + Math.random() * 900);
+        claim.id = finalClaimId;
+      }
+
+      // Save finalized submitted claim and remove draft
+      saveClaim(claim);
+      clearDraftClaim(claim.userId);
+      if (draftIdToDelete) {
+        deleteClaim(draftIdToDelete, claim.userId);
+        try {
+          await deleteDoc(doc(db, 'claims', draftIdToDelete));
+        } catch (_) {}
+      }
+
       // Also save to Firestore database
       await setDoc(doc(db, 'claims', claim.id), sanitizeFirestoreData(claim));
 
@@ -1555,34 +1710,39 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
               </span>
             ) : null}
 
-            <button
-              type="button"
-              onClick={() => performSaveDraft(false)}
-              disabled={isManualDraftSaving || isAutoSaving}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50"
-              title="Explicitly save current sheet as a draft"
-            >
-              <Save className="w-3.5 h-3.5 text-slate-500" />
-              <span>{isManualDraftSaving ? 'Saving...' : 'Save Draft'}</span>
-            </button>
+            
           </div>
         </div>
 
         {/* Resumed Draft Alert if user is resuming a draft */}
-        {initialClaim?.status === 'draft' && (
+        {(initialClaim?.status === 'draft' || activeClaimId.startsWith('clm_draft_') || draftToastMessage) && (
           <div className="mt-3 p-3 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-between gap-2 text-xs text-amber-900">
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4 text-amber-600 shrink-0" />
               <span>
-                <strong>Resumed Draft:</strong> You are editing uncompleted draft claim <strong>{initialClaim.claimNumber}</strong> ({initialClaim.month} {initialClaim.year}). Changes auto-save automatically.
+                <strong>Draft in Progress:</strong> Working on draft claim <strong>{activeClaimNumber || initialClaim?.claimNumber}</strong> ({claimMonth} {claimYear}). Incomplete changes auto-save to Drafts.
               </span>
             </div>
             <span className="px-2 py-0.5 rounded-full bg-amber-200/80 text-amber-900 font-bold text-[10px] uppercase tracking-wider shrink-0">
-              Draft
+              1 Draft / Month
             </span>
           </div>
         )}
 
+        {/* Notice when editing a previously saved item */}
+        {initialClaim && initialClaim.status !== 'draft' && hasUnsavedChanges && (
+          <div className="mt-3 p-3 rounded-xl bg-amber-50/90 border border-amber-200 flex items-center justify-between gap-2 text-xs text-amber-900">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>
+                <strong>Editing Saved Claim:</strong> You have uncommitted changes on <strong>{initialClaim.claimNumber}</strong>. If you exit without finalizing, this claim will appear in your Drafts list until resubmitted.
+              </span>
+            </div>
+            <span className="px-2 py-0.5 rounded-full bg-amber-200/80 text-amber-900 font-bold text-[10px] uppercase tracking-wider shrink-0">
+              Moved to Drafts on Edit
+            </span>
+          </div>
+        )}
         {/* Draft Notification Toast */}
         {draftToastMessage && (
           <div className="mt-3 p-3 rounded-xl bg-indigo-50 border border-indigo-200 text-xs text-indigo-900 flex items-center gap-2 animate-scale-in">
@@ -2565,17 +2725,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             <span>{isGeneratingPdf ? 'Rendering...' : 'Preview'}</span>
           </button>
 
-          {/* 2. Save as Draft Button */}
-          <button
-            type="button"
-            onClick={() => performSaveDraft(false)}
-            disabled={isGeneratingPdf || isManualDraftSaving || isAutoSaving}
-            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50"
-            title="Save current incomplete timesheet as draft in history"
-          >
-            <Clock className="w-4 h-4 text-amber-700" />
-            <span>{isManualDraftSaving ? 'Saving Draft...' : 'Save as Draft'}</span>
-          </button>
+          
 
           {/* 3. Save & Submit Claim Button */}
           <button
