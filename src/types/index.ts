@@ -286,6 +286,7 @@ export type AuditActionType =
   | 'CLAIM_BULK_DELETE'
   | 'CLAIM_DUPLICATE'
   | 'CLAIM_EXPORT_PDF'
+  | 'CLAIM_DRAFT_SAVE'
   // Roles & Designations
   | 'ROLE_CREATE'
   | 'ROLE_UPDATE'

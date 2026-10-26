@@ -422,6 +422,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <tr className="bg-slate-50 text-slate-700 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200">
                   <th className="py-3 px-4">Claimant</th>
                   <th className="py-3 px-4">Period</th>
+                  <th className="py-3 px-4 text-center">Status</th>
                   <th className="py-3 px-4 text-center">Type</th>
                   <th className="py-3 px-4 text-center">Days</th>
                   <th className="py-3 px-4 text-center">Total Hours</th>
@@ -444,6 +445,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       <span className="font-medium text-slate-800">
                         {claim.month} {claim.year}
                       </span>
+                    </td>
+
+                    <td className="py-3.5 px-4 text-center">
+                      {claim.status === 'draft' ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-[10px] bg-amber-50 text-amber-800 border border-amber-300">
+                          <Clock className="w-2.5 h-2.5 text-amber-600" />
+                          <span>Draft</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-300">
+                          <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
+                          <span>Submitted</span>
+                        </span>
+                      )}
                     </td>
 
                     <td className="py-3.5 px-4 text-center">

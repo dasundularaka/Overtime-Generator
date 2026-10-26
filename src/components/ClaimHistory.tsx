@@ -70,6 +70,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('ALL');
   const [selectedYear, setSelectedYear] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'SUBMITTED' | 'DRAFTS'>('ALL');
 
   // Preview Modal
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -103,7 +104,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
         snap.forEach(d => {
           list.push(d.data() as ClaimRecord);
         });
-        list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+        list.sort((a, b) => (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || ''));
         setClaims(list);
       } else {
         const myUid = currentUser.uid;
@@ -146,7 +147,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
           return matchUid || matchPf;
         });
 
-        list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+        list.sort((a, b) => (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || ''));
         setClaims(list);
       }
     } catch (err) {
@@ -311,6 +312,9 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
 
   const availableYears = Array.from(new Set(claims.map(c => c.year))).sort((a, b) => b - a);
 
+  const draftsCount = claims.filter(c => c.status === 'draft').length;
+  const submittedCount = claims.filter(c => c.status !== 'draft').length;
+
   const filtered = claims.filter(c => {
     const matchesSearch =
       c.employeeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -321,7 +325,11 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
     const matchesMonth = selectedMonth === 'ALL' || c.month === selectedMonth;
     const matchesYear = selectedYear === 'ALL' || String(c.year) === selectedYear;
 
-    return matchesSearch && matchesMonth && matchesYear;
+    const matchesStatus =
+      statusFilter === 'ALL' ||
+      (statusFilter === 'DRAFTS' ? c.status === 'draft' : c.status !== 'draft');
+
+    return matchesSearch && matchesMonth && matchesYear && matchesStatus;
   });
 
   const isAllSelected = filtered.length > 0 && filtered.every(c => selectedClaimIds.includes(c.id));
@@ -415,7 +423,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-                {isAdmin ? 'All Submitted Claims (Admin View)' : 'My Overtime Claims'}
+                {isAdmin ? 'Claims & Drafts History (Admin View)' : 'My Overtime Claims & Drafts'}
               </h1>
               <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
                 {claims.length} Records
@@ -423,8 +431,8 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
             </div>
             <p className="text-xs sm:text-sm text-slate-500 mt-1">
               {isAdmin
-                ? 'Review company-wide claims, download official A4 PDFs, and inspect timesheets.'
-                : 'Your personal claims history. Access previous submissions and re-print forms.'}
+                ? 'Review company-wide submissions, resume drafts, download official A4 PDFs, and inspect timesheets.'
+                : 'Your personal claims and saved drafts history. Resume incomplete drafts or download print-ready forms.'}
             </p>
           </div>
 
@@ -433,6 +441,68 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition shrink-0"
           >
             <span>Create New Claim</span>
+          </button>
+        </div>
+
+        {/* Status Filter Tabs */}
+        <div className="mt-4 flex items-center gap-2 border-b border-slate-100 pb-3 overflow-x-auto">
+          <button
+            type="button"
+            onClick={() => setStatusFilter('ALL')}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+              statusFilter === 'ALL'
+                ? 'bg-slate-900 text-white shadow-2xs'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+            }`}
+          >
+            <span>All Records</span>
+            <span
+              className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                statusFilter === 'ALL' ? 'bg-slate-700 text-white' : 'bg-slate-200 text-slate-700'
+              }`}
+            >
+              {claims.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setStatusFilter('SUBMITTED')}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+              statusFilter === 'SUBMITTED'
+                ? 'bg-emerald-700 text-white shadow-2xs'
+                : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/80'
+            }`}
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>Submitted / Saved</span>
+            <span
+              className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                statusFilter === 'SUBMITTED' ? 'bg-emerald-800 text-white' : 'bg-emerald-100 text-emerald-800'
+              }`}
+            >
+              {submittedCount}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setStatusFilter('DRAFTS')}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+              statusFilter === 'DRAFTS'
+                ? 'bg-amber-600 text-white shadow-2xs'
+                : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300/80'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5" />
+            <span>Drafts</span>
+            <span
+              className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                statusFilter === 'DRAFTS' ? 'bg-amber-700 text-white' : 'bg-amber-200 text-amber-900'
+              }`}
+            >
+              {draftsCount}
+            </span>
           </button>
         </div>
 
@@ -539,7 +609,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[800px]">
+            <table className="w-full text-left border-collapse min-w-[850px]">
               <thead>
                 <tr className="bg-slate-50 text-slate-700 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200">
                   <th className="py-3 px-3 w-10 text-center">
@@ -557,6 +627,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                   <th className="py-3 px-4">Claim Ref</th>
                   <th className="py-3 px-4">Claimant</th>
                   <th className="py-3 px-4">Period</th>
+                  <th className="py-3 px-4 text-center">Status</th>
                   <th className="py-3 px-4 text-center">Type</th>
                   <th className="py-3 px-4 text-center">Days</th>
                   <th className="py-3 px-4 text-center">Total OT Hours</th>
@@ -568,11 +639,16 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
               <tbody className="divide-y divide-slate-100 text-xs">
                 {filtered.map(claim => {
                   const isSelected = selectedClaimIds.includes(claim.id);
+                  const isDraft = claim.status === 'draft';
                   return (
                   <tr
                     key={claim.id}
                     className={`transition-colors ${
-                      isSelected ? 'bg-indigo-50/60' : 'hover:bg-slate-50/80'
+                      isSelected
+                        ? 'bg-indigo-50/60'
+                        : isDraft
+                        ? 'bg-amber-50/30 hover:bg-amber-50/60'
+                        : 'hover:bg-slate-50/80'
                     }`}
                   >
                     <td className="py-3.5 px-3 text-center">
@@ -598,6 +674,27 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                       <span className="font-semibold text-slate-800">
                         {claim.month} {claim.year}
                       </span>
+                    </td>
+
+                    {/* Prominent Status Label (Draft vs Submitted) */}
+                    <td className="py-3.5 px-4 text-center">
+                      {isDraft ? (
+                        <span
+                          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-[10px] bg-amber-50 text-amber-800 border border-amber-300 shadow-2xs"
+                          title="Uncompleted draft timesheet - click Resume to continue editing"
+                        >
+                          <Clock className="w-3 h-3 text-amber-600" />
+                          <span>Draft</span>
+                        </span>
+                      ) : (
+                        <span
+                          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-300 shadow-2xs"
+                          title="Submitted overtime claim"
+                        >
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          <span>Submitted</span>
+                        </span>
+                      )}
                     </td>
 
                     <td className="py-3.5 px-4 text-center">
@@ -643,6 +740,17 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
 
                     <td className="py-3.5 px-4 text-right">
                       <div className="flex items-center justify-end gap-1">
+                        {isDraft && (
+                          <button
+                            onClick={() => onEditClaim(claim)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs transition cursor-pointer"
+                            title="Resume editing this uncompleted draft sheet"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                            <span>Resume</span>
+                          </button>
+                        )}
+
                         <button
                           onClick={() => setViewingClaim(claim)}
                           className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition"
@@ -671,13 +779,15 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                         >
                           <Download className="w-4 h-4" />
                         </button>
-                        <button
-                          onClick={() => onEditClaim(claim)}
-                          className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"
-                          title="Edit Claim"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
+                        {!isDraft && (
+                          <button
+                            onClick={() => onEditClaim(claim)}
+                            className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"
+                            title="Edit Claim"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                        )}
                         <button
                           onClick={() => handleDuplicate(claim)}
                           className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-slate-100 rounded-lg transition"
@@ -688,7 +798,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                         <button
                           onClick={() => setClaimToDelete(claim)}
                           className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                          title="Delete Claim"
+                          title={isDraft ? "Discard Draft" : "Delete Claim"}
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -709,10 +819,23 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
           <div className="relative w-full max-w-4xl rounded-2xl bg-white p-6 shadow-2xl border border-slate-200 max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between pb-4 border-b border-slate-200">
               <div>
-                <span className="font-mono text-xs font-bold text-slate-400 uppercase">
-                  {viewingClaim.claimNumber}
-                </span>
-                <h2 className="text-lg font-bold text-slate-900">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-xs font-bold text-slate-400 uppercase">
+                    {viewingClaim.claimNumber}
+                  </span>
+                  {viewingClaim.status === 'draft' ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                      <Clock className="w-3 h-3 text-amber-600" />
+                      Draft
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                      Submitted
+                    </span>
+                  )}
+                </div>
+                <h2 className="text-lg font-bold text-slate-900 mt-0.5">
                   {viewingClaim.employeeName} &bull; {viewingClaim.month} {viewingClaim.year}
                 </h2>
                 <p className="text-xs text-slate-500">
@@ -721,9 +844,22 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
               </div>
 
               <div className="flex items-center gap-2">
+                {viewingClaim.status === 'draft' && (
+                  <button
+                    onClick={() => {
+                      const c = viewingClaim;
+                      setViewingClaim(null);
+                      onEditClaim(c);
+                    }}
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Edit className="w-3.5 h-3.5" />
+                    <span>Resume Draft</span>
+                  </button>
+                )}
                 <button
                   onClick={() => handlePreviewPdf(viewingClaim)}
-                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs"
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold shadow-xs"
                 >
                   Generate PDF
                 </button>
@@ -735,6 +871,30 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                 </button>
               </div>
             </div>
+
+            {/* Uncompleted Draft Banner */}
+            {viewingClaim.status === 'draft' && (
+              <div className="my-3 p-3 rounded-xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-amber-900">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>
+                    <strong>Uncompleted Draft Timesheet:</strong> This claim is saved as a draft. Click &apos;Resume &amp; Submit&apos; to continue entering times and complete submission.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const c = viewingClaim;
+                    setViewingClaim(null);
+                    onEditClaim(c);
+                  }}
+                  className="inline-flex items-center gap-1 px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-xs shadow-xs transition shrink-0 cursor-pointer"
+                >
+                  <Edit className="w-3 h-3" />
+                  <span>Resume &amp; Submit</span>
+                </button>
+              </div>
+            )}
 
             {/* Overtime Rates & Payment Due Summary Cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-3">
@@ -844,10 +1004,14 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
         isOpen={!!claimToDelete}
         onClose={() => setClaimToDelete(null)}
         onConfirm={confirmDeleteClaim}
-        title="Delete Overtime Timesheet"
-        message={`Are you sure you want to permanently delete claim #${claimToDelete?.claimNumber}? All overtime calculations will be lost.`}
-        confirmText="Delete Claim"
-        cancelText="Keep Claim"
+        title={claimToDelete?.status === 'draft' ? 'Discard Draft Timesheet' : 'Delete Overtime Timesheet'}
+        message={
+          claimToDelete?.status === 'draft'
+            ? `Are you sure you want to discard draft claim #${claimToDelete?.claimNumber}? All uncompleted entries will be permanently removed.`
+            : `Are you sure you want to permanently delete claim #${claimToDelete?.claimNumber}? All overtime calculations will be lost.`
+        }
+        confirmText={claimToDelete?.status === 'draft' ? 'Discard Draft' : 'Delete Claim'}
+        cancelText={claimToDelete?.status === 'draft' ? 'Keep Draft' : 'Keep Claim'}
         variant="danger"
         isLoading={isDeleting}
         details={claimToDelete ? [

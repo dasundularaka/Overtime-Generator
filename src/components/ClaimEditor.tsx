@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Plus,
   Trash2,
@@ -23,6 +23,9 @@ import {
   AlertTriangle,
   Check,
   Save,
+  Loader2,
+  Cloud,
+  CloudOff,
 } from 'lucide-react';
 import {
   collection,
@@ -58,6 +61,8 @@ import {
   getActiveTemplate,
   getSettings,
   saveClaim,
+  saveDraftClaim,
+  clearDraftClaim,
 } from '../utils/storage';
 import { recordAuditLog } from '../utils/auditLogger';
 import { generateOvertimePdf, printPdfDocument } from '../utils/pdfGenerator';
@@ -189,6 +194,34 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   const [isConfirmResetOpen, setIsConfirmResetOpen] = useState(false);
   const [isConfirmSaveClaimOpen, setIsConfirmSaveClaimOpen] = useState(false);
   const [isSavingClaim, setIsSavingClaim] = useState(false);
+
+  // Active Draft & Auto-Save State
+  const [activeClaimId, setActiveClaimId] = useState<string>(initialClaim?.id || '');
+  const [activeClaimNumber, setActiveClaimNumber] = useState<string>(initialClaim?.claimNumber || '');
+  const [autoSaveDraftEnabled, setAutoSaveDraftEnabled] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem('ot_autosave_draft_enabled');
+      return stored !== null ? stored === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+  const [isAutoSaving, setIsAutoSaving] = useState<boolean>(false);
+  const [isManualDraftSaving, setIsManualDraftSaving] = useState<boolean>(false);
+  const [lastAutoSaveTime, setLastAutoSaveTime] = useState<string | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
+  const [draftToastMessage, setDraftToastMessage] = useState<string | null>(null);
+
+  const isSubmittedRef = useRef<boolean>(false);
+  const isInitialMountRef = useRef<boolean>(true);
+  const lastSavedHashRef = useRef<string>('');
+
+  const handleToggleAutoSave = (enabled: boolean) => {
+    setAutoSaveDraftEnabled(enabled);
+    try {
+      localStorage.setItem('ot_autosave_draft_enabled', String(enabled));
+    } catch {}
+  };
 
   // Rows State
   const [rows, setRows] = useState<OvertimeRow[]>([]);
@@ -357,8 +390,16 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       setHourlyRate(initialClaim.hourlyRate !== undefined ? initialClaim.hourlyRate : '');
       setDaysPay(initialClaim.daysPay !== undefined ? initialClaim.daysPay : '');
       setOtPaymentDueB(initialClaim.otPaymentDueB !== undefined ? initialClaim.otPaymentDueB : '');
+      setActiveClaimId(initialClaim.id);
+      setActiveClaimNumber(initialClaim.claimNumber);
+      if (initialClaim.status === 'draft') {
+        setLastAutoSaveTime(new Date(initialClaim.updatedAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+      }
       return;
     }
+
+    setActiveClaimId('');
+    setActiveClaimNumber('');
 
     if (targetProfile) {
       setEmployeeName(targetProfile.name || '');
@@ -980,12 +1021,15 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     );
   };
 
-  const buildClaimRecord = (customRows?: OvertimeRow[]): ClaimRecord => {
-    const claimId = initialClaim?.id || 'clm_' + Date.now();
+  const buildClaimRecord = (status: 'draft' | 'submitted' = 'submitted', customRows?: OvertimeRow[]): ClaimRecord => {
+    const claimId = activeClaimId || initialClaim?.id || 'clm_' + Date.now();
     const sourceRows = customRows || rows;
-    // Automatically remove non-claimed days in generation
+    // Automatically remove non-claimed days in final submission; preserve all rows in drafts
     const claimedRows = sourceRows.filter(isClaimedRow);
-    const activeRows = claimedRows.length > 0 ? claimedRows : sourceRows.filter(r => r.startTime || r.endTime);
+    const activeRows =
+      status === 'draft'
+        ? sourceRows
+        : (claimedRows.length > 0 ? claimedRows : sourceRows.filter(r => r.startTime || r.endTime));
 
     const totalMinutes = activeRows.reduce((acc, r) => acc + (r.totalMinutes || 0), 0);
     const otDaysCount = activeRows.filter(r => (r.totalMinutes || 0) > 0).length;
@@ -1036,6 +1080,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       id: claimId,
       userId: selectedUserId || currentUser?.uid || 'user_1',
       claimNumber:
+        activeClaimNumber ||
         initialClaim?.claimNumber ||
         `CLM-${claimYear}-${String(MONTH_NAMES.indexOf(claimMonth) + 1).padStart(2, '0')}-${Math.floor(100 + Math.random() * 900)}`,
       employeeName,
@@ -1063,12 +1108,150 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       otPaymentDueA: calculatedPaymentA,
       otPaymentDueB: calculatedPaymentB,
       totalOtPayment: calculatedTotalPayment,
-      status: 'submitted',
+      status,
       templateId: activeTemplate.id,
       createdAt: initialClaim?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
   };
+
+  // Check if there is any uncompleted data entered
+  const hasUncompletedData = useMemo(() => {
+    const hasEmployee = Boolean(employeeName.trim() || employeeNumber.trim());
+    const hasRowActivity = rows.some(
+      r => (r.startTime && r.startTime.trim() !== '') || (r.endTime && r.endTime.trim() !== '') || (r.reason && r.reason.trim() !== '' && !r.isHoliday)
+    );
+    return hasEmployee || hasRowActivity;
+  }, [rows, employeeName, employeeNumber]);
+
+  // Saves the in-progress timesheet as draft to Firestore and localStorage
+  const performSaveDraft = async (isAuto: boolean = true) => {
+    if (isSubmittedRef.current) return;
+    if (isAuto && !autoSaveDraftEnabled) return;
+    if (!hasUncompletedData) return;
+
+    try {
+      if (isAuto) setIsAutoSaving(true);
+      else setIsManualDraftSaving(true);
+
+      const claimIdToUse = activeClaimId || initialClaim?.id || ('clm_draft_' + Date.now());
+      if (!activeClaimId) setActiveClaimId(claimIdToUse);
+
+      const claimNumberToUse =
+        activeClaimNumber ||
+        initialClaim?.claimNumber ||
+        `CLM-${claimYear}-${String(MONTH_NAMES.indexOf(claimMonth) + 1).padStart(2, '0')}-${Math.floor(100 + Math.random() * 900)}`;
+      if (!activeClaimNumber) setActiveClaimNumber(claimNumberToUse);
+
+      const draftClaim = buildClaimRecord('draft');
+      draftClaim.id = claimIdToUse;
+      draftClaim.claimNumber = claimNumberToUse;
+
+      // Hash comparison to avoid redundant Firestore writes
+      const currentHash = JSON.stringify({
+        id: claimIdToUse,
+        m: draftClaim.month,
+        y: draftClaim.year,
+        rows: draftClaim.rows.map(r => ({
+          d: r.date,
+          s: r.startTime,
+          e: r.endTime,
+          r: r.reason,
+          sp: r.isSpecialAssignment,
+          ho: r.isHolidayOverride,
+        })),
+        tot: draftClaim.totalMinutes,
+        hr: draftClaim.hourlyRate,
+        dp: draftClaim.daysPay,
+        rem: draftClaim.totalRemuneration,
+      });
+
+      if (isAuto && lastSavedHashRef.current === currentHash) {
+        setIsAutoSaving(false);
+        return;
+      }
+      lastSavedHashRef.current = currentHash;
+
+      // Save to localStorage
+      saveClaim(draftClaim);
+      saveDraftClaim(draftClaim, draftClaim.userId);
+
+      // Save to Cloud Firestore
+      await setDoc(doc(db, 'claims', draftClaim.id), sanitizeFirestoreData(draftClaim));
+
+      const timeFormatted = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setLastAutoSaveTime(timeFormatted);
+      setHasUnsavedChanges(false);
+
+      if (!isAuto) {
+        setDraftToastMessage(`Timesheet successfully saved as draft at ${timeFormatted}. You can find it in your History.`);
+        setTimeout(() => setDraftToastMessage(null), 3500);
+      }
+    } catch (err) {
+      console.warn('Draft save notice:', err);
+    } finally {
+      setIsAutoSaving(false);
+      setIsManualDraftSaving(false);
+    }
+  };
+
+  // Debounced auto-save effect for uncompleted sheets
+  useEffect(() => {
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false;
+      return;
+    }
+
+    if (!autoSaveDraftEnabled) return;
+    if (isSubmittedRef.current) return;
+    if (!hasUncompletedData) return;
+
+    setHasUnsavedChanges(true);
+
+    const timer = setTimeout(() => {
+      performSaveDraft(true);
+    }, 1800);
+
+    return () => clearTimeout(timer);
+  }, [
+    autoSaveDraftEnabled,
+    rows,
+    employeeName,
+    employeeNumber,
+    designation,
+    branch,
+    department,
+    claimMonth,
+    claimYear,
+    claimDate,
+    hourlyRate,
+    daysPay,
+    totalRemuneration,
+    otPaymentDueB,
+    isSpecialAssignedOt,
+    selectedTemplateId,
+  ]);
+
+  // Window unload / unmount fallback save
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (autoSaveDraftEnabled && !isSubmittedRef.current && hasUncompletedData) {
+        const draft = buildClaimRecord('draft');
+        saveClaim(draft);
+        saveDraftClaim(draft, draft.userId);
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      if (autoSaveDraftEnabled && !isSubmittedRef.current && hasUncompletedData) {
+        const draft = buildClaimRecord('draft');
+        saveClaim(draft);
+        saveDraftClaim(draft, draft.userId);
+      }
+    };
+  }, [autoSaveDraftEnabled, hasUncompletedData, rows, employeeName, employeeNumber, claimMonth, claimYear]);
 
   // Trigger confirmation dialog for Save / Submit Claim
   const handleSaveClaim = () => {
@@ -1080,16 +1263,18 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   // Commit Save Claim to Firestore after user confirmation
   const confirmCommitSaveClaim = async () => {
     setIsSavingClaim(true);
-    const claim = buildClaimRecord();
+    isSubmittedRef.current = true;
+    const claim = buildClaimRecord('submitted');
 
     try {
       saveClaim(claim);
+      clearDraftClaim(claim.userId);
       await setDoc(doc(db, 'claims', claim.id), sanitizeFirestoreData(claim));
 
       // Record administrative audit log with comprehensive before vs after state comparison
       await recordAuditLog({
-        action: initialClaim ? 'CLAIM_UPDATE' : 'CLAIM_CREATE',
-        actionLabel: initialClaim ? 'Updated Overtime Claim Timesheet' : 'Created New Overtime Claim Timesheet',
+        action: initialClaim && initialClaim.status !== 'draft' ? 'CLAIM_UPDATE' : 'CLAIM_CREATE',
+        actionLabel: initialClaim && initialClaim.status !== 'draft' ? 'Updated Overtime Claim Timesheet' : 'Submitted Overtime Claim Timesheet',
         targetType: 'claim',
         targetId: claim.id,
         targetDescription: `${claim.claimNumber} (${claim.employeeName} - ${claim.month}/${claim.year})`,
@@ -1236,8 +1421,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   // Generates PDF and downloads file
   const executeGenerateAndDownload = async (claimRows: OvertimeRow[]) => {
     setIsGeneratingPdf(true);
+    isSubmittedRef.current = true;
     try {
-      const claim = buildClaimRecord(claimRows);
+      const claim = buildClaimRecord('submitted', claimRows);
       const { url, filename } = await generateOvertimePdf(
         claim,
         activeTemplate,
@@ -1291,6 +1477,12 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
               <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
                 Timesheet &amp; Overtime Entry
               </h1>
+              {initialClaim?.status === 'draft' && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-xs bg-amber-100 text-amber-800 border border-amber-300">
+                  <Clock className="w-3 h-3 text-amber-600" />
+                  Draft
+                </span>
+              )}
             </div>
             <p className="text-xs sm:text-sm text-slate-500 mt-1">
               Enter your daily starting and ending times to calculate overtime claims and generate print-ready sheets.
@@ -1304,6 +1496,100 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             </span>
           </div>
         </div>
+
+        {/* Option: Auto-save uncompleted OT sheet as draft */}
+        <div className="mt-4 p-3.5 rounded-2xl bg-gradient-to-r from-slate-50 to-indigo-50/40 border border-slate-200/90 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs shadow-2xs">
+          <div className="flex items-center gap-3">
+            {/* Toggle switch for Auto-save uncompleted sheet as draft */}
+            <label className="relative inline-flex items-center cursor-pointer select-none shrink-0" title="Toggle automatic draft saving for uncompleted sheets">
+              <input
+                type="checkbox"
+                checked={autoSaveDraftEnabled}
+                onChange={e => handleToggleAutoSave(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-10 h-5.5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4.5 after:w-4.5 after:transition-all peer-checked:bg-indigo-600"></div>
+            </label>
+
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-bold text-slate-900 text-xs">
+                  Auto-save uncompleted sheet as draft
+                </span>
+                {autoSaveDraftEnabled ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                    <Cloud className="w-3 h-3 text-emerald-600" />
+                    <span>Auto-Save Enabled</span>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 border border-slate-300">
+                    <CloudOff className="w-3 h-3 text-slate-400" />
+                    <span>Disabled</span>
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                {autoSaveDraftEnabled
+                  ? 'Uncompleted timesheets are automatically saved as drafts and can be resumed from History.'
+                  : 'Automatic draft saving is paused. Enable to automatically save your progress.'}
+              </p>
+            </div>
+          </div>
+
+          {/* Status Indicator & Save Draft Action */}
+          <div className="flex items-center gap-2 self-start md:self-auto shrink-0 flex-wrap">
+            {isAutoSaving ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-100/70 text-indigo-700 font-bold text-[11px] border border-indigo-200 animate-pulse">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                <span>Saving draft...</span>
+              </span>
+            ) : lastAutoSaveTime ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 font-medium text-[11px] border border-slate-200">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Draft auto-saved at {lastAutoSaveTime}</span>
+              </span>
+            ) : hasUnsavedChanges && autoSaveDraftEnabled ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 font-medium text-[11px] border border-amber-200">
+                <Clock className="w-3.5 h-3.5 text-amber-500" />
+                <span>Unsaved changes</span>
+              </span>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={() => performSaveDraft(false)}
+              disabled={isManualDraftSaving || isAutoSaving}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50"
+              title="Explicitly save current sheet as a draft"
+            >
+              <Save className="w-3.5 h-3.5 text-slate-500" />
+              <span>{isManualDraftSaving ? 'Saving...' : 'Save Draft'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Resumed Draft Alert if user is resuming a draft */}
+        {initialClaim?.status === 'draft' && (
+          <div className="mt-3 p-3 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-between gap-2 text-xs text-amber-900">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>
+                <strong>Resumed Draft:</strong> You are editing uncompleted draft claim <strong>{initialClaim.claimNumber}</strong> ({initialClaim.month} {initialClaim.year}). Changes auto-save automatically.
+              </span>
+            </div>
+            <span className="px-2 py-0.5 rounded-full bg-amber-200/80 text-amber-900 font-bold text-[10px] uppercase tracking-wider shrink-0">
+              Draft
+            </span>
+          </div>
+        )}
+
+        {/* Draft Notification Toast */}
+        {draftToastMessage && (
+          <div className="mt-3 p-3 rounded-xl bg-indigo-50 border border-indigo-200 text-xs text-indigo-900 flex items-center gap-2 animate-scale-in">
+            <CheckCircle2 className="w-4 h-4 text-indigo-600 shrink-0" />
+            <span>{draftToastMessage}</span>
+          </div>
+        )}
 
         {/* Validation Error Alert */}
         {validationError && (
@@ -2279,16 +2565,28 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             <span>{isGeneratingPdf ? 'Rendering...' : 'Preview'}</span>
           </button>
 
-          {/* 2. Save Claim Button */}
+          {/* 2. Save as Draft Button */}
+          <button
+            type="button"
+            onClick={() => performSaveDraft(false)}
+            disabled={isGeneratingPdf || isManualDraftSaving || isAutoSaving}
+            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50"
+            title="Save current incomplete timesheet as draft in history"
+          >
+            <Clock className="w-4 h-4 text-amber-700" />
+            <span>{isManualDraftSaving ? 'Saving Draft...' : 'Save as Draft'}</span>
+          </button>
+
+          {/* 3. Save & Submit Claim Button */}
           <button
             type="button"
             onClick={handleSaveClaim}
             disabled={isGeneratingPdf}
-            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50"
-            title="Save claim to database and history"
+            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl border border-emerald-600 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50"
+            title="Finalize and submit overtime claim"
           >
-            <Save className="w-4 h-4 text-slate-600" />
-            <span>Save</span>
+            <CheckCircle2 className="w-4 h-4 text-white" />
+            <span>{initialClaim && initialClaim.status !== 'draft' ? 'Update Claim' : 'Submit Claim'}</span>
           </button>
 
           {/* 3. Download PDF Button */}
