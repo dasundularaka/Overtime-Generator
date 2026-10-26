@@ -15,8 +15,9 @@ import {
   Mail,
   ShieldCheck,
   KeyRound,
+  Tag,
 } from 'lucide-react';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { PasswordResetModal } from './PasswordResetModal';
 import { AppSettings, FontFamily, OTDisplayFormat, TemplateConfig, TimeFormat } from '../types';
@@ -74,6 +75,17 @@ export const SettingsPage: React.FC = () => {
   const confirmCommitSaveSettings = () => {
     const prev = initialSettingsRef.current;
     saveSettings(settings);
+
+    // Persist default reasons to Firestore user profile if logged in
+    const targetUid = userProfile?.id || currentUser?.uid;
+    if (targetUid) {
+      updateDoc(doc(db, 'users', targetUid), {
+        defaultWeekdayReason: settings.defaultWeekdayReason || '',
+        defaultSaturdayReason: settings.defaultSaturdayReason || 'Saturday Duty',
+        defaultHolidayReason: settings.defaultHolidayReason || '',
+        updatedAt: new Date().toISOString(),
+      }).catch(err => console.warn('Could not update user profile in Firestore:', err));
+    }
 
     recordAuditLog({
       action: 'SETTINGS_UPDATE',
@@ -536,6 +548,63 @@ export const SettingsPage: React.FC = () => {
                   ? 'Selected template is loaded by default across all employee claim forms. Configure layouts and printer offsets in the Template Designer tab.'
                   : 'Organization template assigned by system administrator.'}
               </p>
+            </div>
+
+            {/* Default Overtime Reasons */}
+            <div className="sm:col-span-2 pt-4 border-t border-slate-100">
+              <div className="flex items-center gap-2 mb-1.5">
+                <Tag className="w-4 h-4 text-indigo-600" />
+                <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                  Default Overtime Reasons
+                </h3>
+              </div>
+              <p className="text-[11px] text-slate-500 mb-3">
+                Configure default reasons automatically populated when creating claims, auto-populating full months, or adding timesheet rows.
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1 text-[11px]">
+                    Weekdays (Mon - Fri) Reason
+                  </label>
+                  <input
+                    type="text"
+                    value={settings.defaultWeekdayReason || ''}
+                    onChange={e => setSettings({ ...settings, defaultWeekdayReason: e.target.value })}
+                    placeholder="e.g. Regular Overtime"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 text-xs focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">Applied to standard weekdays.</span>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1 text-[11px]">
+                    Saturdays Reason
+                  </label>
+                  <input
+                    type="text"
+                    value={settings.defaultSaturdayReason ?? 'Saturday Duty'}
+                    onChange={e => setSettings({ ...settings, defaultSaturdayReason: e.target.value })}
+                    placeholder="e.g. Saturday Duty"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 text-xs focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">Applied to all Saturday duties.</span>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1 text-[11px]">
+                    Other Holidays &amp; Sundays Reason
+                  </label>
+                  <input
+                    type="text"
+                    value={settings.defaultHolidayReason || ''}
+                    onChange={e => setSettings({ ...settings, defaultHolidayReason: e.target.value })}
+                    placeholder="e.g. Holiday Duty (or blank for Name)"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 text-xs focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">Leave blank to use official Holiday name.</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>

@@ -77,6 +77,9 @@ export interface UserProfile {
   hourlyRateNonWorkingDays?: number; // Default hourly rate in Non-Working Days in Rs.
   totalRemuneration?: number; // Default salary/remuneration in Rs.
   isRatesLocked?: boolean; // When true, OT rates are locked for this user on claims
+  defaultWeekdayReason?: string; // Default reason for weekdays (Mon - Fri)
+  defaultSaturdayReason?: string; // Default reason for Saturdays
+  defaultHolidayReason?: string; // Default reason for other holidays & Sundays
   assignedTemplateIds?: string[]; // Templates assigned by admin; user can only access these
   welcomeEmailDispatched?: boolean;
   welcomeEmailSubject?: string;
@@ -254,6 +257,9 @@ export interface AppSettings {
   shiftStartTime: string; // "08:00"
   shiftEndTime: string; // "16:45"
   otStepMinutes: number; // 15
+  defaultWeekdayReason?: string; // Default reason for weekdays (Mon - Fri)
+  defaultSaturdayReason?: string; // Default reason for Saturdays
+  defaultHolidayReason?: string; // Default reason for other holidays & Sundays
 }
 
 // ---------------- Administrative Audit Log ----------------

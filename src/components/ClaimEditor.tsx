@@ -24,6 +24,8 @@ import {
   Check,
   Save,
   Loader2,
+  Tag,
+  SlidersHorizontal,
   Cloud,
   CloudOff,
 } from 'lucide-react';
@@ -35,6 +37,7 @@ import {
   query,
   where,
   deleteDoc,
+  updateDoc,
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { handleFirestoreError, OperationType } from '../firebase/errors';
@@ -61,6 +64,7 @@ import {
 import {
   getActiveTemplate,
   getSettings,
+  saveSettings,
   saveClaim,
   saveDraftClaim,
   clearDraftClaim,
@@ -213,6 +217,94 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   const [lastAutoSaveTime, setLastAutoSaveTime] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
   const [draftToastMessage, setDraftToastMessage] = useState<string | null>(null);
+
+  // Default Reasons State (Weekdays Mon-Fri, Saturdays, Other Holidays)
+  const [defaultWeekdayReason, setDefaultWeekdayReason] = useState<string>(() => {
+    return userProfile?.defaultWeekdayReason ?? settings.defaultWeekdayReason ?? '';
+  });
+  const [defaultSaturdayReason, setDefaultSaturdayReason] = useState<string>(() => {
+    return userProfile?.defaultSaturdayReason ?? settings.defaultSaturdayReason ?? 'Saturday Duty';
+  });
+  const [defaultHolidayReason, setDefaultHolidayReason] = useState<string>(() => {
+    return userProfile?.defaultHolidayReason ?? settings.defaultHolidayReason ?? '';
+  });
+  const [isDefaultReasonsModalOpen, setIsDefaultReasonsModalOpen] = useState<boolean>(false);
+  const [tempWeekdayReason, setTempWeekdayReason] = useState<string>('');
+  const [tempSaturdayReason, setTempSaturdayReason] = useState<string>('');
+  const [tempHolidayReason, setTempHolidayReason] = useState<string>('');
+  const [reasonsSavedSuccess, setReasonsSavedSuccess] = useState<boolean>(false);
+
+  const handleOpenDefaultReasonsModal = () => {
+    setTempWeekdayReason(defaultWeekdayReason);
+    setTempSaturdayReason(defaultSaturdayReason);
+    setTempHolidayReason(defaultHolidayReason);
+    setIsDefaultReasonsModalOpen(true);
+  };
+
+  const handleSaveAndApplyDefaultReasons = async (applyScope?: 'empty' | 'all') => {
+    const finalWeekday = tempWeekdayReason.trim();
+    const finalSaturday = tempSaturdayReason.trim();
+    const finalHoliday = tempHolidayReason.trim();
+
+    setDefaultWeekdayReason(finalWeekday);
+    setDefaultSaturdayReason(finalSaturday);
+    setDefaultHolidayReason(finalHoliday);
+
+    // 1. Save AppSettings to local storage
+    const updatedSettings = {
+      ...settings,
+      defaultWeekdayReason: finalWeekday,
+      defaultSaturdayReason: finalSaturday,
+      defaultHolidayReason: finalHoliday,
+    };
+    saveSettings(updatedSettings);
+
+    // 2. Save to Firestore user profile if authenticated
+    const targetUid = selectedUserId || userProfile?.id || currentUser?.uid;
+    if (targetUid) {
+      try {
+        await updateDoc(doc(db, 'users', targetUid), {
+          defaultWeekdayReason: finalWeekday,
+          defaultSaturdayReason: finalSaturday,
+          defaultHolidayReason: finalHoliday,
+          updatedAt: new Date().toISOString(),
+        });
+      } catch (err) {
+        console.warn('Failed to save default reasons in profile:', err);
+      }
+    }
+
+    // 3. Apply to current sheet rows
+    if (applyScope) {
+      setRows(prevRows =>
+        prevRows.map(r => {
+          const isHol = !!r.isHoliday || holidayMap.has(r.date) || r.dayOfWeek === 'Sun';
+          const isSat = r.dayOfWeek === 'Sat';
+
+          const computedReason = isHol
+            ? (finalHoliday ? finalHoliday : (r.holidayName || (r.dayOfWeek === 'Sun' ? 'Sunday' : 'Holiday')))
+            : (isSat
+                ? (finalSaturday ? finalSaturday : 'Saturday Duty')
+                : finalWeekday);
+
+          if (applyScope === 'all') {
+            return { ...r, reason: computedReason };
+          } else {
+            if (!r.reason || r.reason.trim() === '') {
+              return { ...r, reason: computedReason };
+            }
+            return r;
+          }
+        })
+      );
+    }
+
+    setReasonsSavedSuccess(true);
+    setTimeout(() => {
+      setReasonsSavedSuccess(false);
+      setIsDefaultReasonsModalOpen(false);
+    }, 1100);
+  };
 
   const isSubmittedRef = useRef<boolean>(false);
   const isInitialMountRef = useRef<boolean>(true);
@@ -482,7 +574,11 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         rawOtMinutes: 0,
         totalMinutes: 0,
         totalFormatted: '00:00',
-        reason: isHol ? (hol?.name || (isSun ? 'Sunday' : 'Holiday')) : (isSat ? "Saturday Duty" : ''),
+        reason: isHol
+          ? (defaultHolidayReason.trim() ? defaultHolidayReason.trim() : (hol?.name || (isSun ? 'Sunday' : 'Holiday')))
+          : (isSat
+              ? (defaultSaturdayReason.trim() ? defaultSaturdayReason.trim() : 'Saturday Duty')
+              : (defaultWeekdayReason.trim() ? defaultWeekdayReason.trim() : '')),
       });
     }
     return fullRows;
@@ -663,7 +759,11 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       rawOtMinutes: 0,
       totalMinutes: 0,
       totalFormatted: '00:00',
-      reason: isHol ? (holidayMap.get(defaultDate)?.name || 'Holiday') : (isSun ? 'Sunday' : ''),
+      reason: (isHol || isSun)
+        ? (defaultHolidayReason.trim() ? defaultHolidayReason.trim() : (holidayMap.get(defaultDate)?.name || (isSun ? 'Sunday' : 'Holiday')))
+        : (getDayOfWeek(defaultDate) === 'Sat'
+            ? (defaultSaturdayReason.trim() ? defaultSaturdayReason.trim() : 'Saturday Duty')
+            : (defaultWeekdayReason.trim() ? defaultWeekdayReason.trim() : '')),
     };
   }
 
@@ -845,7 +945,11 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         rawOtMinutes: 0,
         totalMinutes: 0,
         totalFormatted: '00:00',
-        reason: isHol ? (holidayInfo?.name || (isSun ? 'Sunday' : 'Holiday')) : (isSat ? "Saturday Duty (Day's Pay)" : ''),
+        reason: isHol
+          ? (defaultHolidayReason.trim() ? defaultHolidayReason.trim() : (holidayInfo?.name || (isSun ? 'Sunday' : 'Holiday')))
+          : (isSat
+              ? (defaultSaturdayReason.trim() ? defaultSaturdayReason.trim() : "Saturday Duty (Day's Pay)")
+              : (defaultWeekdayReason.trim() ? defaultWeekdayReason.trim() : '')),
       };
     });
 
@@ -2195,6 +2299,42 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
       {/* Timesheet Daily Entries Table */}
       <div className="rounded-2xl bg-white shadow-xs border border-slate-200 overflow-hidden">
+        {/* Quick summary strip of active default reasons */}
+        <div className="px-5 py-2.5 bg-gradient-to-r from-amber-50/50 via-slate-50 to-indigo-50/30 border-b border-slate-200/80 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="font-bold text-slate-800 flex items-center gap-1 text-[11px] uppercase tracking-wider">
+              <Tag className="w-3 h-3 text-amber-600" />
+              Default Reasons:
+            </span>
+            <span className="inline-flex items-center gap-1 text-[11px] text-slate-600">
+              <span className="font-semibold text-slate-500">Mon–Fri:</span>
+              <span className="font-bold text-slate-800 bg-white px-2 py-0.5 rounded-md border border-slate-200 shadow-3xs">
+                {defaultWeekdayReason || '<Blank>'}
+              </span>
+            </span>
+            <span className="inline-flex items-center gap-1 text-[11px] text-slate-600">
+              <span className="font-semibold text-slate-500">Sat:</span>
+              <span className="font-bold text-slate-800 bg-white px-2 py-0.5 rounded-md border border-slate-200 shadow-3xs">
+                {defaultSaturdayReason || 'Saturday Duty'}
+              </span>
+            </span>
+            <span className="inline-flex items-center gap-1 text-[11px] text-slate-600">
+              <span className="font-semibold text-slate-500">Holidays:</span>
+              <span className="font-bold text-slate-800 bg-white px-2 py-0.5 rounded-md border border-slate-200 shadow-3xs">
+                {defaultHolidayReason || '<Official Holiday Name>'}
+              </span>
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleOpenDefaultReasonsModal}
+            className="text-xs font-bold text-indigo-600 hover:text-indigo-800 transition cursor-pointer hover:underline inline-flex items-center gap-1"
+          >
+            <SlidersHorizontal className="w-3 h-3" />
+            <span>Customize Default Reasons</span>
+          </button>
+        </div>
+
         <div className="px-5 py-4 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <h2 className="text-base font-bold text-slate-900">
@@ -2206,6 +2346,20 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* Configure Default Reasons Button */}
+            <button
+              type="button"
+              onClick={handleOpenDefaultReasonsModal}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-amber-300 bg-amber-50/90 hover:bg-amber-100 text-amber-900 text-xs font-semibold cursor-pointer transition select-none shadow-2xs"
+              title="Configure default overtime reasons for Weekdays (Mon-Fri), Saturdays, and Holidays"
+            >
+              <Tag className="w-3.5 h-3.5 text-amber-700" />
+              <span>Default Reasons</span>
+              {(defaultWeekdayReason || defaultSaturdayReason !== 'Saturday Duty' || defaultHolidayReason) && (
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+              )}
+            </button>
+
             {/* Special Assigned Overtime Modern Tick Option */}
             <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50/80 hover:bg-indigo-100/70 text-indigo-900 text-xs font-semibold cursor-pointer transition select-none">
               <input
@@ -2872,6 +3026,222 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           value: `Worked: ${r.startTime} – ${r.endTime} (OT: ${r.totalFormatted || '00:00'}${r.reason ? ` • ${r.reason}` : ''})`,
         }))}
       />
+
+      {/* Default Reasons Configuration Modal */}
+      {isDefaultReasonsModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
+            {/* Modal Header */}
+            <div className="px-6 py-5 bg-gradient-to-r from-amber-500/10 via-slate-50 to-indigo-500/10 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-2xl bg-amber-100 text-amber-800 border border-amber-300">
+                  <Tag className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Default Overtime Reasons
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Set default reasons for Weekdays (Mon - Fri), Saturdays, and Holidays.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsDefaultReasonsModalOpen(false)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-5 overflow-y-auto text-xs">
+              {reasonsSavedSuccess && (
+                <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-800 font-bold flex items-center gap-2 text-xs">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Default reasons saved successfully and applied!</span>
+                </div>
+              )}
+
+              {/* 1. Weekday Reason */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-slate-800">
+                    1. Weekdays (Mon - Fri) Default Reason
+                  </label>
+                  <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">
+                    Regular Days
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  value={tempWeekdayReason}
+                  onChange={e => setTempWeekdayReason(e.target.value)}
+                  placeholder="e.g. Regular Overtime"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-xs font-medium focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                />
+                {/* Quick suggestions */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="text-[10px] text-slate-400 font-medium">Suggestions:</span>
+                  {[
+                    'Regular Overtime',
+                    'System Maintenance',
+                    'End of Day Processing',
+                    'Project Support',
+                    'Urgent Operational Support',
+                  ].map(sug => (
+                    <button
+                      key={sug}
+                      type="button"
+                      onClick={() => setTempWeekdayReason(sug)}
+                      className="px-2 py-0.5 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-600 text-[10px] font-semibold border border-slate-200 transition cursor-pointer"
+                    >
+                      {sug}
+                    </button>
+                  ))}
+                  {tempWeekdayReason && (
+                    <button
+                      type="button"
+                      onClick={() => setTempWeekdayReason('')}
+                      className="px-2 py-0.5 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 text-[10px] font-semibold border border-rose-200 transition cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* 2. Saturday Reason */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-slate-800">
+                    2. Saturdays Default Reason
+                  </label>
+                  <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">
+                    Saturday Duties
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  value={tempSaturdayReason}
+                  onChange={e => setTempSaturdayReason(e.target.value)}
+                  placeholder="e.g. Saturday Duty"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-xs font-medium focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                />
+                {/* Quick suggestions */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="text-[10px] text-slate-400 font-medium">Suggestions:</span>
+                  {[
+                    'Saturday Duty',
+                    "Saturday Duty (Day's Pay)",
+                    'Weekend Duty',
+                    'Special Assignment',
+                  ].map(sug => (
+                    <button
+                      key={sug}
+                      type="button"
+                      onClick={() => setTempSaturdayReason(sug)}
+                      className="px-2 py-0.5 rounded-lg bg-slate-100 hover:bg-amber-50 hover:text-amber-800 text-slate-600 text-[10px] font-semibold border border-slate-200 transition cursor-pointer"
+                    >
+                      {sug}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 3. Other Holidays & Sundays Reason */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-slate-800">
+                    3. Other Holidays &amp; Sundays Default Reason
+                  </label>
+                  <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">
+                    Sundays &amp; Holidays
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  value={tempHolidayReason}
+                  onChange={e => setTempHolidayReason(e.target.value)}
+                  placeholder="Leave blank to use official Holiday name (e.g., Deepavali, Sunday)"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-xs font-medium focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                />
+                <p className="text-[10px] text-slate-500">
+                  Tip: When blank, the official holiday name (e.g., "Full Moon Poya Day", "May Day") or "Sunday" will be automatically populated.
+                </p>
+                {/* Quick suggestions */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="text-[10px] text-slate-400 font-medium">Suggestions:</span>
+                  <button
+                    type="button"
+                    onClick={() => setTempHolidayReason('')}
+                    className="px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-[10px] font-bold border border-indigo-200 transition cursor-pointer"
+                  >
+                    ★ Use Official Holiday Name
+                  </button>
+                  {[
+                    'Holiday Duty',
+                    'Public Holiday Duty',
+                    'Mercantile Holiday Coverage',
+                    'Emergency Roster',
+                  ].map(sug => (
+                    <button
+                      key={sug}
+                      type="button"
+                      onClick={() => setTempHolidayReason(sug)}
+                      className="px-2 py-0.5 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-600 text-[10px] font-semibold border border-slate-200 transition cursor-pointer"
+                    >
+                      {sug}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleSaveAndApplyDefaultReasons('empty')}
+                  className="flex-1 sm:flex-none px-3.5 py-2 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 font-bold text-xs transition cursor-pointer shadow-3xs"
+                  title="Apply default reasons only to rows that have no reason"
+                >
+                  Apply to Empty Rows
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSaveAndApplyDefaultReasons('all')}
+                  className="flex-1 sm:flex-none px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 font-bold text-xs transition cursor-pointer shadow-3xs"
+                  title="Overwrite reasons across all rows based on day type"
+                >
+                  Apply to All Rows
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsDefaultReasonsModalOpen(false)}
+                  className="px-3 py-2 text-slate-600 hover:text-slate-900 font-semibold text-xs cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSaveAndApplyDefaultReasons('empty')}
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Save Defaults</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

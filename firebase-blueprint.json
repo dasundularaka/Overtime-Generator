@@ -5,126 +5,330 @@
       "description": "User profile with role, overtime limits, and organizational metadata",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "email": { "type": "string", "format": "email" },
-        "name": { "type": "string", "maxLength": 100 },
-        "role": { "type": "string", "enum": ["admin", "user"] },
-        "claimType": { "type": "string", "enum": ["OT", "OP"] },
-        "employeeNumber": { "type": "string", "maxLength": 50 },
-        "designation": { "type": "string", "maxLength": 100 },
-        "department": { "type": "string", "maxLength": 100 },
-        "branch": { "type": "string", "maxLength": 100 },
-        "maxOtHoursPerDay": { "type": "number" },
-        "assignedTemplateIds": { "type": "array" },
-        "createdAt": { "type": "string" },
-        "updatedAt": { "type": "string" }
+        "id": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string",
+          "format": "email"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "admin",
+            "user"
+          ]
+        },
+        "claimType": {
+          "type": "string",
+          "enum": [
+            "OT",
+            "OP"
+          ]
+        },
+        "employeeNumber": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "designation": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "department": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "branch": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "maxOtHoursPerDay": {
+          "type": "number"
+        },
+        "assignedTemplateIds": {
+          "type": "array"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        },
+        "defaultWeekdayReason": {
+          "type": "string",
+          "maxLength": 150
+        },
+        "defaultSaturdayReason": {
+          "type": "string",
+          "maxLength": 150
+        },
+        "defaultHolidayReason": {
+          "type": "string",
+          "maxLength": 150
+        }
       },
-      "required": ["id", "email", "name", "role", "claimType"]
+      "required": [
+        "id",
+        "email",
+        "name",
+        "role",
+        "claimType"
+      ]
     },
     "Claim": {
       "title": "Overtime Claim",
       "description": "Monthly overtime claim record belonging to a specific user",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "userId": { "type": "string" },
-        "claimNumber": { "type": "string" },
-        "employeeName": { "type": "string" },
-        "employeeNumber": { "type": "string" },
-        "designation": { "type": "string" },
-        "branch": { "type": "string" },
-        "department": { "type": "string" },
-        "claimType": { "type": "string", "enum": ["OT", "OP"] },
-        "month": { "type": "string" },
-        "year": { "type": "number" },
-        "claimDate": { "type": "string" },
-        "rows": { "type": "array" },
-        "totalMinutes": { "type": "number" },
-        "totalHoursFormatted": { "type": "string" },
-        "totalDecimalHours": { "type": "number" },
-        "otDaysCount": { "type": "number" },
-        "status": { "type": "string", "enum": ["draft", "submitted", "approved", "rejected", "completed"] },
-        "templateId": { "type": "string" },
-        "createdAt": { "type": "string" },
-        "updatedAt": { "type": "string" }
+        "id": {
+          "type": "string"
+        },
+        "userId": {
+          "type": "string"
+        },
+        "claimNumber": {
+          "type": "string"
+        },
+        "employeeName": {
+          "type": "string"
+        },
+        "employeeNumber": {
+          "type": "string"
+        },
+        "designation": {
+          "type": "string"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "department": {
+          "type": "string"
+        },
+        "claimType": {
+          "type": "string",
+          "enum": [
+            "OT",
+            "OP"
+          ]
+        },
+        "month": {
+          "type": "string"
+        },
+        "year": {
+          "type": "number"
+        },
+        "claimDate": {
+          "type": "string"
+        },
+        "rows": {
+          "type": "array"
+        },
+        "totalMinutes": {
+          "type": "number"
+        },
+        "totalHoursFormatted": {
+          "type": "string"
+        },
+        "totalDecimalHours": {
+          "type": "number"
+        },
+        "otDaysCount": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "draft",
+            "submitted",
+            "approved",
+            "rejected",
+            "completed"
+          ]
+        },
+        "templateId": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
       },
-      "required": ["id", "userId", "employeeName", "month", "year"]
+      "required": [
+        "id",
+        "userId",
+        "employeeName",
+        "month",
+        "year"
+      ]
     },
     "Template": {
       "title": "Form Template",
       "description": "A4 Overtime Form Template overlay coordinates and settings",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "name": { "type": "string" },
-        "description": { "type": "string" },
-        "isDefault": { "type": "boolean" },
-        "pageSize": { "type": "string" },
-        "widthMm": { "type": "number" },
-        "heightMm": { "type": "number" },
-        "backgroundImageUrl": { "type": "string" },
-        "backgroundType": { "type": "string", "enum": ["image", "pdf"] },
-        "fields": { "type": "array" },
-        "tableConfig": { "type": "object" },
-        "printerOffsetX": { "type": "number" },
-        "printerOffsetY": { "type": "number" },
-        "createdBy": { "type": "string" },
-        "createdByName": { "type": "string" },
-        "updatedAt": { "type": "string" }
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "isDefault": {
+          "type": "boolean"
+        },
+        "pageSize": {
+          "type": "string"
+        },
+        "widthMm": {
+          "type": "number"
+        },
+        "heightMm": {
+          "type": "number"
+        },
+        "backgroundImageUrl": {
+          "type": "string"
+        },
+        "backgroundType": {
+          "type": "string",
+          "enum": [
+            "image",
+            "pdf"
+          ]
+        },
+        "fields": {
+          "type": "array"
+        },
+        "tableConfig": {
+          "type": "object"
+        },
+        "printerOffsetX": {
+          "type": "number"
+        },
+        "printerOffsetY": {
+          "type": "number"
+        },
+        "createdBy": {
+          "type": "string"
+        },
+        "createdByName": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
       },
-      "required": ["id", "name"]
+      "required": [
+        "id",
+        "name"
+      ]
     },
     "Holiday": {
       "title": "Holiday",
       "description": "Company, bank, and public holidays calendar entry",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "date": { "type": "string" },
-        "name": { "type": "string" },
-        "type": { "type": "string", "enum": ["public", "bank", "mercantile", "special"] },
-        "description": { "type": "string" },
-        "isRecurringYearly": { "type": "boolean" },
-        "createdAt": { "type": "string" }
+        "id": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "public",
+            "bank",
+            "mercantile",
+            "special"
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "isRecurringYearly": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string"
+        }
       },
-      "required": ["id", "date", "name", "type"]
+      "required": [
+        "id",
+        "date",
+        "name",
+        "type"
+      ]
     },
     "PfDirectory": {
       "title": "PF Directory",
       "description": "Directory mapping PF numbers to user email and account identity",
       "type": "object",
       "properties": {
-        "pfNumber": { "type": "string" },
-        "email": { "type": "string" },
-        "name": { "type": "string" },
-        "userId": { "type": "string" }
+        "pfNumber": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "userId": {
+          "type": "string"
+        }
       },
-      "required": ["pfNumber", "email"]
+      "required": [
+        "pfNumber",
+        "email"
+      ]
     }
   },
   "firestore": {
     "/users/{userId}": {
-      "schema": { "$ref": "#/entities/User" },
+      "schema": {
+        "$ref": "#/entities/User"
+      },
       "description": "User profiles with roles, claim types, and overtime caps"
     },
     "/claims/{claimId}": {
-      "schema": { "$ref": "#/entities/Claim" },
+      "schema": {
+        "$ref": "#/entities/Claim"
+      },
       "description": "Individual overtime claims submitted by users"
     },
     "/templates/{templateId}": {
-      "schema": { "$ref": "#/entities/Template" },
+      "schema": {
+        "$ref": "#/entities/Template"
+      },
       "description": "Form layout templates configurable only by administrators"
     },
     "/admins/{adminId}": {
-      "schema": { "$ref": "#/entities/User" },
+      "schema": {
+        "$ref": "#/entities/User"
+      },
       "description": "Marker collection denoting administrator access"
     },
     "/holidays/{holidayId}": {
-      "schema": { "$ref": "#/entities/Holiday" },
+      "schema": {
+        "$ref": "#/entities/Holiday"
+      },
       "description": "Official company and public holidays"
     },
     "/pfDirectory/{pfNumber}": {
-      "schema": { "$ref": "#/entities/PfDirectory" },
+      "schema": {
+        "$ref": "#/entities/PfDirectory"
+      },
       "description": "PF Number lookup directory for user sign in"
     }
   }

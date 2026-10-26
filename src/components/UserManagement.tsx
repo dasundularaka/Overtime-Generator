@@ -23,6 +23,7 @@ import {
   Eye,
   EyeOff,
   Mail,
+  Tag,
 } from 'lucide-react';
 import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc, deleteField } from 'firebase/firestore';
 import { db } from '../firebase/config';
@@ -97,6 +98,9 @@ export const UserManagement: React.FC = () => {
   const [hourlyRateNonWorkingDays, setHourlyRateNonWorkingDays] = useState<number | ''>('');
   const [totalRemuneration, setTotalRemuneration] = useState<number | ''>('');
   const [isRatesLocked, setIsRatesLocked] = useState<boolean>(false);
+  const [defaultWeekdayReason, setDefaultWeekdayReason] = useState<string>('');
+  const [defaultSaturdayReason, setDefaultSaturdayReason] = useState<string>('Saturday Duty');
+  const [defaultHolidayReason, setDefaultHolidayReason] = useState<string>('');
 
   // Confirmation Modal State
   const [userToDelete, setUserToDelete] = useState<UserProfile | null>(null);
@@ -234,6 +238,9 @@ export const UserManagement: React.FC = () => {
     setShiftEndTime('16:45');
     setTotalRemuneration('');
     setIsRatesLocked(false);
+    setDefaultWeekdayReason('');
+    setDefaultSaturdayReason('Saturday Duty');
+    setDefaultHolidayReason('');
     setDispatchEmailViaGmail(true);
     // Default to primary template or all available
     const defTpl = availableTemplates.find(t => t.isDefault) || availableTemplates[0];
@@ -264,6 +271,9 @@ export const UserManagement: React.FC = () => {
     setHourlyRateNonWorkingDays(user.hourlyRateNonWorkingDays !== undefined ? user.hourlyRateNonWorkingDays : '');
     setTotalRemuneration(user.totalRemuneration !== undefined ? user.totalRemuneration : '');
     setIsRatesLocked(Boolean(user.isRatesLocked));
+    setDefaultWeekdayReason(user.defaultWeekdayReason || '');
+    setDefaultSaturdayReason(user.defaultSaturdayReason ?? 'Saturday Duty');
+    setDefaultHolidayReason(user.defaultHolidayReason || '');
     setFormError(null);
     setIsModalOpen(true);
   };
@@ -368,6 +378,9 @@ export const UserManagement: React.FC = () => {
           shiftEndTime: shiftEndTime || '16:45',
           assignedTemplateIds: assignedTemplateIds || [],
           isRatesLocked: isRatesLocked,
+          defaultWeekdayReason: defaultWeekdayReason.trim() ? defaultWeekdayReason.trim() : deleteField(),
+          defaultSaturdayReason: defaultSaturdayReason.trim() ? defaultSaturdayReason.trim() : deleteField(),
+          defaultHolidayReason: defaultHolidayReason.trim() ? defaultHolidayReason.trim() : deleteField(),
           updatedAt: new Date().toISOString(),
         };
 
