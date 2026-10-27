@@ -47,6 +47,134 @@ interface NavbarProps {
   onOpenHelp?: () => void;
 }
 
+interface MobileNavItem {
+  id: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  isActive: boolean;
+  badge?: boolean;
+  onClick: () => void;
+}
+
+interface MobileCurvedNavBarProps {
+  items: MobileNavItem[];
+}
+
+const MobileCurvedNavBar: React.FC<MobileCurvedNavBarProps> = ({ items }) => {
+  const activeIndex = Math.max(0, items.findIndex((item) => item.isActive));
+  const targetX = activeIndex * 100 + 50;
+  const [valleyX, setValleyX] = useState(targetX);
+
+  useEffect(() => {
+    let animId: number;
+    const animate = () => {
+      setValleyX((prev) => {
+        const diff = targetX - prev;
+        if (Math.abs(diff) < 0.4) return targetX;
+        return prev + diff * 0.28;
+      });
+      if (Math.abs(targetX - valleyX) >= 0.4) {
+        animId = requestAnimationFrame(animate);
+      }
+    };
+    animId = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animId);
+  }, [targetX, valleyX]);
+
+  // Compute SVG valley path
+  // In viewBox 0 0 500 76, top line is at Y=16. Valley dips down smoothly to Y=48.
+  const cx = valleyX;
+  const totalW = 500;
+  const totalH = 76;
+  const topY = 16;
+  const valleyDepth = 48;
+  const r = 40;
+  const cp = 20;
+
+  const x0 = Math.max(0, cx - r);
+  const x1 = Math.min(totalW, cx + r);
+
+  const fillPath =
+    `M 0 ${topY} ` +
+    `L ${x0} ${topY} ` +
+    `C ${cx - cp} ${topY}, ${cx - cp} ${valleyDepth}, ${cx} ${valleyDepth} ` +
+    `C ${cx + cp} ${valleyDepth}, ${cx + cp} ${topY}, ${x1} ${topY} ` +
+    `L ${totalW} ${topY} ` +
+    `L ${totalW} ${totalH} ` +
+    `L 0 ${totalH} Z`;
+
+  const borderPath =
+    `M 0 ${topY} ` +
+    `L ${x0} ${topY} ` +
+    `C ${cx - cp} ${topY}, ${cx - cp} ${valleyDepth}, ${cx} ${valleyDepth} ` +
+    `C ${cx + cp} ${valleyDepth}, ${cx + cp} ${topY}, ${x1} ${topY} ` +
+    `L ${totalW} ${topY}`;
+
+  return (
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 h-16 safe-bottom overflow-visible flex items-center justify-around pointer-events-auto">
+      {/* SVG Valley Background that bends away from the selected button */}
+      <svg
+        viewBox="0 0 500 76"
+        preserveAspectRatio="none"
+        className="absolute bottom-0 left-0 right-0 w-full h-[76px] pointer-events-none drop-shadow-[0_-8px_25px_rgba(0,0,0,0.65)]"
+      >
+        <path d={fillPath} fill="#0f172a" />
+        <path d={borderPath} fill="none" stroke="#334155" strokeWidth="1.5" />
+      </svg>
+
+      {items.map((item) => {
+        const Icon = item.icon;
+        const isSelected = item.isActive;
+
+        return (
+          <button
+            key={item.id}
+            type="button"
+            onClick={item.onClick}
+            className="flex-1 h-full flex flex-col items-center justify-center relative cursor-pointer group focus:outline-hidden z-10 pt-1"
+          >
+            <div
+              className={`relative flex items-center justify-center transition-all duration-300 ease-out ${
+                isSelected
+                  ? '-translate-y-4 scale-105 w-12 h-12 rounded-full bg-gradient-to-b from-[#0c4a6e] via-[#083344] to-[#041c2c] text-white shadow-xl shadow-cyan-950/80 ring-4 ring-slate-900 border border-cyan-400/40 overflow-hidden'
+                  : 'translate-y-0 w-9 h-9 rounded-xl text-slate-400 group-hover:text-slate-200'
+              }`}
+            >
+              {/* Simply shine on dark ocean blue circle */}
+              {isSelected && (
+                <>
+                  {/* Top specular gloss crescent */}
+                  <div className="absolute top-1 left-2.5 right-2.5 h-3.5 rounded-full bg-gradient-to-b from-white/40 via-white/10 to-transparent pointer-events-none" />
+                  {/* Subtle radial sheen */}
+                  <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle_at_50%_25%,rgba(255,255,255,0.22),transparent_65%)] pointer-events-none" />
+                </>
+              )}
+
+              <Icon
+                className={`w-5 h-5 relative z-10 transition-transform ${
+                  isSelected ? 'stroke-[2.5] text-cyan-50' : 'stroke-2'
+                }`}
+              />
+
+              {/* Subtitle notification dot for Admin if not selected */}
+              {item.badge && !isSelected && (
+                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-purple-500 ring-2 ring-slate-900" />
+              )}
+            </div>
+
+            {/* Selected button label is hidden; unselected button displays label */}
+            {!isSelected && (
+              <span className="text-[10px] mt-1 font-medium text-slate-400 group-hover:text-slate-200 tracking-tight transition-opacity">
+                {item.label}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </nav>
+  );
+};
+
 export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   onSelectTab,
@@ -502,11 +630,11 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </div>
 
-      {/* Modern Bottom-Docked Mobile Tab Bar with Raised Shining Active Button */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-slate-900/95 backdrop-blur-xl border-t border-slate-800 shadow-[0_-8px_30px_rgba(0,0,0,0.5)] px-2 pt-2 pb-2.5 flex items-center justify-around overflow-visible">
-        {[
+      {/* Modern Bottom-Docked Mobile Tab Bar with Curved Valley & Dark Ocean Blue Circle */}
+      {(() => {
+        const mobileNavItems: MobileNavItem[] = [
           {
-            id: 'dashboard' as NavigationTab,
+            id: 'dashboard',
             label: 'Dashboard',
             icon: Clock,
             isActive: activeTab === 'dashboard' && !isMobileMenuOpen,
@@ -516,7 +644,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             },
           },
           {
-            id: 'history' as NavigationTab,
+            id: 'history',
             label: 'History',
             icon: History,
             isActive: activeTab === 'history' && !isMobileMenuOpen,
@@ -526,7 +654,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             },
           },
           {
-            id: 'new-claim' as NavigationTab,
+            id: 'new-claim',
             label: 'New Claim',
             icon: PlusCircle,
             isActive: activeTab === 'new-claim' && !isMobileMenuOpen,
@@ -536,7 +664,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             },
           },
           {
-            id: 'calendar' as NavigationTab,
+            id: 'calendar',
             label: 'Calendar',
             icon: Calendar,
             isActive: activeTab === 'calendar' && !isMobileMenuOpen,
@@ -546,7 +674,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             },
           },
           {
-            id: 'more' as const,
+            id: 'more',
             label: isAdmin ? 'Admin' : 'More',
             icon: isAdmin ? ShieldCheck : MoreHorizontal,
             isActive: isMoreTabActive || isMobileMenuOpen,
@@ -555,58 +683,10 @@ export const Navbar: React.FC<NavbarProps> = ({
               setIsMobileMenuOpen(!isMobileMenuOpen);
             },
           },
-        ].map((item) => {
-          const Icon = item.icon;
-          const isSelected = item.isActive;
+        ];
 
-          return (
-            <button
-              key={item.id}
-              type="button"
-              onClick={item.onClick}
-              className="flex-1 flex flex-col items-center justify-center relative cursor-pointer group focus:outline-hidden"
-            >
-              <div
-                className={`relative flex items-center justify-center transition-all duration-300 ease-out ${
-                  isSelected
-                    ? '-translate-y-2.5 scale-110 w-11 h-11 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-violet-500 text-white shadow-lg shadow-indigo-500/40 ring-4 ring-slate-900 border border-white/30 overflow-hidden'
-                    : 'translate-y-0 w-9 h-9 rounded-xl text-slate-400 group-hover:text-slate-200 group-hover:bg-slate-800/60'
-                }`}
-              >
-                {/* Shine & Glossy Reflections on Selected Button */}
-                {isSelected && (
-                  <>
-                    {/* Top glass reflection gradient */}
-                    <div className="absolute inset-0 rounded-2xl bg-gradient-to-b from-white/40 via-white/10 to-transparent pointer-events-none" />
-                    {/* Ambient gloss corner gleam */}
-                    <div className="absolute top-0.5 left-1.5 w-3.5 h-1.5 bg-white/60 rounded-full blur-[0.5px] pointer-events-none" />
-                    {/* Diagonal shine highlight */}
-                    <div className="absolute inset-0 rounded-2xl bg-gradient-to-tr from-transparent via-white/20 to-transparent pointer-events-none" />
-                  </>
-                )}
-
-                <Icon
-                  className={`w-5 h-5 relative z-10 transition-transform ${
-                    isSelected ? 'stroke-[2.5] text-white scale-105' : 'stroke-2'
-                  }`}
-                />
-
-                {/* Notification dot for Admin if not selected */}
-                {item.badge && !isSelected && (
-                  <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-purple-500 ring-2 ring-slate-900" />
-                )}
-              </div>
-
-              {/* Selected button label is hidden; unselected button displays label */}
-              {!isSelected && (
-                <span className="text-[10px] mt-1 font-medium text-slate-400 group-hover:text-slate-200 tracking-tight transition-opacity">
-                  {item.label}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </nav>
+        return <MobileCurvedNavBar items={mobileNavItems} />;
+      })()}
 
       {/* Mobile Bottom-Docked Hub Drawer (Opens with One Thumb) */}
       {isMobileMenuOpen && (
