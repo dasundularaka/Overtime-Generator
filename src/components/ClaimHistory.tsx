@@ -34,7 +34,7 @@ import { ConfirmationModal } from './ConfirmationModal';
 import { MONTH_NAMES } from '../utils/timeCalculations';
 import { useAuth } from '../context/AuthContext';
 import { subscribeToTemplates } from '../services/templateService';
-import { Banknote, CheckCircle2 } from 'lucide-react';
+import { Banknote, CheckCircle2, ChevronRight, X, ExternalLink, User, Building2, Hash, Layers } from 'lucide-react';
 
 interface ClaimHistoryProps {
   onEditClaim: (claim: ClaimRecord) => void;
@@ -78,6 +78,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
   const [previewPdfBlob, setPreviewPdfBlob] = useState<Blob | null>(null);
   const [previewFilename, setPreviewFilename] = useState<string>('');
   const [viewingClaim, setViewingClaim] = useState<ClaimRecord | null>(null);
+  const [selectedMobileClaim, setSelectedMobileClaim] = useState<ClaimRecord | null>(null);
 
   // Confirmation Modal & Action Feedback
   const [claimToDelete, setClaimToDelete] = useState<ClaimRecord | null>(null);
@@ -595,8 +596,85 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
         </div>
       )}
 
-      {/* Table */}
-      <div className="rounded-2xl bg-white shadow-xs border border-slate-200 overflow-hidden">
+      {/* ======================================================== */}
+      {/* MOBILE VIEW (Branch Network Style Cards) */}
+      {/* In card thumbnail: Show Month Period and Status ONLY */}
+      {/* On click: Show all data */}
+      {/* ======================================================== */}
+      <div className="md:hidden space-y-2.5">
+        <div className="flex items-center justify-between text-xs font-bold text-slate-600 px-1 pb-1">
+          <span>Claim History ({filtered.length})</span>
+          <span className="text-[11px] font-normal text-slate-400">Tap card for all details</span>
+        </div>
+
+        {loading ? (
+          <div className="p-8 text-center text-xs text-slate-400 bg-white rounded-2xl border border-slate-200 shadow-2xs">
+            Loading claims...
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="p-8 text-center bg-white rounded-2xl border border-slate-200 shadow-2xs">
+            <History className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+            <h3 className="text-sm font-bold text-slate-700">No claims found</h3>
+            <p className="text-xs text-slate-500 mt-1">
+              No claims match your filters or no claims have been submitted yet.
+            </p>
+          </div>
+        ) : (
+          filtered.map(claim => {
+            const isDraft = claim.status === 'draft';
+            return (
+              <div
+                key={claim.id}
+                onClick={() => setSelectedMobileClaim(claim)}
+                className={`rounded-2xl p-4 border shadow-xs hover:border-indigo-300 hover:shadow-md active:bg-slate-50 transition cursor-pointer flex items-center justify-between gap-3 ${
+                  isDraft
+                    ? 'bg-amber-50/20 border-amber-200/70 hover:border-amber-300'
+                    : 'bg-white border-slate-200'
+                }`}
+              >
+                {/* Month Period Only */}
+                <div className="flex items-center gap-3 min-w-0">
+                  <div
+                    className={`p-2.5 rounded-xl shrink-0 ${
+                      isDraft
+                        ? 'bg-amber-100/80 text-amber-800'
+                        : 'bg-indigo-50 text-indigo-700'
+                    }`}
+                  >
+                    <Calendar className="w-5 h-5" />
+                  </div>
+                  <div className="truncate">
+                    <span className="font-bold text-slate-900 text-sm tracking-tight block truncate">
+                      {claim.month} {claim.year}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Status Only */}
+                <div className="flex items-center gap-2 shrink-0">
+                  {isDraft ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold text-[11px] bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs">
+                      <Clock className="w-3 h-3 text-amber-700" />
+                      <span>Draft</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold text-[11px] bg-emerald-50 text-emerald-800 border border-emerald-300 shadow-2xs">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                      <span>Submitted</span>
+                    </span>
+                  )}
+                  <ChevronRight className="w-4 h-4 text-slate-400" />
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* ======================================================== */}
+      {/* DESKTOP VIEW (Table) */}
+      {/* ======================================================== */}
+      <div className="hidden md:block rounded-2xl bg-white shadow-xs border border-slate-200 overflow-hidden">
         {loading ? (
           <div className="p-12 text-center text-xs text-slate-400">Loading claims...</div>
         ) : filtered.length === 0 ? (
@@ -814,6 +892,299 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
       </div>
 
       {/* Claim Breakdown Modal */}
+      
+      {/* ======================================================== */}
+      {/* MOBILE CLAIM DETAILS MODAL (Branch Network Style) */}
+      {/* Opens on clicking card thumbnail, shows all data */}
+      {/* ======================================================== */}
+      {selectedMobileClaim && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-fade-in md:hidden">
+          <div className="relative w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden animate-scale-in max-h-[92vh] flex flex-col">
+            {/* Modal Header with Gradient */}
+            <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-5 flex items-start justify-between shrink-0">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-mono font-black text-xs px-2.5 py-0.5 rounded-lg bg-indigo-500/30 text-indigo-200 border border-indigo-400/30">
+                    {selectedMobileClaim.claimNumber}
+                  </span>
+                  {selectedMobileClaim.status === 'draft' ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-[10px] bg-amber-400/20 text-amber-300 border border-amber-400/40">
+                      <Clock className="w-3 h-3 text-amber-300" />
+                      <span>Draft</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-[10px] bg-emerald-400/20 text-emerald-300 border border-emerald-400/40">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-300" />
+                      <span>Submitted</span>
+                    </span>
+                  )}
+                  <span className="px-2 py-0.5 rounded font-bold text-[10px] bg-white/10 text-white/90 border border-white/20">
+                    {selectedMobileClaim.claimType || 'OT'}
+                  </span>
+                </div>
+                <h2 className="text-lg font-bold tracking-tight text-white pt-1">
+                  {selectedMobileClaim.month} {selectedMobileClaim.year} Claim
+                </h2>
+              </div>
+              <button
+                onClick={() => setSelectedMobileClaim(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                title="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body - All Data */}
+            <div className="p-4 sm:p-5 space-y-3.5 text-xs overflow-y-auto flex-1">
+              {/* Claimant Particulars Card */}
+              <div className="rounded-xl border border-slate-200 p-3.5 bg-slate-50/60 space-y-2">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white font-bold text-sm shadow-2xs shrink-0">
+                    {selectedMobileClaim.employeeName ? selectedMobileClaim.employeeName.charAt(0).toUpperCase() : 'U'}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-bold text-slate-900 text-sm truncate">
+                        {selectedMobileClaim.employeeName || 'Staff Member'}
+                      </h3>
+                      <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                        {selectedMobileClaim.employeeNumber || 'PF Number'}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-0.5 flex flex-wrap items-center gap-1.5">
+                      <span>{selectedMobileClaim.designation || 'Staff'}</span>
+                      <span>&bull;</span>
+                      <span>{selectedMobileClaim.department || 'Operations'}</span>
+                      <span>&bull;</span>
+                      <span>{selectedMobileClaim.branch || 'Head Office'}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 4-Stat Metric Cards Grid */}
+              <div className="grid grid-cols-2 gap-2.5">
+                {/* Total Overtime Hours */}
+                <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-1 shadow-2xs">
+                  <span className="text-slate-500 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5 text-indigo-600" />
+                    Total OT Hours
+                  </span>
+                  <div className="text-base font-black font-mono text-indigo-700">
+                    {selectedMobileClaim.totalHoursFormatted}
+                  </div>
+                  <span className="text-[10px] text-slate-400 block">
+                    ({selectedMobileClaim.totalDecimalHours} decimal hrs)
+                  </span>
+                </div>
+
+                {/* Days Claimed */}
+                <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-1 shadow-2xs">
+                  <span className="text-slate-500 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+                    Days Claimed
+                  </span>
+                  <div className="text-base font-black text-slate-800">
+                    {selectedMobileClaim.otDaysCount} Days
+                  </div>
+                  <span className="text-[10px] text-slate-400 block">
+                    Overtime sheet entries
+                  </span>
+                </div>
+
+                {/* Overtime Hourly Rate */}
+                <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-1 shadow-2xs">
+                  <span className="text-slate-500 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                    <Banknote className="w-3.5 h-3.5 text-slate-500" />
+                    Hourly Rate
+                  </span>
+                  <div className="text-sm font-bold font-mono text-slate-900">
+                    Rs. {selectedMobileClaim.hourlyRate ? Number(selectedMobileClaim.hourlyRate).toFixed(2) : '0.00'}
+                  </div>
+                  <span className="text-[10px] text-slate-400 block truncate">
+                    Day's: Rs. {selectedMobileClaim.daysPay ? Number(selectedMobileClaim.daysPay).toFixed(2) : '0.00'}
+                  </span>
+                </div>
+
+                {/* Total Payment Due */}
+                <div className="rounded-xl border border-emerald-300 bg-emerald-50/50 p-3 space-y-1 shadow-2xs">
+                  <span className="text-emerald-800 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    Payment Due
+                  </span>
+                  <div className="text-base font-black font-mono text-emerald-700 truncate">
+                    Rs. {(selectedMobileClaim.totalOtPayment || (selectedMobileClaim.hourlyRate && selectedMobileClaim.totalDecimalHours ? selectedMobileClaim.hourlyRate * selectedMobileClaim.totalDecimalHours : 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <span className="text-[10px] text-emerald-600 block">
+                    Total authorized payout
+                  </span>
+                </div>
+              </div>
+
+              {/* Financial & Column Breakdown */}
+              <div className="rounded-xl border border-slate-200 p-3.5 bg-white space-y-2">
+                <span className="text-slate-700 text-[11px] font-bold uppercase tracking-wider block border-b border-slate-100 pb-1.5">
+                  Calculation Breakdown
+                </span>
+                <div className="space-y-1.5 text-xs text-slate-600">
+                  <div className="flex justify-between items-center">
+                    <span>Column A (Weekday Regular OT):</span>
+                    <span className="font-mono font-bold text-slate-900">
+                      Rs. {Number(selectedMobileClaim.otPaymentDueA || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span>Column B (Special OT / Holiday Hourly):</span>
+                    <span className="font-mono font-bold text-slate-900">
+                      Rs. {Number(selectedMobileClaim.otPaymentDueB || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span>Non-Working Days Payment ({selectedMobileClaim.daysPayCount || 0} days):</span>
+                    <span className="font-mono font-bold text-slate-900">
+                      Rs. {Number(selectedMobileClaim.daysPayTotal || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center pt-1.5 border-t border-slate-100 font-bold text-slate-900">
+                    <span>Net Total Overtime Payout:</span>
+                    <span className="font-mono text-emerald-700 text-sm">
+                      Rs. {(selectedMobileClaim.totalOtPayment || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Claim Metadata & Template */}
+              <div className="rounded-xl border border-slate-200 p-3 bg-white space-y-1 text-slate-500 text-[11px]">
+                <div className="flex justify-between items-center">
+                  <span>Claim Submission Date:</span>
+                  <span className="font-medium text-slate-700">{selectedMobileClaim.claimDate || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span>A4 Print Template:</span>
+                  <span className="font-medium text-slate-700">{resolveTemplate(selectedMobileClaim).name}</span>
+                </div>
+                {selectedMobileClaim.updatedAt && (
+                  <div className="flex justify-between items-center">
+                    <span>Last Updated:</span>
+                    <span className="font-medium text-slate-700">
+                      {new Date(selectedMobileClaim.updatedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Quick Actions Grid */}
+              <div className="space-y-2 pt-1">
+                <span className="text-slate-700 text-[11px] font-bold uppercase tracking-wider block">
+                  Actions
+                </span>
+
+                {/* Primary Action: Resume (if Draft) or Edit (if Submitted) */}
+                {selectedMobileClaim.status === 'draft' ? (
+                  <button
+                    onClick={() => {
+                      const c = selectedMobileClaim;
+                      setSelectedMobileClaim(null);
+                      onEditClaim(c);
+                    }}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs transition cursor-pointer"
+                  >
+                    <Edit className="w-4 h-4" />
+                    <span>Resume Editing Draft Sheet</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      const c = selectedMobileClaim;
+                      setSelectedMobileClaim(null);
+                      onEditClaim(c);
+                    }}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs transition cursor-pointer"
+                  >
+                    <Edit className="w-4 h-4" />
+                    <span>Edit Claim</span>
+                  </button>
+                )}
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => {
+                      const c = selectedMobileClaim;
+                      handlePreviewPdf(c);
+                    }}
+                    className="inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs transition cursor-pointer"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Preview PDF</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      const c = selectedMobileClaim;
+                      handleDownloadPdf(c);
+                    }}
+                    className="inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs transition cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Download</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      const c = selectedMobileClaim;
+                      handlePrint(c);
+                    }}
+                    className="inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs transition cursor-pointer"
+                  >
+                    <Printer className="w-3.5 h-3.5 text-slate-600" />
+                    <span>Print</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      const c = selectedMobileClaim;
+                      handleDuplicate(c);
+                    }}
+                    className="inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs transition cursor-pointer"
+                  >
+                    <Copy className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Duplicate</span>
+                  </button>
+                </div>
+
+                {/* View 31-Day Timesheet Table */}
+                <button
+                  onClick={() => {
+                    const c = selectedMobileClaim;
+                    setSelectedMobileClaim(null);
+                    setViewingClaim(c);
+                  }}
+                  className="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold text-xs border border-indigo-200 transition cursor-pointer"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>View 31-Day Daily Breakdown Table</span>
+                </button>
+
+                {/* Delete Button */}
+                <button
+                  onClick={() => {
+                    const c = selectedMobileClaim;
+                    setSelectedMobileClaim(null);
+                    setClaimToDelete(c);
+                  }}
+                  className="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold text-xs border border-rose-200 transition cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{selectedMobileClaim.status === 'draft' ? 'Discard Draft Sheet' : 'Delete Claim'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {viewingClaim && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
           <div className="relative w-full max-w-4xl rounded-2xl bg-white p-6 shadow-2xl border border-slate-200 max-h-[90vh] flex flex-col">
