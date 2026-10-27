@@ -82,17 +82,15 @@ const MobileCurvedNavBar: React.FC<MobileCurvedNavBarProps> = ({ items }) => {
   }, [targetX, valleyX]);
 
   // Compute SVG valley path
-  // In viewBox 0 0 500 76, top flat line is at Y=18. Valley dips down smoothly to Y=54.
-  // The selected button is elevated to -translate-y-7, creating a clear visible separation (air gap)
-  // between the bottom of the floating dark ocean blue circle and the curved valley stroke.
+  // In viewBox 0 0 500 76, top line is at Y=16.
+  // The curve bends away from the selected button in an exact half-circle arc (A r r 0 0 0).
+  // The selected button is elevated to -translate-y-7 with the user's attached color #121832 and simple shine,
+  // cleanly separated from the half-circle curve with an open air gap all around.
   const cx = valleyX;
   const totalW = 500;
   const totalH = 76;
-  const topY = 18;
-  const valleyDepth = 54;
-  const r = 46;
-  const cp1 = 20;
-  const cp2 = 22;
+  const topY = 16;
+  const r = 36;
 
   const x0 = Math.max(0, cx - r);
   const x1 = Math.min(totalW, cx + r);
@@ -100,8 +98,7 @@ const MobileCurvedNavBar: React.FC<MobileCurvedNavBarProps> = ({ items }) => {
   const fillPath =
     `M 0 ${topY} ` +
     `L ${x0} ${topY} ` +
-    `C ${x0 + cp1} ${topY}, ${cx - cp2} ${valleyDepth}, ${cx} ${valleyDepth} ` +
-    `C ${cx + cp2} ${valleyDepth}, ${x1 - cp1} ${topY}, ${x1} ${topY} ` +
+    `A ${r} ${r} 0 0 0 ${x1} ${topY} ` +
     `L ${totalW} ${topY} ` +
     `L ${totalW} ${totalH} ` +
     `L 0 ${totalH} Z`;
@@ -109,13 +106,12 @@ const MobileCurvedNavBar: React.FC<MobileCurvedNavBarProps> = ({ items }) => {
   const borderPath =
     `M 0 ${topY} ` +
     `L ${x0} ${topY} ` +
-    `C ${x0 + cp1} ${topY}, ${cx - cp2} ${valleyDepth}, ${cx} ${valleyDepth} ` +
-    `C ${cx + cp2} ${valleyDepth}, ${x1 - cp1} ${topY}, ${x1} ${topY} ` +
+    `A ${r} ${r} 0 0 0 ${x1} ${topY} ` +
     `L ${totalW} ${topY}`;
 
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 h-16 safe-bottom overflow-visible flex items-center justify-around pointer-events-auto">
-      {/* SVG Valley Background that bends away from the selected button, leaving clear open space */}
+      {/* SVG Half-Circle Notch Background that bends away from the selected button */}
       <svg
         viewBox="0 0 500 76"
         preserveAspectRatio="none"
@@ -139,25 +135,25 @@ const MobileCurvedNavBar: React.FC<MobileCurvedNavBarProps> = ({ items }) => {
             <div
               className={`relative flex items-center justify-center transition-all duration-300 ease-out ${
                 isSelected
-                  ? '-translate-y-7 scale-105 w-12 h-12 rounded-full bg-gradient-to-b from-[#0c4a6e] via-[#083344] to-[#041c2c] text-white shadow-xl shadow-cyan-950/70 border border-cyan-400/50 overflow-hidden'
+                  ? '-translate-y-7 scale-105 w-12 h-12 rounded-full bg-gradient-to-b from-[#1b2348] via-[#121832] to-[#0b0f20] text-white shadow-xl shadow-[#080c1a]/90 border border-[#2a376c]/60 overflow-hidden'
                   : 'translate-y-0 w-9 h-9 rounded-xl text-slate-400 group-hover:text-slate-200'
               }`}
             >
-              {/* Simply shine on dark ocean blue circle */}
+              {/* Simply shine on attached #121832 dark navy circle */}
               {isSelected && (
                 <>
                   {/* Top specular gloss crescent */}
-                  <div className="absolute top-1 left-2.5 right-2.5 h-3.5 rounded-full bg-gradient-to-b from-white/45 via-white/10 to-transparent pointer-events-none" />
+                  <div className="absolute top-1 left-2.5 right-2.5 h-3.5 rounded-full bg-gradient-to-b from-white/35 via-white/10 to-transparent pointer-events-none" />
                   {/* Subtle radial sheen */}
-                  <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle_at_50%_25%,rgba(255,255,255,0.22),transparent_65%)] pointer-events-none" />
+                  <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle_at_50%_25%,rgba(255,255,255,0.2),transparent_65%)] pointer-events-none" />
                   {/* Bottom rim reflection */}
-                  <div className="absolute bottom-1 inset-x-3 h-1 rounded-full bg-cyan-400/20 blur-[0.5px] pointer-events-none" />
+                  <div className="absolute bottom-1 inset-x-3 h-1 rounded-full bg-indigo-300/15 blur-[0.5px] pointer-events-none" />
                 </>
               )}
 
               <Icon
                 className={`w-5 h-5 relative z-10 transition-transform ${
-                  isSelected ? 'stroke-[2.5] text-cyan-50' : 'stroke-2'
+                  isSelected ? 'stroke-[2.5] text-indigo-100' : 'stroke-2'
                 }`}
               />
 
