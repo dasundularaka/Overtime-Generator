@@ -310,6 +310,19 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   const isInitialMountRef = useRef<boolean>(true);
   const lastSavedHashRef = useRef<string>('');
 
+  // User Modification Tracking: Ensure NO draft is created simply by opening a new claim.
+  // Draft is ONLY saved when the user actively changes ANY letter, time, field, or row.
+  const [hasUserModified, setHasUserModified] = useState<boolean>(false);
+  const hasUserModifiedRef = useRef<boolean>(false);
+
+  const markUserModified = () => {
+    if (!hasUserModifiedRef.current) {
+      hasUserModifiedRef.current = true;
+      setHasUserModified(true);
+    }
+    setHasUnsavedChanges(true);
+  };
+
   const handleToggleAutoSave = (enabled: boolean) => {
     setAutoSaveDraftEnabled(enabled);
     try {
@@ -688,6 +701,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
   const handleMonthChange = async (newMonth: string) => {
     setClaimMonth(newMonth);
+    markUserModified();
     if (!initialClaim) {
       const found = await findAndApplyMonthDraft(newMonth, claimYear);
       if (!found) {
@@ -698,6 +712,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
   const handleYearChange = async (newYear: number) => {
     setClaimYear(newYear);
+    markUserModified();
     if (!initialClaim) {
       const found = await findAndApplyMonthDraft(claimMonth, newYear);
       if (!found) {
@@ -707,6 +722,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   };
 
   const handleToggleSpecialAssignedOt = (newValue: boolean) => {
+    markUserModified();
     setIsSpecialAssignedOt(newValue);
     setRows(prevRows =>
       prevRows.map(r => {
@@ -769,6 +785,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
   // Toggle holiday override to enter In/Out times and claim overtime
   const toggleHolidayOverride = (index: number) => {
+    markUserModified();
     setRows(prevRows => {
       const updated = [...prevRows];
       const target = { ...updated[index] };
@@ -813,6 +830,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
   // Row update with employee shift and 15-minute generation
   const updateRowField = (index: number, field: keyof OvertimeRow, value: any) => {
+    markUserModified();
     setRows(prevRows => {
       const updated = [...prevRows];
       const target = { ...updated[index], [field]: value };
@@ -912,6 +930,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
   // Auto-Fill Month: Loads ALL dates in the selected month with holidays & Sundays shown
   const handleAutoFillMonth = () => {
+    markUserModified();
     const monthIndex = MONTH_NAMES.indexOf(claimMonth);
     if (monthIndex < 0) return;
 
@@ -957,6 +976,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   };
 
   const handleAddRow = () => {
+    markUserModified();
     const lastRow = rows[rows.length - 1];
     let nextDate = '';
     if (lastRow && lastRow.date) {
@@ -979,6 +999,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   };
 
   const handleDeleteRow = (index: number) => {
+    markUserModified();
     if (rows.length <= 1) {
       setRows([createBlankRow()]);
       return;
@@ -1333,20 +1354,19 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     };
   };
 
-  // Check if there is any uncompleted data entered
+  // Check if there is any uncompleted data entered (ONLY true if user actively made changes!)
   const hasUncompletedData = useMemo(() => {
+    if (!hasUserModified) return false;
     const hasEmployee = Boolean(employeeName.trim() || employeeNumber.trim());
-    const hasRowActivity = rows.some(
-      r => (r.startTime && r.startTime.trim() !== '') || (r.endTime && r.endTime.trim() !== '') || (r.reason && r.reason.trim() !== '' && !r.isHoliday)
-    );
-    return hasEmployee || hasRowActivity;
-  }, [rows, employeeName, employeeNumber]);
+    return hasEmployee || rows.length > 0;
+  }, [hasUserModified, employeeName, employeeNumber, rows.length]);
 
   // Saves the in-progress timesheet as draft to Firestore and localStorage
   const performSaveDraft = async () => {
     if (isSubmittedRef.current) return;
     if (!autoSaveDraftEnabled) return;
-    if (!hasUncompletedData) return;
+    // CRITICAL: NEVER save draft unless user actually made a modification!
+    if (!hasUserModifiedRef.current || !hasUncompletedData) return;
 
     try {
       setIsAutoSaving(true);
@@ -1421,7 +1441,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     }
     if (!autoSaveDraftEnabled) return;
     if (isSubmittedRef.current) return;
-    if (!hasUncompletedData) return;
+    // CRITICAL: NEVER auto-save draft on new claim opening unless user actively modified data
+    if (!hasUserModifiedRef.current || !hasUncompletedData) return;
 
     setHasUnsavedChanges(true);
 
@@ -1431,6 +1452,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
     return () => clearTimeout(timer);
   }, [
+    hasUserModified,
+    hasUncompletedData,
     autoSaveDraftEnabled,
     rows,
     employeeName,
@@ -1452,7 +1475,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   // Window unload / unmount fallback save
   useEffect(() => {
     const handleBeforeUnload = () => {
-      if (autoSaveDraftEnabled && !isSubmittedRef.current && hasUncompletedData) {
+      // ONLY save fallback draft if user actively modified something and has not submitted
+      if (autoSaveDraftEnabled && !isSubmittedRef.current && hasUserModifiedRef.current && hasUncompletedData) {
         const effectiveUid = selectedUserId || currentUser?.uid || userProfile?.id || 'usr';
         const cleanUid = effectiveUid.replace(/[^a-zA-Z0-9_-]/g, '_');
         const deterministicDraftId = 'clm_draft_' + cleanUid + '_' + claimYear + '_' + claimMonth.toLowerCase();
@@ -1467,7 +1491,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
-      if (autoSaveDraftEnabled && !isSubmittedRef.current && hasUncompletedData) {
+      if (autoSaveDraftEnabled && !isSubmittedRef.current && hasUserModifiedRef.current && hasUncompletedData) {
         const effectiveUid = selectedUserId || currentUser?.uid || userProfile?.id || 'usr';
         const cleanUid = effectiveUid.replace(/[^a-zA-Z0-9_-]/g, '_');
         const deterministicDraftId = 'clm_draft_' + cleanUid + '_' + claimYear + '_' + claimMonth.toLowerCase();
@@ -1807,7 +1831,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                 <span>Draft auto-saved at {lastAutoSaveTime}</span>
               </span>
-            ) : hasUnsavedChanges && autoSaveDraftEnabled ? (
+            ) : hasUnsavedChanges && autoSaveDraftEnabled && hasUserModified ? (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 font-medium text-[11px] border border-amber-200">
                 <Clock className="w-3.5 h-3.5 text-amber-500" />
                 <span>Unsaved changes</span>
@@ -1819,7 +1843,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         </div>
 
         {/* Resumed Draft Alert if user is resuming a draft */}
-        {(initialClaim?.status === 'draft' || activeClaimId.startsWith('clm_draft_') || draftToastMessage) && (
+        {(initialClaim?.status === 'draft' || (activeClaimId.startsWith('clm_draft_') && hasUserModified) || draftToastMessage) && (
           <div className="mt-3 p-3 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-between gap-2 text-xs text-amber-900">
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4 text-amber-600 shrink-0" />
@@ -1897,7 +1921,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
               ) : (
                 <select
                   value={selectedTemplateId}
-                  onChange={e => setSelectedTemplateId(e.target.value)}
+                  onChange={e => { setSelectedTemplateId(e.target.value); markUserModified(); }}
                   className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 focus:ring-1 focus:ring-indigo-500"
                 >
                   {userAllowedTemplates.map(t => (
@@ -2105,7 +2129,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                 value={hourlyRate}
                 onChange={e => {
                   if (!canEditRates) return;
-                  setHourlyRate(e.target.value === '' ? '' : parseFloat(e.target.value));
+                  setHourlyRate(e.target.value === '' ? '' : parseFloat(e.target.value)); markUserModified();
                 }}
                 placeholder="e.g. 1850.00"
                 className={`w-full rounded-lg border py-1.5 pl-9 pr-2.5 font-mono font-bold text-xs ${
@@ -2137,7 +2161,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                 value={daysPay}
                 onChange={e => {
                   if (!canEditRates) return;
-                  setDaysPay(e.target.value === '' ? '' : parseFloat(e.target.value));
+                  setDaysPay(e.target.value === '' ? '' : parseFloat(e.target.value)); markUserModified();
                 }}
                 placeholder="e.g. 12500.00"
                 className={`w-full rounded-lg border py-1.5 pl-9 pr-2.5 font-mono font-bold text-xs ${
@@ -2169,7 +2193,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                 value={hourlyRateNonWorkingDays}
                 onChange={e => {
                   if (!canEditRates) return;
-                  setHourlyRateNonWorkingDays(e.target.value === '' ? '' : parseFloat(e.target.value));
+                  setHourlyRateNonWorkingDays(e.target.value === '' ? '' : parseFloat(e.target.value)); markUserModified();
                 }}
                 placeholder="e.g. 2312.50"
                 className={`w-full rounded-lg border py-1.5 pl-9 pr-2.5 font-mono font-bold text-xs ${
