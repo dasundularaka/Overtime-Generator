@@ -40,6 +40,7 @@ import {
 } from '../utils/branchRoleManager';
 import { recordAuditLog } from '../utils/auditLogger';
 import { ConfirmationModal } from './ConfirmationModal';
+import { SearchableBranchSelect } from './SearchableBranchSelect';
 import { sanitizeFirestoreData } from '../utils/firestoreUtils';
 
 export const EmployeeManager: React.FC = () => {
@@ -713,25 +714,16 @@ export const EmployeeManager: React.FC = () => {
                 <label className="block font-bold text-slate-700 mb-1">
                   Branch Network <span className="text-rose-500">*</span>
                 </label>
-                <select
+                <SearchableBranchSelect
                   value={branch}
-                  onChange={e => {
-                    const sel = e.target.value;
-                    setBranch(sel);
-                    const found = branches.find(b => b.name === sel);
-                    if (found) setBranchCode(found.branchCode);
+                  branchCode={branchCode}
+                  branches={branches}
+                  onChange={(selectedName, selectedCode) => {
+                    setBranch(selectedName);
+                    setBranchCode(selectedCode);
                   }}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 bg-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-medium"
-                >
-                  {branches.map(b => (
-                    <option key={b.id} value={b.name}>
-                      {b.name} (Code: {b.branchCode})
-                    </option>
-                  ))}
-                  {!branches.some(b => b.name === branch) && branch && (
-                    <option value={branch}>{branch}</option>
-                  )}
-                </select>
+                  placeholder="Search branch name, code, or city..."
+                />
               </div>
 
               {/* Designation Dropdown (Sorted A to Z, no payment rates displayed) */}

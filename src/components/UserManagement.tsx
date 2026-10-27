@@ -33,6 +33,7 @@ import { useAuth } from '../context/AuthContext';
 import { fetchTemplatesFromFirestore, subscribeToTemplates } from '../services/templateService';
 import { DEFAULT_TEMPLATE } from '../utils/defaultTemplate';
 import { ConfirmationModal } from './ConfirmationModal';
+import { SearchableBranchSelect } from './SearchableBranchSelect';
 import { sanitizeFirestoreData } from '../utils/firestoreUtils';
 import { adminChangeUserPassword, adminSendUserPasswordResetEmail, adminCreateUserInAuth } from '../utils/adminAuthHelper';
 import { sendUserWelcomeEmail, EmailDispatchResult } from '../utils/emailNotifier';
@@ -1427,38 +1428,27 @@ export const UserManagement: React.FC = () => {
                 </div>
               </div>
 
-              {/* Branch & Designation (Dropdowns, sorted A to Z) */}
+              {/* Branch & Designation (Searchable Branch & Designation Dropdown) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block font-bold text-slate-700">
                       Branch <span className="text-rose-500">*</span>
                     </label>
-                    <span className="text-[10px] text-indigo-600 font-semibold">Sorted A to Z</span>
+                    <span className="text-[10px] text-indigo-600 font-semibold">Searchable by Name &amp; Code</span>
                   </div>
-                  <select
+                  <SearchableBranchSelect
                     value={branch}
-                    onChange={e => {
-                      const selectedName = e.target.value;
+                    branchCode={branchCode}
+                    branches={branches}
+                    onChange={(selectedName, selectedCode) => {
                       setBranch(selectedName);
-                      const found = branches.find(b => b.name === selectedName);
-                      if (found) {
-                        setBranchCode(found.branchCode);
-                      }
+                      setBranchCode(selectedCode);
                     }}
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 bg-white font-medium focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                  >
-                    {branches.map(b => (
-                      <option key={b.id} value={b.name}>
-                        {b.name} (Code: {b.branchCode})
-                      </option>
-                    ))}
-                    {!branches.some(b => b.name === branch) && branch && (
-                      <option value={branch}>{branch}</option>
-                    )}
-                  </select>
+                    placeholder="Search branch name, code, or city..."
+                  />
                   <span className="text-[10px] text-slate-400 mt-0.5 block">
-                    Branch network location from database.
+                    Type to search across corporate branch network database.
                   </span>
                 </div>
 
