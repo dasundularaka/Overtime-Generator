@@ -86,7 +86,7 @@ function AppContent() {
       <Navbar
         activeTab={activeTab}
         onSelectTab={(tab) => {
-          if (tab === 'new-claim' && activeTab === 'new-claim') {
+          if (tab === 'new-claim') {
             setEditingClaim(null);
           }
           if (tab === 'designer' && !isAdmin) {

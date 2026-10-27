@@ -242,6 +242,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   };
 
   const handleSaveAndApplyDefaultReasons = async (applyScope?: 'empty' | 'all') => {
+    markUserModified();
     const finalWeekday = tempWeekdayReason.trim();
     const finalSaturday = tempSaturdayReason.trim();
     const finalHoliday = tempHolidayReason.trim();
@@ -481,6 +482,13 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
   // Sync profile details into form
   useEffect(() => {
+    // Reset user modification flags so opening a claim NEVER saves a draft
+    hasUserModifiedRef.current = false;
+    setHasUserModified(false);
+    setHasUnsavedChanges(false);
+    lastSavedHashRef.current = '';
+    isSubmittedRef.current = false;
+
     if (initialClaim) {
       setSelectedUserId(initialClaim.userId);
       setEmployeeName(initialClaim.employeeName);
@@ -544,12 +552,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       setTotalRemuneration(targetProfile.totalRemuneration !== undefined ? targetProfile.totalRemuneration : '');
     }
 
-    // Auto-populate or resume existing uncompleted draft for this month (max 1 draft per user per month)
-    findAndApplyMonthDraft(claimMonth, claimYear).then(found => {
-      if (!found) {
-        setRows(generateFullMonthRows(claimMonth, claimYear, isSpecialAssignedOt));
-      }
-    });
+    // For a brand-new claim: generate clean rows for this month without saving or loading any draft
+    setRows(generateFullMonthRows(claimMonth, claimYear, isSpecialAssignedOt));
   }, [initialClaim, userProfile, selectedUserId, allUsers, roleRates]);
 
   // Generate full month of dates and flag holidays & weekends
@@ -699,25 +703,19 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     return false;
   };
 
-  const handleMonthChange = async (newMonth: string) => {
+  const handleMonthChange = (newMonth: string) => {
     setClaimMonth(newMonth);
     markUserModified();
     if (!initialClaim) {
-      const found = await findAndApplyMonthDraft(newMonth, claimYear);
-      if (!found) {
-        setRows(generateFullMonthRows(newMonth, claimYear, isSpecialAssignedOt));
-      }
+      setRows(generateFullMonthRows(newMonth, claimYear, isSpecialAssignedOt));
     }
   };
 
-  const handleYearChange = async (newYear: number) => {
+  const handleYearChange = (newYear: number) => {
     setClaimYear(newYear);
     markUserModified();
     if (!initialClaim) {
-      const found = await findAndApplyMonthDraft(claimMonth, newYear);
-      if (!found) {
-        setRows(generateFullMonthRows(claimMonth, newYear, isSpecialAssignedOt));
-      }
+      setRows(generateFullMonthRows(claimMonth, newYear, isSpecialAssignedOt));
     }
   };
 
@@ -988,6 +986,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   };
 
   const handleDuplicateRow = (index: number) => {
+    markUserModified();
     const target = rows[index];
     const duplicated: OvertimeRow = {
       ...target,
@@ -1157,6 +1156,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
   const handleRemunerationChange = (val: string) => {
     if (!canEditRates) return;
+    markUserModified();
     if (val === '') {
       setTotalRemuneration('');
       return;
@@ -1472,17 +1472,40 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     selectedTemplateId,
   ]);
 
-  // Window unload / unmount fallback save
+  const latestDraftDataRef = useRef({
+    buildClaimRecord,
+    autoSaveDraftEnabled,
+    selectedUserId,
+    claimYear,
+    claimMonth,
+    activeClaimId,
+    activeClaimNumber,
+  });
+
+  useEffect(() => {
+    latestDraftDataRef.current = {
+      buildClaimRecord,
+      autoSaveDraftEnabled,
+      selectedUserId,
+      claimYear,
+      claimMonth,
+      activeClaimId,
+      activeClaimNumber,
+    };
+  });
+
+  // Window unload / unmount fallback save: ONLY runs on actual unmount or window close,
+  // and ONLY if the user actively modified something (hasUserModifiedRef.current is true)
   useEffect(() => {
     const handleBeforeUnload = () => {
-      // ONLY save fallback draft if user actively modified something and has not submitted
-      if (autoSaveDraftEnabled && !isSubmittedRef.current && hasUserModifiedRef.current && hasUncompletedData) {
-        const effectiveUid = selectedUserId || currentUser?.uid || userProfile?.id || 'usr';
+      const data = latestDraftDataRef.current;
+      if (data.autoSaveDraftEnabled && !isSubmittedRef.current && hasUserModifiedRef.current) {
+        const effectiveUid = data.selectedUserId || currentUser?.uid || userProfile?.id || 'usr';
         const cleanUid = effectiveUid.replace(/[^a-zA-Z0-9_-]/g, '_');
-        const deterministicDraftId = 'clm_draft_' + cleanUid + '_' + claimYear + '_' + claimMonth.toLowerCase();
-        const draft = buildClaimRecord('draft');
-        draft.id = activeClaimId || initialClaim?.id || deterministicDraftId;
-        draft.claimNumber = activeClaimNumber || initialClaim?.claimNumber || draft.claimNumber;
+        const deterministicDraftId = 'clm_draft_' + cleanUid + '_' + data.claimYear + '_' + data.claimMonth.toLowerCase();
+        const draft = data.buildClaimRecord('draft');
+        draft.id = data.activeClaimId || initialClaim?.id || deterministicDraftId;
+        draft.claimNumber = data.activeClaimNumber || initialClaim?.claimNumber || draft.claimNumber;
         saveClaim(draft);
         saveDraftClaim(draft, draft.userId);
       }
@@ -1491,18 +1514,19 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
-      if (autoSaveDraftEnabled && !isSubmittedRef.current && hasUserModifiedRef.current && hasUncompletedData) {
-        const effectiveUid = selectedUserId || currentUser?.uid || userProfile?.id || 'usr';
+      const data = latestDraftDataRef.current;
+      if (data.autoSaveDraftEnabled && !isSubmittedRef.current && hasUserModifiedRef.current) {
+        const effectiveUid = data.selectedUserId || currentUser?.uid || userProfile?.id || 'usr';
         const cleanUid = effectiveUid.replace(/[^a-zA-Z0-9_-]/g, '_');
-        const deterministicDraftId = 'clm_draft_' + cleanUid + '_' + claimYear + '_' + claimMonth.toLowerCase();
-        const draft = buildClaimRecord('draft');
-        draft.id = activeClaimId || initialClaim?.id || deterministicDraftId;
-        draft.claimNumber = activeClaimNumber || initialClaim?.claimNumber || draft.claimNumber;
+        const deterministicDraftId = 'clm_draft_' + cleanUid + '_' + data.claimYear + '_' + data.claimMonth.toLowerCase();
+        const draft = data.buildClaimRecord('draft');
+        draft.id = data.activeClaimId || initialClaim?.id || deterministicDraftId;
+        draft.claimNumber = data.activeClaimNumber || initialClaim?.claimNumber || draft.claimNumber;
         saveClaim(draft);
         saveDraftClaim(draft, draft.userId);
       }
     };
-  }, [autoSaveDraftEnabled, hasUncompletedData, rows, employeeName, employeeNumber, claimMonth, claimYear, activeClaimId, activeClaimNumber, selectedUserId]);
+  }, []);
 
   // Trigger confirmation dialog for Save / Submit Claim
   const handleSaveClaim = () => {
