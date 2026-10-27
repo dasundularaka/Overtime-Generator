@@ -34,7 +34,7 @@ import { ConfirmationModal } from './ConfirmationModal';
 import { MONTH_NAMES } from '../utils/timeCalculations';
 import { useAuth } from '../context/AuthContext';
 import { subscribeToTemplates } from '../services/templateService';
-import { Banknote, CheckCircle2, ChevronRight, X, ExternalLink, User, Building2, Hash, Layers } from 'lucide-react';
+import { Banknote, CheckCircle2, ChevronRight, ChevronDown, X, ExternalLink, User, Building2, Hash, Layers } from 'lucide-react';
 
 interface ClaimHistoryProps {
   onEditClaim: (claim: ClaimRecord) => void;
@@ -71,6 +71,8 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
   const [selectedMonth, setSelectedMonth] = useState('ALL');
   const [selectedYear, setSelectedYear] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'SUBMITTED' | 'DRAFTS'>('ALL');
+  const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
+  const [mobileFilterCategory, setMobileFilterCategory] = useState<'month' | 'year' | null>('month');
 
   // Preview Modal
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -424,10 +426,12 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-                {isAdmin ? 'Claims & Drafts History (Admin View)' : 'My Overtime Claims & Drafts'}
+                <span className="md:hidden">History</span>
+              <span className="hidden md:inline">{isAdmin ? 'Claims & Drafts History (Admin View)' : 'My Overtime Claims & Drafts'}</span>
               </h1>
               <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                {claims.length} Records
+                <span>{claims.length}</span>
+                <span className="hidden md:inline"> Records</span>
               </span>
             </div>
             <p className="text-xs sm:text-sm text-slate-500 mt-1">
@@ -439,7 +443,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
 
           <button
             onClick={onNavigateToNewClaim}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition shrink-0"
+            className="hidden md:inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition shrink-0"
           >
             <span>Create New Claim</span>
           </button>
@@ -456,7 +460,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                 : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
             }`}
           >
-            <span>All Records</span>
+            <span className="md:hidden">All</span><span className="hidden md:inline">All Records</span>
             <span
               className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
                 statusFilter === 'ALL' ? 'bg-slate-700 text-white' : 'bg-slate-200 text-slate-700'
@@ -476,7 +480,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
             }`}
           >
             <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>Submitted / Saved</span>
+            <span className="md:hidden">Submitted</span><span className="hidden md:inline">Submitted / Saved</span>
             <span
               className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
                 statusFilter === 'SUBMITTED' ? 'bg-emerald-800 text-white' : 'bg-emerald-100 text-emerald-800'
@@ -508,7 +512,202 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
         </div>
 
         {/* Filters */}
-        <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {/* Mobile Filter & Search Bar */}
+        <div className="mt-4 md:hidden">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsMobileFilterOpen(!isMobileFilterOpen)}
+              className={`relative h-10 w-10 flex items-center justify-center rounded-xl border transition shrink-0 ${
+                selectedMonth !== 'ALL' || selectedYear !== 'ALL'
+                  ? 'bg-indigo-50 border-indigo-400 text-indigo-700 shadow-2xs'
+                  : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'
+              }`}
+              aria-label="Filter"
+            >
+              <Filter className="w-4 h-4" />
+              {(selectedMonth !== 'ALL' || selectedYear !== 'ALL') && (
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-indigo-600 rounded-full ring-2 ring-white" />
+              )}
+            </button>
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Search claimant, emp #, dept..."
+                className="w-full h-10 rounded-xl border border-slate-300 bg-white py-2 pl-9 pr-8 text-xs text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 p-0.5"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Mobile Filter Categories Popover */}
+          {isMobileFilterOpen && (
+            <div className="mt-2.5 p-3.5 bg-white border border-slate-200 rounded-2xl shadow-lg space-y-3 animate-fadeIn">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                <div className="flex items-center gap-1.5">
+                  <Filter className="w-3.5 h-3.5 text-indigo-600" />
+                  <span className="text-xs font-bold text-slate-800">Filter Categories</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {(selectedMonth !== 'ALL' || selectedYear !== 'ALL') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedMonth('ALL');
+                        setSelectedYear('ALL');
+                      }}
+                      className="text-[11px] font-semibold text-rose-600 hover:text-rose-700"
+                    >
+                      Reset
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setIsMobileFilterOpen(false)}
+                    className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Main Category: Month Period */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setMobileFilterCategory(mobileFilterCategory === 'month' ? null : 'month')}
+                  className="w-full flex items-center justify-between p-2.5 bg-slate-50 hover:bg-slate-100 text-left transition"
+                >
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-indigo-600" />
+                    <span className="text-xs font-bold text-slate-700">Month Period</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-100">
+                      {selectedMonth === 'ALL' ? 'All Months' : selectedMonth}
+                    </span>
+                    <ChevronDown
+                      className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
+                        mobileFilterCategory === 'month' ? 'rotate-180' : ''
+                      }`}
+                    />
+                  </div>
+                </button>
+
+                {/* Hidden sub filter categories in dropdown */}
+                {mobileFilterCategory === 'month' && (
+                  <div className="p-2.5 bg-white border-t border-slate-100 grid grid-cols-3 gap-1.5 max-h-44 overflow-y-auto">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedMonth('ALL')}
+                      className={`px-2 py-1.5 rounded-lg text-[11px] font-semibold text-center transition ${
+                        selectedMonth === 'ALL'
+                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      All Months
+                    </button>
+                    {MONTH_NAMES.map(m => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setSelectedMonth(m)}
+                        className={`px-2 py-1.5 rounded-lg text-[11px] font-semibold text-center truncate transition ${
+                          selectedMonth === m
+                            ? 'bg-indigo-600 text-white shadow-2xs'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                        }`}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Main Category: Year */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setMobileFilterCategory(mobileFilterCategory === 'year' ? null : 'year')}
+                  className="w-full flex items-center justify-between p-2.5 bg-slate-50 hover:bg-slate-100 text-left transition"
+                >
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-indigo-600" />
+                    <span className="text-xs font-bold text-slate-700">Year</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-100">
+                      {selectedYear === 'ALL' ? 'All Years' : selectedYear}
+                    </span>
+                    <ChevronDown
+                      className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
+                        mobileFilterCategory === 'year' ? 'rotate-180' : ''
+                      }`}
+                    />
+                  </div>
+                </button>
+
+                {/* Hidden sub filter categories in dropdown */}
+                {mobileFilterCategory === 'year' && (
+                  <div className="p-2.5 bg-white border-t border-slate-100 flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedYear('ALL')}
+                      className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition ${
+                        selectedYear === 'ALL'
+                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      All Years
+                    </button>
+                    {availableYears.map(y => (
+                      <button
+                        key={y}
+                        type="button"
+                        onClick={() => setSelectedYear(String(y))}
+                        className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition ${
+                          selectedYear === String(y)
+                            ? 'bg-indigo-600 text-white shadow-2xs'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                        }`}
+                      >
+                        {y}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Close Button */}
+              <div className="pt-1 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setIsMobileFilterOpen(false)}
+                  className="px-4 py-1.5 bg-slate-900 text-white text-xs font-semibold rounded-xl hover:bg-slate-800 transition"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Desktop Filters (3 Columns) */}
+        <div className="hidden md:grid md:grid-cols-3 md:gap-3 mt-5">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
             <input
@@ -604,7 +803,6 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
       <div className="md:hidden space-y-2.5">
         <div className="flex items-center justify-between text-xs font-bold text-slate-600 px-1 pb-1">
           <span>Claim History ({filtered.length})</span>
-          <span className="text-[11px] font-normal text-slate-400">Tap card for all details</span>
         </div>
 
         {loading ? (
