@@ -502,97 +502,110 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </div>
 
-      {/* Modern Bottom-Docked Mobile Tab Bar (100% Thumb Accessible) */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 shadow-2xl px-3 py-2 flex items-center justify-between safe-bottom">
-        {/* 1. Dashboard */}
-        <button
-          onClick={() => {
-            setIsMobileMenuOpen(false);
-            onSelectTab('dashboard');
-          }}
-          className={`flex flex-col items-center justify-center flex-1 py-1 transition cursor-pointer ${
-            activeTab === 'dashboard' ? 'text-indigo-400 font-bold' : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Clock className={`w-5 h-5 ${activeTab === 'dashboard' ? 'stroke-[2.5]' : 'stroke-2'}`} />
-          <span className="text-[10px] mt-1 font-medium">Dashboard</span>
-        </button>
+      {/* Modern Bottom-Docked Mobile Tab Bar with Raised Shining Active Button */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-slate-900/95 backdrop-blur-xl border-t border-slate-800 shadow-[0_-8px_30px_rgba(0,0,0,0.5)] px-2 pt-2 pb-2.5 flex items-center justify-around overflow-visible">
+        {[
+          {
+            id: 'dashboard' as NavigationTab,
+            label: 'Dashboard',
+            icon: Clock,
+            isActive: activeTab === 'dashboard' && !isMobileMenuOpen,
+            onClick: () => {
+              setIsMobileMenuOpen(false);
+              onSelectTab('dashboard');
+            },
+          },
+          {
+            id: 'history' as NavigationTab,
+            label: 'History',
+            icon: History,
+            isActive: activeTab === 'history' && !isMobileMenuOpen,
+            onClick: () => {
+              setIsMobileMenuOpen(false);
+              onSelectTab('history');
+            },
+          },
+          {
+            id: 'new-claim' as NavigationTab,
+            label: 'New Claim',
+            icon: PlusCircle,
+            isActive: activeTab === 'new-claim' && !isMobileMenuOpen,
+            onClick: () => {
+              setIsMobileMenuOpen(false);
+              onSelectTab('new-claim');
+            },
+          },
+          {
+            id: 'calendar' as NavigationTab,
+            label: 'Calendar',
+            icon: Calendar,
+            isActive: activeTab === 'calendar' && !isMobileMenuOpen,
+            onClick: () => {
+              setIsMobileMenuOpen(false);
+              onSelectTab('calendar');
+            },
+          },
+          {
+            id: 'more' as const,
+            label: isAdmin ? 'Admin' : 'More',
+            icon: isAdmin ? ShieldCheck : MoreHorizontal,
+            isActive: isMoreTabActive || isMobileMenuOpen,
+            badge: isAdmin,
+            onClick: () => {
+              setIsMobileMenuOpen(!isMobileMenuOpen);
+            },
+          },
+        ].map((item) => {
+          const Icon = item.icon;
+          const isSelected = item.isActive;
 
-        {/* 2. History */}
-        <button
-          onClick={() => {
-            setIsMobileMenuOpen(false);
-            onSelectTab('history');
-          }}
-          className={`flex flex-col items-center justify-center flex-1 py-1 transition cursor-pointer ${
-            activeTab === 'history' ? 'text-indigo-400 font-bold' : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <History className={`w-5 h-5 ${activeTab === 'history' ? 'stroke-[2.5]' : 'stroke-2'}`} />
-          <span className="text-[10px] mt-1 font-medium">History</span>
-        </button>
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={item.onClick}
+              className="flex-1 flex flex-col items-center justify-center relative cursor-pointer group focus:outline-hidden"
+            >
+              <div
+                className={`relative flex items-center justify-center transition-all duration-300 ease-out ${
+                  isSelected
+                    ? '-translate-y-2.5 scale-110 w-11 h-11 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-violet-500 text-white shadow-lg shadow-indigo-500/40 ring-4 ring-slate-900 border border-white/30 overflow-hidden'
+                    : 'translate-y-0 w-9 h-9 rounded-xl text-slate-400 group-hover:text-slate-200 group-hover:bg-slate-800/60'
+                }`}
+              >
+                {/* Shine & Glossy Reflections on Selected Button */}
+                {isSelected && (
+                  <>
+                    {/* Top glass reflection gradient */}
+                    <div className="absolute inset-0 rounded-2xl bg-gradient-to-b from-white/40 via-white/10 to-transparent pointer-events-none" />
+                    {/* Ambient gloss corner gleam */}
+                    <div className="absolute top-0.5 left-1.5 w-3.5 h-1.5 bg-white/60 rounded-full blur-[0.5px] pointer-events-none" />
+                    {/* Diagonal shine highlight */}
+                    <div className="absolute inset-0 rounded-2xl bg-gradient-to-tr from-transparent via-white/20 to-transparent pointer-events-none" />
+                  </>
+                )}
 
-        {/* 3. New Claim (Elevated Thumb Center Button) */}
-        <button
-          onClick={() => {
-            setIsMobileMenuOpen(false);
-            onSelectTab('new-claim');
-          }}
-          className="flex flex-col items-center justify-center -mt-6 flex-1 relative group cursor-pointer"
-        >
-          <div
-            className={`flex h-13 w-13 items-center justify-center rounded-full shadow-xl transition-transform active:scale-90 ${
-              activeTab === 'new-claim'
-                ? 'bg-gradient-to-tr from-indigo-500 via-indigo-600 to-blue-500 text-white ring-4 ring-slate-900'
-                : 'bg-indigo-600 hover:bg-indigo-500 text-white ring-2 ring-slate-800'
-            }`}
-          >
-            <PlusCircle className="w-7 h-7" />
-          </div>
-          <span
-            className={`text-[10px] font-bold mt-1 tracking-tight ${
-              activeTab === 'new-claim' ? 'text-indigo-400 font-extrabold' : 'text-slate-300'
-            }`}
-          >
-            New Claim
-          </span>
-        </button>
+                <Icon
+                  className={`w-5 h-5 relative z-10 transition-transform ${
+                    isSelected ? 'stroke-[2.5] text-white scale-105' : 'stroke-2'
+                  }`}
+                />
 
-        {/* 4. Calendar */}
-        <button
-          onClick={() => {
-            setIsMobileMenuOpen(false);
-            onSelectTab('calendar');
-          }}
-          className={`flex flex-col items-center justify-center flex-1 py-1 transition cursor-pointer ${
-            activeTab === 'calendar' ? 'text-indigo-400 font-bold' : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Calendar className={`w-5 h-5 ${activeTab === 'calendar' ? 'stroke-[2.5]' : 'stroke-2'}`} />
-          <span className="text-[10px] mt-1 font-medium">Calendar</span>
-        </button>
+                {/* Notification dot for Admin if not selected */}
+                {item.badge && !isSelected && (
+                  <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-purple-500 ring-2 ring-slate-900" />
+                )}
+              </div>
 
-        {/* 5. More / Admin Hub Sheet Toggle */}
-        <button
-          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          className={`flex flex-col items-center justify-center flex-1 py-1 transition cursor-pointer ${
-            isMoreTabActive || isMobileMenuOpen
-              ? 'text-indigo-400 font-bold'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          {isAdmin ? (
-            <div className="relative">
-              <ShieldCheck className={`w-5 h-5 ${isMoreTabActive ? 'stroke-[2.5]' : 'stroke-2'}`} />
-              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-purple-500" />
-            </div>
-          ) : (
-            <MoreHorizontal className={`w-5 h-5 ${isMoreTabActive || isMobileMenuOpen ? 'stroke-[2.5]' : 'stroke-2'}`} />
-          )}
-          <span className="text-[10px] mt-1 font-medium">
-            {isAdmin ? 'Admin' : 'More'}
-          </span>
-        </button>
+              {/* Selected button label is hidden; unselected button displays label */}
+              {!isSelected && (
+                <span className="text-[10px] mt-1 font-medium text-slate-400 group-hover:text-slate-200 tracking-tight transition-opacity">
+                  {item.label}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </nav>
 
       {/* Mobile Bottom-Docked Hub Drawer (Opens with One Thumb) */}
