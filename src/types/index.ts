@@ -218,6 +218,7 @@ export interface ClaimRecord {
   employeeNumber: string;
   designation: string;
   branch: string;
+  branchCode?: string;
   department: string;
   claimType: ClaimType;
   month: string;

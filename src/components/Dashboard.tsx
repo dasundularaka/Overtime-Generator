@@ -101,13 +101,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
     fetchClaims();
   }, [currentUser, isAdmin]);
 
-  // Overall Statistics
+  // Submitted Claims (Drafts excluded from Recent Claims and Totals)
+  const submittedClaims = useMemo(() => {
+    return claims.filter(c => c.status !== 'draft');
+  }, [claims]);
+
+  // Overall Statistics - Only submissions calculate total payments and other stats
   const stats = useMemo(() => {
     let totalMinutes = 0;
     let totalEarnings = 0;
-    for (const c of claims) {
+    for (const c of submittedClaims) {
       totalMinutes += c.totalMinutes || 0;
-      if (c.totalOtPayment) totalEarnings += c.totalOtPayment;
+      if (c.totalOtPayment) {
+        totalEarnings += c.totalOtPayment;
+      } else if (c.hourlyRate && c.totalDecimalHours) {
+        totalEarnings += c.hourlyRate * c.totalDecimalHours;
+      }
     }
 
     const totalHours = Math.floor(totalMinutes / 60);
@@ -116,12 +125,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
     const totalDecimalHours = (totalMinutes / 60).toFixed(1);
 
     return {
-      totalClaimsCount: claims.length,
+      totalClaimsCount: submittedClaims.length,
       totalHoursFormatted,
       totalDecimalHours,
       totalEarnings,
     };
-  }, [claims]);
+  }, [submittedClaims]);
 
   const handleDownloadPdf = async (claim: ClaimRecord) => {
     try {
@@ -400,7 +409,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
         {loading ? (
           <div className="p-12 text-center text-xs text-slate-400">Loading claims...</div>
-        ) : claims.length === 0 ? (
+        ) : submittedClaims.length === 0 ? (
           <div className="p-12 text-center">
             <FileText className="w-12 h-12 text-slate-300 mx-auto mb-3" />
             <h3 className="text-sm font-bold text-slate-700">No claims submitted yet</h3>
@@ -432,7 +441,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
-                {claims.slice(0, 5).map(claim => (
+                {submittedClaims.slice(0, 5).map(claim => (
                   <tr key={claim.id} className="hover:bg-slate-50/70 transition-colors">
                     <td className="py-3.5 px-4">
                       <div className="font-semibold text-slate-900">{claim.employeeName}</div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   History,
   FileText,
@@ -68,6 +68,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
   };
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [showBranchTimesheets, setShowBranchTimesheets] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState('ALL');
   const [selectedYear, setSelectedYear] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'SUBMITTED' | 'DRAFTS'>('ALL');
@@ -313,16 +314,57 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
     }
   };
 
-  const availableYears = Array.from(new Set(claims.map(c => c.year))).sort((a, b) => b - a);
+  // Helper to determine if a claim belongs to the logged-in user
+  const isOwnClaim = (c: ClaimRecord) => {
+    const myUid = currentUser?.uid;
+    const myProfileId = userProfile?.id;
+    const myPf = (userProfile?.employeeNumber || userProfile?.pfNumber || '').toUpperCase().trim();
+    if (myUid && c.userId === myUid) return true;
+    if (myProfileId && c.userId === myProfileId) return true;
+    if (myPf && c.employeeNumber?.toUpperCase().trim() === myPf) return true;
+    return false;
+  };
 
-  const draftsCount = claims.filter(c => c.status === 'draft').length;
-  const submittedCount = claims.filter(c => c.status !== 'draft').length;
+  // Helper to determine if a claim belongs to the same branch as the admin
+  const isSameBranch = (c: ClaimRecord) => {
+    const adminBranch = (userProfile?.branch || '').trim().toLowerCase();
+    const adminBranchCode = (userProfile?.branchCode || '').trim().toLowerCase();
+    const claimBranch = (c.branch || '').trim().toLowerCase();
+    const claimBranchCode = (c.branchCode || '').trim().toLowerCase();
 
-  const filtered = claims.filter(c => {
+    if (adminBranch && claimBranch && adminBranch === claimBranch) return true;
+    if (adminBranchCode && claimBranchCode && adminBranchCode === claimBranchCode) return true;
+    return false;
+  };
+
+  const isSearching = searchQuery.trim().length > 0;
+
+  // First, don't show other users submissions or drafts (default: only show own claims)
+  // Admins can search other users' timesheets ONLY IF that user is assigned to the same branch
+  const accessibleClaims = useMemo(() => {
+    if (!isAdmin) {
+      return claims.filter(c => isOwnClaim(c));
+    }
+    // For admin: if searching or branch view is toggled, include other users from the SAME branch
+    if (isSearching || showBranchTimesheets) {
+      return claims.filter(c => isOwnClaim(c) || isSameBranch(c));
+    }
+    // Initially / without search, don't show other users submissions or drafts
+    return claims.filter(c => isOwnClaim(c));
+  }, [claims, isAdmin, isSearching, showBranchTimesheets, userProfile, currentUser]);
+
+  const availableYears = Array.from(new Set(accessibleClaims.map(c => c.year))).sort((a, b) => b - a);
+
+  const draftsCount = accessibleClaims.filter(c => c.status === 'draft').length;
+  const submittedCount = accessibleClaims.filter(c => c.status !== 'draft').length;
+
+  const filtered = accessibleClaims.filter(c => {
     const matchesSearch =
+      !isSearching ||
       c.employeeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (c.employeeNumber || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (c.department || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (c.branch || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       c.claimNumber.toLowerCase().includes(searchQuery.toLowerCase());
 
     const matchesMonth = selectedMonth === 'ALL' || c.month === selectedMonth;
@@ -427,16 +469,16 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
             <div className="flex items-center gap-2">
               <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
                 <span className="md:hidden">History</span>
-              <span className="hidden md:inline">{isAdmin ? 'Claims & Drafts History (Admin View)' : 'My Overtime Claims & Drafts'}</span>
+                <span className="hidden md:inline">{isAdmin ? 'Claims & Drafts History' : 'My Overtime Claims & Drafts'}</span>
               </h1>
               <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                <span>{claims.length}</span>
+                <span>{accessibleClaims.length}</span>
                 <span className="hidden md:inline"> Records</span>
               </span>
             </div>
             <p className="text-xs sm:text-sm text-slate-500 mt-1">
               {isAdmin
-                ? 'Review company-wide submissions, resume drafts, download official A4 PDFs, and inspect timesheets.'
+                ? `Your overtime claims & drafts. Search to inspect timesheets of staff in your branch (${userProfile?.branch || 'Assigned Branch'}).`
                 : 'Your personal claims and saved drafts history. Resume incomplete drafts or download print-ready forms.'}
             </p>
           </div>
@@ -466,7 +508,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                 statusFilter === 'ALL' ? 'bg-slate-700 text-white' : 'bg-slate-200 text-slate-700'
               }`}
             >
-              {claims.length}
+              {accessibleClaims.length}
             </span>
           </button>
 
@@ -536,7 +578,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Search claimant, emp #, dept..."
+                placeholder={isAdmin ? `Search ${userProfile?.branch ? userProfile.branch : 'own & branch'} staff...` : "Search claimant, emp #, dept..."}
                 className="w-full h-10 rounded-xl border border-slate-300 bg-white py-2 pl-9 pr-8 text-xs text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
               />
               {searchQuery && (
@@ -550,6 +592,31 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
               )}
             </div>
           </div>
+
+          {isAdmin && (
+            <div className="flex items-center justify-between text-[11px] text-slate-500 mt-2 px-1">
+              <div className="flex items-center gap-1 min-w-0">
+                <Building2 className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                <span className="truncate">Branch: <strong className="text-slate-700">{userProfile?.branch || 'General'}</strong></span>
+                {isSearching && (
+                  <span className="text-[9px] bg-indigo-50 text-indigo-700 font-bold px-1.5 py-0.2 rounded border border-indigo-200 shrink-0">
+                    Branch Search
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBranchTimesheets(!showBranchTimesheets)}
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border transition shrink-0 cursor-pointer ${
+                  showBranchTimesheets
+                    ? 'bg-purple-600 text-white border-purple-600'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                }`}
+              >
+                {showBranchTimesheets ? 'Showing Branch' : 'Browse Branch'}
+              </button>
+            </div>
+          )}
 
           {/* Mobile Filter Categories Popover */}
           {isMobileFilterOpen && (
@@ -714,7 +781,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
               type="text"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Search claimant, emp #, dept..."
+              placeholder={isAdmin ? `Search ${userProfile?.branch ? userProfile.branch + ' staff' : 'staff'} or own claims...` : "Search claimant, emp #, dept..."}
               className="w-full rounded-xl border border-slate-300 bg-white py-2 pl-9 pr-3 text-xs text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
             />
           </div>
@@ -745,6 +812,36 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
             ))}
           </select>
         </div>
+
+        {isAdmin && (
+          <div className="hidden md:flex items-center justify-between mt-3 pt-3 border-t border-slate-100 text-xs text-slate-500">
+            <div className="flex items-center gap-2">
+              <Building2 className="w-4 h-4 text-indigo-600" />
+              <span>
+                Assigned Branch: <strong className="text-slate-800 font-semibold">{userProfile?.branch || 'General'}</strong>
+              </span>
+              <span className="text-[11px] text-slate-400">
+                (Admins can search timesheets within their same branch)
+              </span>
+              {isSearching && (
+                <span className="text-[10px] bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded border border-indigo-200">
+                  Branch Search Active
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowBranchTimesheets(!showBranchTimesheets)}
+              className={`text-xs font-semibold px-3 py-1 rounded-xl border transition cursor-pointer ${
+                showBranchTimesheets
+                  ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+              }`}
+            >
+              {showBranchTimesheets ? `Showing All ${userProfile?.branch || 'Branch'} Timesheets` : `Browse All ${userProfile?.branch || 'Branch'} Staff`}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Bulk Action Toolbar */}

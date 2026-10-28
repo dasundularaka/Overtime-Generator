@@ -64,6 +64,74 @@ const MobileCurvedNavBar: React.FC<MobileCurvedNavBarProps> = ({ items }) => {
   const activeIndex = Math.max(0, items.findIndex((item) => item.isActive));
   const targetX = activeIndex * 100 + 50;
   const [valleyX, setValleyX] = useState(targetX);
+  const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
+
+  // Detect virtual keyboard popup to ensure navigation stays fixed at bottom and doesn't jump
+  useEffect(() => {
+    const handleFocusIn = (e: FocusEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        setIsKeyboardOpen(true);
+      }
+    };
+
+    const handleFocusOut = () => {
+      setTimeout(() => {
+        const active = document.activeElement as HTMLElement | null;
+        const isInputFocused =
+          active &&
+          (active.tagName === 'INPUT' ||
+            active.tagName === 'TEXTAREA' ||
+            active.tagName === 'SELECT' ||
+            active.isContentEditable);
+        if (!isInputFocused) {
+          setIsKeyboardOpen(false);
+        }
+      }, 120);
+    };
+
+    const handleViewportResize = () => {
+      if (window.visualViewport) {
+        const windowHeight = window.innerHeight;
+        const viewportHeight = window.visualViewport.height;
+        // If visual viewport shrinks by > 120px, the mobile keyboard is open
+        if (windowHeight - viewportHeight > 120) {
+          setIsKeyboardOpen(true);
+        } else {
+          const active = document.activeElement as HTMLElement | null;
+          const isInputFocused =
+            active &&
+            (active.tagName === 'INPUT' ||
+              active.tagName === 'TEXTAREA' ||
+              active.tagName === 'SELECT' ||
+              active.isContentEditable);
+          if (!isInputFocused) {
+            setIsKeyboardOpen(false);
+          }
+        }
+      }
+    };
+
+    window.addEventListener('focusin', handleFocusIn);
+    window.addEventListener('focusout', handleFocusOut);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleViewportResize);
+    }
+
+    return () => {
+      window.removeEventListener('focusin', handleFocusIn);
+      window.removeEventListener('focusout', handleFocusOut);
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', handleViewportResize);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let animId: number;
@@ -110,7 +178,11 @@ const MobileCurvedNavBar: React.FC<MobileCurvedNavBarProps> = ({ items }) => {
     `L ${totalW} ${topY}`;
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 h-16 safe-bottom overflow-visible flex items-center justify-around pointer-events-auto">
+    <nav
+      className={`md:hidden fixed bottom-0 left-0 right-0 z-50 h-16 safe-bottom overflow-visible flex items-center justify-around pointer-events-auto transition-transform duration-200 ease-in-out ${
+        isKeyboardOpen ? 'translate-y-28 opacity-0 pointer-events-none' : 'translate-y-0 opacity-100'
+      }`}
+    >
       {/* SVG Half-Circle Notch Background that bends away from the selected button */}
       <svg
         viewBox="0 0 500 76"
