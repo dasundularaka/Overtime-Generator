@@ -152,7 +152,7 @@ const MobileCurvedNavBar: React.FC<MobileCurvedNavBarProps> = ({ items }) => {
   // Compute SVG valley path
   // In viewBox 0 0 500 76, top line is at Y=16.
   // The curve bends away from the selected button in an exact half-circle arc (A r r 0 0 0).
-  // The selected button is elevated to -translate-y-7 with the user's attached color #121832 and simple shine,
+  // The selected button is elevated to -translate-y-7 with the #1d194b colour and simple shine,
   // cleanly separated from the half-circle curve with an open air gap all around.
   const cx = valleyX;
   const totalW = 500;
@@ -207,11 +207,11 @@ const MobileCurvedNavBar: React.FC<MobileCurvedNavBarProps> = ({ items }) => {
             <div
               className={`relative flex items-center justify-center transition-all duration-300 ease-out ${
                 isSelected
-                  ? '-translate-y-7 scale-105 w-12 h-12 rounded-full bg-gradient-to-b from-[#1b2348] via-[#121832] to-[#0b0f20] text-white shadow-xl shadow-[#080c1a]/90 border border-[#2a376c]/60 overflow-hidden'
-                  : 'translate-y-0 w-9 h-9 rounded-xl text-slate-400 group-hover:text-slate-200'
+                  ? '-translate-y-7 scale-105 w-12 h-12 rounded-full bg-gradient-to-b from-[#2a2468] via-[#1d194b] to-[#120f30] text-white shadow-xl shadow-[#0c0a22]/90 border border-[#3b328c]/70 overflow-hidden'
+                  : 'translate-y-0 w-9 h-9 rounded-xl text-slate-400 group-hover:text-slate-200 group-hover:bg-[#1d194b]/30'
               }`}
             >
-              {/* Simply shine on attached #121832 dark navy circle */}
+              {/* Simply shine on #1d194b button */}
               {isSelected && (
                 <>
                   {/* Top specular gloss crescent */}
