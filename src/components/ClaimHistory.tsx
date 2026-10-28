@@ -917,6 +917,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
         ) : (
           filtered.map(claim => {
             const isDraft = claim.status === 'draft';
+            const isOwn = isOwnClaim(claim);
             return (
               <div
                 key={claim.id}
@@ -927,21 +928,42 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                     : 'bg-white border-slate-200'
                 }`}
               >
-                {/* Month Period Only */}
+                {/* Month Period and (for other users) relevant Name & PF Number */}
                 <div className="flex items-center gap-3 min-w-0">
                   <div
-                    className={`p-2.5 rounded-xl shrink-0 ${
-                      isDraft
+                    className={`p-2.5 rounded-xl shrink-0 flex items-center justify-center font-bold text-xs ${
+                      !isOwn
+                        ? 'bg-indigo-100 text-indigo-700 w-10 h-10'
+                        : isDraft
                         ? 'bg-amber-100/80 text-amber-800'
                         : 'bg-indigo-50 text-indigo-700'
                     }`}
                   >
-                    <Calendar className="w-5 h-5" />
+                    {!isOwn ? (
+                      <span className="uppercase text-xs font-black">
+                        {claim.employeeName ? claim.employeeName.charAt(0) : 'U'}
+                      </span>
+                    ) : (
+                      <Calendar className="w-5 h-5" />
+                    )}
                   </div>
                   <div className="truncate">
-                    <span className="font-bold text-slate-900 text-sm tracking-tight block truncate">
-                      {claim.month} {claim.year}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-900 text-sm tracking-tight truncate">
+                        {claim.month} {claim.year}
+                      </span>
+                      {!isOwn && (
+                        <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0">
+                          {claim.employeeNumber || (claim as any).pfNumber}
+                        </span>
+                      )}
+                    </div>
+                    {!isOwn && (
+                      <div className="text-xs font-semibold text-slate-600 truncate mt-0.5 flex items-center gap-1">
+                        <User className="w-3 h-3 text-slate-400 shrink-0" />
+                        <span className="truncate">{claim.employeeName}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1220,6 +1242,14 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                 <h2 className="text-lg font-bold tracking-tight text-white pt-1">
                   {selectedMobileClaim.month} {selectedMobileClaim.year} Claim
                 </h2>
+                {!isOwnClaim(selectedMobileClaim) && (
+                  <p className="text-xs text-indigo-200 font-semibold flex items-center gap-1.5 pt-0.5">
+                    <span>{selectedMobileClaim.employeeName}</span>
+                    <span className="font-mono text-[10px] font-bold px-1.5 py-0.2 rounded bg-white/15 text-white border border-white/20">
+                      {selectedMobileClaim.employeeNumber || (selectedMobileClaim as any).pfNumber}
+                    </span>
+                  </p>
+                )}
               </div>
               <button
                 onClick={() => setSelectedMobileClaim(null)}
@@ -1501,9 +1531,14 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                     </span>
                   )}
                 </div>
-                <h2 className="text-lg font-bold text-slate-900 mt-0.5">
-                  {viewingClaim.employeeName} &bull; {viewingClaim.month} {viewingClaim.year}
-                </h2>
+                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                  <h2 className="text-lg font-bold text-slate-900">
+                    {viewingClaim.employeeName} &bull; {viewingClaim.month} {viewingClaim.year}
+                  </h2>
+                  <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                    {viewingClaim.employeeNumber || (viewingClaim as any).pfNumber}
+                  </span>
+                </div>
                 <p className="text-xs text-slate-500">
                   {viewingClaim.designation} &bull; {viewingClaim.department} &bull; {viewingClaim.branch}
                 </p>
