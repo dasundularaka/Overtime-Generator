@@ -207,7 +207,7 @@ const MobileCurvedNavBar: React.FC<MobileCurvedNavBarProps> = ({ items }) => {
             <div
               className={`relative flex items-center justify-center transition-all duration-300 ease-out ${
                 isSelected
-                  ? '-translate-y-6.5 scale-105 w-12 h-12 rounded-full bg-[#1d194b] text-white shadow-xl shadow-[#0b0a20]/90 border border-[#352e82]/80'
+                  ? '-translate-y-7 scale-105 w-12 h-12 rounded-full bg-[#1d194b] text-white shadow-xl shadow-[#0c0a22]/90 border border-[#352e82]/80'
                   : 'translate-y-0 w-9 h-9 rounded-xl text-slate-400 group-hover:text-slate-200 group-hover:bg-[#1d194b]/30'
               }`}
             >
@@ -223,16 +223,12 @@ const MobileCurvedNavBar: React.FC<MobileCurvedNavBarProps> = ({ items }) => {
               )}
             </div>
 
-            {/* Label: larger and bolder for selected button, standard for unselected */}
-            <span
-              className={`tracking-tight transition-all duration-300 select-none ${
-                isSelected
-                  ? 'text-[12px] font-black text-white -translate-y-4 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]'
-                  : 'text-[10px] mt-1 font-medium text-slate-400 group-hover:text-slate-200'
-              }`}
-            >
-              {item.label}
-            </span>
+            {/* Selected button label is hidden; unselected button displays label */}
+            {!isSelected && (
+              <span className="text-[10px] mt-1 font-medium text-slate-400 group-hover:text-slate-200 tracking-tight transition-opacity">
+                {item.label}
+              </span>
+            )}
           </button>
         );
       })}
