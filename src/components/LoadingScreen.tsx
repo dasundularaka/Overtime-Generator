@@ -1,6 +1,4 @@
 import React from 'react';
-import { ShieldCheck, Sparkles } from 'lucide-react';
-import { ClockLogo } from './ClockLogo';
 
 interface LoadingScreenProps {
   message?: string;
@@ -12,49 +10,34 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
   subMessage = 'Connecting to database & loading profile...',
 }) => {
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-white p-6 overflow-hidden">
-      {/* Background ambient glowing orbs */}
-      <div className="absolute top-1/4 left-1/3 w-96 h-96 bg-indigo-600/15 rounded-full blur-3xl pointer-events-none animate-pulse" />
-      <div className="absolute bottom-1/4 right-1/3 w-80 h-80 bg-blue-600/15 rounded-full blur-3xl pointer-events-none animate-pulse delay-700" />
-
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/50 backdrop-blur-md text-white p-6 overflow-hidden">
       {/* Main card */}
-      <div className="relative z-10 flex flex-col items-center max-w-sm w-full text-center space-y-6">
-        {/* Animated Clock Logo without outline circle and without background */}
-        <div className="relative">
-          <div className="relative flex h-24 w-24 items-center justify-center">
-            <ClockLogo className="w-full h-full" />
-          </div>
-
-          {/* Mini badge */}
-          <div className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-white border-2 border-slate-900 shadow-sm">
-            <Sparkles className="w-3 h-3" />
-          </div>
+      <div className="relative z-10 flex flex-col items-center max-w-sm w-full text-center space-y-4 animate-scale-in">
+        {/* System GIF Logo */}
+        <div className="relative flex h-24 w-24 sm:h-28 sm:w-28 items-center justify-center">
+          <img
+            src="/infinite-clock.gif"
+            alt="Overtime Claim Manager"
+            className="w-full h-full object-contain drop-shadow-[0_10px_25px_rgba(0,0,0,0.6)]"
+          />
         </div>
 
         {/* Text */}
-        <div className="space-y-2">
-          <h2 className="text-xl font-extrabold text-white tracking-tight">
+        <div className="space-y-1.5">
+          <h2 className="text-xl font-extrabold text-white tracking-tight drop-shadow">
             Overtime Claim Manager
           </h2>
-          <p className="text-xs font-medium text-indigo-300">
+          <p className="text-xs font-semibold text-indigo-200">
             {message}
           </p>
-          <p className="text-[11px] text-slate-400">
-            {subMessage}
-          </p>
-        </div>
-
-        {/* Modern Spinner / Progress Bar */}
-        <div className="w-48 space-y-2 pt-2">
-          <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden border border-slate-700/60">
-            <div className="h-full bg-gradient-to-r from-indigo-500 via-blue-400 to-indigo-500 rounded-full animate-progress" />
-          </div>
-          <div className="flex items-center justify-center gap-1.5 text-[10px] text-slate-500 font-mono">
-            <ShieldCheck className="w-3 h-3 text-indigo-400" />
-            <span>Shift 8:00–4:45 &bull; Form 10756</span>
-          </div>
+          {subMessage && (
+            <p className="text-[11px] text-slate-300">
+              {subMessage}
+            </p>
+          )}
         </div>
       </div>
     </div>
   );
 };
+

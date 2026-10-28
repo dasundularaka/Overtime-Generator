@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AuthScreen } from './components/AuthScreen';
 import { Navbar, NavigationTab } from './components/Navbar';
@@ -14,6 +14,7 @@ import { TemplateDesigner } from './components/TemplateDesigner';
 import { SettingsPage } from './components/SettingsPage';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { LoadingScreen } from './components/LoadingScreen';
+import { PageTransitionOverlay } from './components/PageTransitionOverlay';
 import { PasswordResetModal } from './components/PasswordResetModal';
 import { AuditLogViewer } from './components/AuditLogViewer';
 import { ClaimRecord } from './types';
@@ -23,6 +24,41 @@ function AppContent() {
   const { currentUser, userProfile, isAdmin, loading, refreshUserProfile } = useAuth();
   const [activeTab, setActiveTab] = useState<NavigationTab>('dashboard');
   const [editingClaim, setEditingClaim] = useState<ClaimRecord | null>(null);
+  const [isPageTransitioning, setIsPageTransitioning] = useState(false);
+  const [isInitialReloading, setIsInitialReloading] = useState(true);
+  const transitionTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 2-second animation on reloading/initial startup
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsInitialReloading(false);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Centralized tab transition with 2-second animation
+  const transitionToTab = (targetTab: NavigationTab, onBeforeSwitch?: () => void) => {
+    if (targetTab === activeTab && !onBeforeSwitch) return;
+
+    if (transitionTimerRef.current) {
+      clearTimeout(transitionTimerRef.current);
+    }
+
+    setIsPageTransitioning(true);
+
+    setTimeout(() => {
+      if (onBeforeSwitch) onBeforeSwitch();
+      if (targetTab === 'designer' && !isAdmin) {
+        setActiveTab('dashboard');
+      } else {
+        setActiveTab(targetTab);
+      }
+    }, 350);
+
+    transitionTimerRef.current = setTimeout(() => {
+      setIsPageTransitioning(false);
+    }, 2000);
+  };
 
   // Initialize automated user creation email dispatch trigger for admins
   useEffect(() => {
@@ -43,11 +79,11 @@ function AppContent() {
         activeTab === 'roles' ||
         activeTab === 'employees')
     ) {
-      setActiveTab('dashboard');
+      transitionToTab('dashboard');
     }
   }, [loading, isAdmin, activeTab]);
 
-  if (loading) {
+  if (loading || isInitialReloading) {
     return <LoadingScreen message="Loading Overtime Claim Engine..." subMessage="Authenticating session & verifying roles..." />;
   }
 
@@ -71,29 +107,23 @@ function AppContent() {
   }
 
   const handleEditClaim = (claim: ClaimRecord) => {
-    setEditingClaim(claim);
-    setActiveTab('new-claim');
+    transitionToTab('new-claim', () => setEditingClaim(claim));
   };
 
   const handleStartFreshClaim = () => {
-    setEditingClaim(null);
-    setActiveTab('new-claim');
+    transitionToTab('new-claim', () => setEditingClaim(null));
   };
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+      {/* Inter-Pages Transmission Animation (2-Second Duration, 50% Transparent Blur Background) */}
+      <PageTransitionOverlay isVisible={isPageTransitioning} />
+
       {/* Top Navigation */}
       <Navbar
         activeTab={activeTab}
         onSelectTab={(tab) => {
-          if (tab === 'new-claim') {
-            setEditingClaim(null);
-          }
-          if (tab === 'designer' && !isAdmin) {
-            setActiveTab('dashboard');
-            return;
-          }
-          setActiveTab(tab);
+          transitionToTab(tab);
         }}
       />
 
@@ -103,8 +133,7 @@ function AppContent() {
           <Dashboard
             onNavigate={(tab) => {
               if (tab === 'new-claim') handleStartFreshClaim();
-              else if (tab === 'designer' && !isAdmin) setActiveTab('dashboard');
-              else setActiveTab(tab);
+              else transitionToTab(tab);
             }}
             onEditClaim={handleEditClaim}
           />
@@ -114,9 +143,9 @@ function AppContent() {
           <ClaimEditor
             initialClaim={editingClaim}
             onClaimSaved={() => {
-              setActiveTab('history');
+              transitionToTab('history');
             }}
-            onNavigateToDesigner={isAdmin ? () => setActiveTab('designer') : undefined}
+            onNavigateToDesigner={isAdmin ? () => transitionToTab('designer') : undefined}
           />
         )}
 
