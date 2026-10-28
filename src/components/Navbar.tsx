@@ -207,25 +207,13 @@ const MobileCurvedNavBar: React.FC<MobileCurvedNavBarProps> = ({ items }) => {
             <div
               className={`relative flex items-center justify-center transition-all duration-300 ease-out ${
                 isSelected
-                  ? '-translate-y-7 scale-105 w-12 h-12 rounded-full bg-gradient-to-b from-[#2a2468] via-[#1d194b] to-[#120f30] text-white shadow-xl shadow-[#0c0a22]/90 border border-[#3b328c]/70 overflow-hidden'
+                  ? '-translate-y-6.5 scale-105 w-12 h-12 rounded-full bg-[#1d194b] text-white shadow-xl shadow-[#0b0a20]/90 border border-[#352e82]/80'
                   : 'translate-y-0 w-9 h-9 rounded-xl text-slate-400 group-hover:text-slate-200 group-hover:bg-[#1d194b]/30'
               }`}
             >
-              {/* Simply shine on #1d194b button */}
-              {isSelected && (
-                <>
-                  {/* Top specular gloss crescent */}
-                  <div className="absolute top-1 left-2.5 right-2.5 h-3.5 rounded-full bg-gradient-to-b from-white/35 via-white/10 to-transparent pointer-events-none" />
-                  {/* Subtle radial sheen */}
-                  <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle_at_50%_25%,rgba(255,255,255,0.2),transparent_65%)] pointer-events-none" />
-                  {/* Bottom rim reflection */}
-                  <div className="absolute bottom-1 inset-x-3 h-1 rounded-full bg-indigo-300/15 blur-[0.5px] pointer-events-none" />
-                </>
-              )}
-
               <Icon
                 className={`w-5 h-5 relative z-10 transition-transform ${
-                  isSelected ? 'stroke-[2.5] text-indigo-100' : 'stroke-2'
+                  isSelected ? 'stroke-[2.5] text-white' : 'stroke-2'
                 }`}
               />
 
@@ -235,12 +223,16 @@ const MobileCurvedNavBar: React.FC<MobileCurvedNavBarProps> = ({ items }) => {
               )}
             </div>
 
-            {/* Selected button label is hidden; unselected button displays label */}
-            {!isSelected && (
-              <span className="text-[10px] mt-1 font-medium text-slate-400 group-hover:text-slate-200 tracking-tight transition-opacity">
-                {item.label}
-              </span>
-            )}
+            {/* Label: larger and bolder for selected button, standard for unselected */}
+            <span
+              className={`tracking-tight transition-all duration-300 select-none ${
+                isSelected
+                  ? 'text-[12px] font-black text-white -translate-y-4 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]'
+                  : 'text-[10px] mt-1 font-medium text-slate-400 group-hover:text-slate-200'
+              }`}
+            >
+              {item.label}
+            </span>
           </button>
         );
       })}
