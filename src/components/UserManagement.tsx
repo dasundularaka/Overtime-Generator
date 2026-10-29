@@ -980,10 +980,114 @@ export const UserManagement: React.FC = () => {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[850px]">
-              <thead>
-                <tr className="bg-slate-50 text-slate-700 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200">
+          <>
+            {/* Mobile Cards View (Phones & Small Screens) */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {filteredUsers.map(u => {
+                const isCurrent = u.id === currentUser?.uid;
+                const pfNum = (u.employeeNumber || u.pfNumber || '').toUpperCase();
+                return (
+                  <div key={u.id} className="p-4 space-y-3 bg-white">
+                    {/* Top Row: User Avatar, Name, PF, Role, Actions */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        {u.photoURL ? (
+                          <img
+                            src={u.photoURL}
+                            alt={u.name}
+                            referrerPolicy="no-referrer"
+                            className="h-10 w-10 rounded-xl object-cover border border-slate-200 shrink-0 shadow-2xs"
+                          />
+                        ) : (
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-50 font-bold text-indigo-700 text-xs border border-indigo-200">
+                            {u.name.slice(0, 2).toUpperCase()}
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <div className="font-bold text-slate-900 text-sm flex items-center gap-1.5 flex-wrap">
+                            <span className="truncate">{u.name}</span>
+                            {isCurrent && (
+                              <span className="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded font-semibold">
+                                You
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
+                            <span className="font-mono font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
+                              {pfNum || 'No PF'}
+                            </span>
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                u.role === 'admin'
+                                  ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                                  : 'bg-slate-100 text-slate-700'
+                              }`}
+                            >
+                              {u.role === 'admin' && <Shield className="w-2.5 h-2.5 text-purple-600" />}
+                              <span className="capitalize">{u.role}</span>
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={() => openPasswordModal(u)}
+                          className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition cursor-pointer"
+                          title="Change User Password"
+                        >
+                          <KeyRound className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => openEditModal(u)}
+                          className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                          title="Edit User & Overtime Limit"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setUserToDelete(u)}
+                          disabled={isCurrent}
+                          className={`p-1.5 rounded-lg transition ${
+                            isCurrent
+                              ? 'text-slate-300 cursor-not-allowed'
+                              : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
+                          }`}
+                          title="Delete user"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Meta: Branch, Department, Claim Type, Limit */}
+                    <div className="grid grid-cols-2 gap-2 text-xs pt-1 border-t border-slate-100">
+                      <div>
+                        <span className="text-[10px] text-slate-400 block">Department & Branch:</span>
+                        <span className="font-medium text-slate-800 text-[11px] truncate block">{u.department || 'N/A'}</span>
+                        <span className="text-[10px] text-slate-500 truncate block">{u.branch || 'Head Office'}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 block">Cap & Claim Type:</span>
+                        <span className="font-bold text-emerald-700 text-[11px] block">
+                          {u.maxOtHoursPerDay !== undefined ? `${u.maxOtHoursPerDay}h / day` : '2h / day'}
+                        </span>
+                        <span className="text-[10px] font-mono text-blue-700 block">
+                          {u.claimType === 'OP' ? 'Out of Pocket (OP)' : 'Overtime (OT)'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop Full Table View (>= md) */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[850px]">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-700 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200">
                   <th className="py-3 px-4">User &amp; PF Number (Username)</th>
                   <th className="py-3 px-4">Role</th>
                   <th className="py-3 px-4">Claim Type</th>
@@ -1156,8 +1260,9 @@ export const UserManagement: React.FC = () => {
               </tbody>
             </table>
           </div>
-        )}
-      </div>
+        </>
+      )}
+    </div>
 
       {/* Add / Edit User Modal */}
       {isModalOpen && (

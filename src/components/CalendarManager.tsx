@@ -476,7 +476,7 @@ export const CalendarManager: React.FC = () => {
                 <div
                   key={item.dateStr}
                   onClick={() => isAdmin && openAddModal(item.dateStr)}
-                  className={`min-h-[74px] p-1.5 rounded-xl border flex flex-col justify-between transition group relative ${
+                  className={`min-h-[56px] sm:min-h-[74px] p-1 sm:p-1.5 rounded-xl border flex flex-col justify-between transition group relative ${
                     isAdmin ? 'cursor-pointer hover:shadow-xs' : ''
                   } ${
                     isHol

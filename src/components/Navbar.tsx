@@ -61,10 +61,56 @@ interface MobileCurvedNavBarProps {
 }
 
 const MobileCurvedNavBar: React.FC<MobileCurvedNavBarProps> = ({ items }) => {
+  const navRef = useRef<HTMLElement>(null);
+  const [navWidth, setNavWidth] = useState<number>(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 400
+  );
+
   const activeIndex = Math.max(0, items.findIndex((item) => item.isActive));
-  const targetX = activeIndex * 100 + 50;
-  const [valleyX, setValleyX] = useState(targetX);
+  const numItems = Math.max(1, items.length);
+  const itemWidth = navWidth / numItems;
+  const targetX = (activeIndex + 0.5) * itemWidth;
+  const [valleyX, setValleyX] = useState<number>(targetX);
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
+
+  // Measure exact container width dynamically on load, resize, and orientation change
+  useEffect(() => {
+    const updateSize = () => {
+      if (navRef.current) {
+        const rect = navRef.current.getBoundingClientRect();
+        if (rect.width > 0) {
+          setNavWidth(rect.width);
+          return;
+        }
+      }
+      if (typeof window !== 'undefined') {
+        setNavWidth(window.innerWidth);
+      }
+    };
+
+    updateSize();
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && navRef.current) {
+      resizeObserver = new ResizeObserver(() => updateSize());
+      resizeObserver.observe(navRef.current);
+    }
+
+    window.addEventListener('resize', updateSize);
+    window.addEventListener('orientationchange', updateSize);
+
+    return () => {
+      if (resizeObserver) resizeObserver.disconnect();
+      window.removeEventListener('resize', updateSize);
+      window.removeEventListener('orientationchange', updateSize);
+    };
+  }, []);
+
+  // Update valley position when screen width or active index changes
+  useEffect(() => {
+    const newTarget = (activeIndex + 0.5) * (navWidth / numItems);
+    setValleyX(newTarget);
+  }, [navWidth, activeIndex, numItems]);
 
   // Detect virtual keyboard popup to ensure navigation stays fixed at bottom and doesn't jump
   useEffect(() => {
@@ -138,10 +184,10 @@ const MobileCurvedNavBar: React.FC<MobileCurvedNavBarProps> = ({ items }) => {
     const animate = () => {
       setValleyX((prev) => {
         const diff = targetX - prev;
-        if (Math.abs(diff) < 0.4) return targetX;
+        if (Math.abs(diff) < 0.3) return targetX;
         return prev + diff * 0.28;
       });
-      if (Math.abs(targetX - valleyX) >= 0.4) {
+      if (Math.abs(targetX - valleyX) >= 0.3) {
         animId = requestAnimationFrame(animate);
       }
     };
@@ -149,16 +195,14 @@ const MobileCurvedNavBar: React.FC<MobileCurvedNavBarProps> = ({ items }) => {
     return () => cancelAnimationFrame(animId);
   }, [targetX, valleyX]);
 
-  // Compute SVG valley path
-  // In viewBox 0 0 500 76, top line is at Y=16.
-  // The curve bends away from the selected button in an exact half-circle arc (A r r 0 0 0).
-  // The selected button is elevated to -translate-y-7 with the #1d194b colour and simple shine,
-  // cleanly separated from the half-circle curve with an open air gap all around.
+  // Compute exact 1:1 pixel coordinate SVG valley path
+  // The curve bends away from the selected button in a pure circular arc of radius 34px (68px diameter),
+  // leaving an exact 10px uniform air gap around the 48px circle on ANY screen width!
   const cx = valleyX;
-  const totalW = 500;
+  const totalW = Math.max(300, Math.round(navWidth));
   const totalH = 76;
   const topY = 16;
-  const r = 36;
+  const r = 34;
 
   const x0 = Math.max(0, cx - r);
   const x1 = Math.min(totalW, cx + r);
@@ -179,14 +223,14 @@ const MobileCurvedNavBar: React.FC<MobileCurvedNavBarProps> = ({ items }) => {
 
   return (
     <nav
+      ref={navRef}
       className={`md:hidden fixed bottom-0 left-0 right-0 z-50 h-16 safe-bottom overflow-visible flex items-center justify-around pointer-events-auto transition-transform duration-200 ease-in-out ${
         isKeyboardOpen ? 'translate-y-28 opacity-0 pointer-events-none' : 'translate-y-0 opacity-100'
       }`}
     >
-      {/* SVG Half-Circle Notch Background that bends away from the selected button */}
+      {/* 1:1 True-Pixel SVG Half-Circle Notch Background (never distorted across any screen size) */}
       <svg
-        viewBox="0 0 500 76"
-        preserveAspectRatio="none"
+        viewBox={`0 0 ${totalW} 76`}
         className="absolute bottom-0 left-0 right-0 w-full h-[76px] pointer-events-none drop-shadow-[0_-8px_25px_rgba(0,0,0,0.65)]"
       >
         <path d={fillPath} fill="#0f172a" />
@@ -291,11 +335,11 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   // Primary desktop navigation links (everyday workflows)
   const primaryNavItems = [
-    { id: 'dashboard' as NavigationTab, label: 'Dashboard', icon: Clock },
-    { id: 'new-claim' as NavigationTab, label: 'New Claim', icon: FileText },
-    { id: 'history' as NavigationTab, label: 'Claim History', icon: History },
-    { id: 'calendar' as NavigationTab, label: 'Calendar', icon: Calendar },
-    { id: 'branches' as NavigationTab, label: 'Branch Network', icon: Building2 },
+    { id: 'dashboard' as NavigationTab, label: 'Dashboard', shortLabel: 'Dashboard', icon: Clock },
+    { id: 'new-claim' as NavigationTab, label: 'New Claim', shortLabel: 'New', icon: FileText },
+    { id: 'history' as NavigationTab, label: 'Claim History', shortLabel: 'History', icon: History },
+    { id: 'calendar' as NavigationTab, label: 'Calendar', shortLabel: 'Calendar', icon: Calendar },
+    { id: 'branches' as NavigationTab, label: 'Branch Network', shortLabel: 'Branches', icon: Building2 },
   ];
 
   // Administrative tools grouped into a dropdown (Admin Exclusive)
@@ -385,23 +429,23 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <header className="sticky top-0 z-40 bg-slate-900 text-white shadow-md border-b border-slate-800">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-16 gap-2">
           {/* Logo & Branding */}
           <div
-            className="flex items-center gap-3 cursor-pointer group shrink-0"
+            className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group shrink-0 min-w-0"
             onClick={() => {
               setIsAdminDropdownOpen(false);
               setIsProfileMenuOpen(false);
               onSelectTab('dashboard');
             }}
           >
-            <div className="flex h-10 w-10 items-center justify-center group-hover:scale-105 transition-transform">
-              <ClockLogo className="w-10 h-10" />
+            <div className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center group-hover:scale-105 transition-transform shrink-0">
+              <ClockLogo className="w-9 h-9 sm:w-10 sm:h-10" />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <span className="font-bold text-base sm:text-lg tracking-tight text-white">
+                <span className="font-bold text-sm sm:text-base lg:text-lg tracking-tight text-white whitespace-nowrap truncate">
                   Overtime Claim Manager
                 </span>
               </div>
@@ -412,7 +456,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* Desktop Navigation Links (>= md) */}
-          <nav className="hidden md:flex items-center space-x-1 lg:space-x-1.5">
+          <nav className="hidden md:flex items-center space-x-1 lg:space-x-1.5 shrink-0">
             {primaryNavItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
@@ -424,14 +468,15 @@ export const Navbar: React.FC<NavbarProps> = ({
                     setIsProfileMenuOpen(false);
                     onSelectTab(item.id);
                   }}
-                  className={`flex items-center gap-1.5 px-2.5 lg:px-3 py-2 rounded-xl text-xs lg:text-sm font-semibold transition-all cursor-pointer ${
+                  className={`flex items-center gap-1.5 px-2 lg:px-3 py-1.5 lg:py-2 rounded-xl text-xs lg:text-sm font-semibold transition-all cursor-pointer whitespace-nowrap ${
                     isActive
                       ? 'bg-indigo-600 text-white shadow-xs ring-1 ring-indigo-400/30'
                       : 'text-slate-300 hover:bg-slate-800 hover:text-white'
                   }`}
                 >
                   <Icon className="w-4 h-4 shrink-0" />
-                  <span>{item.label}</span>
+                  <span className="hidden xl:inline">{item.label}</span>
+                  <span className="inline xl:hidden">{item.shortLabel}</span>
                 </button>
               );
             })}
@@ -443,7 +488,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   setIsProfileMenuOpen(false);
                   setIsAdminDropdownOpen(!isAdminDropdownOpen);
                 }}
-                className={`flex items-center gap-1.5 px-2.5 lg:px-3 py-2 rounded-xl text-xs lg:text-sm font-semibold transition-all cursor-pointer ${
+                className={`flex items-center gap-1.5 px-2 lg:px-3 py-1.5 lg:py-2 rounded-xl text-xs lg:text-sm font-semibold transition-all cursor-pointer whitespace-nowrap ${
                   isDropdownActive
                     ? isAdmin
                       ? 'bg-purple-900/50 text-purple-200 border border-purple-500/50 shadow-xs ring-1 ring-purple-500/30'
@@ -458,7 +503,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 ) : (
                   <Sliders className="w-4 h-4 text-indigo-400 shrink-0" />
                 )}
-                <span>{isAdmin ? 'Administration' : 'More Tools'}</span>
+                <span className="hidden xl:inline">{isAdmin ? 'Administration' : 'More Tools'}</span>
+                <span className="inline xl:hidden">{isAdmin ? 'Admin' : 'More'}</span>
                 {currentDropdownItem && (
                   <span
                     className={`text-[10px] font-bold px-1.5 py-0.2 rounded-md hidden xl:inline-block ${
@@ -538,7 +584,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </nav>
 
           {/* Header Action Tools & User Profile */}
-          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             {/* User Profile Capsule & Dropdown */}
             {userProfile && (
               <div className="relative" ref={profileDropdownRef}>
@@ -547,7 +593,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     setIsAdminDropdownOpen(false);
                     setIsProfileMenuOpen(!isProfileMenuOpen);
                   }}
-                  className={`flex items-center gap-2 bg-slate-800/90 border px-2 sm:px-2.5 py-1.5 rounded-xl transition cursor-pointer ${
+                  className={`flex items-center gap-1.5 sm:gap-2 bg-slate-800/90 border px-1.5 sm:px-2.5 py-1.5 rounded-xl transition cursor-pointer ${
                     isProfileMenuOpen
                       ? 'border-indigo-500 bg-slate-800 ring-1 ring-indigo-500/30'
                       : 'border-slate-700/80 hover:bg-slate-800 hover:border-slate-600'
@@ -566,13 +612,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                       {userProfile.name?.slice(0, 2).toUpperCase() || 'U'}
                     </div>
                   )}
-                  <div className="text-left hidden sm:block">
+                  <div className="text-left hidden md:block">
                     <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-bold text-slate-200 truncate max-w-[80px] lg:max-w-[120px]">
+                      <span className="text-xs font-bold text-slate-200 truncate max-w-[70px] lg:max-w-[120px]">
                         {userProfile.employeeNumber || userProfile.pfNumber || userProfile.name}
                       </span>
                       <span
-                        className={`text-[9px] font-extrabold uppercase px-1.5 py-0.2 rounded ${
+                        className={`text-[9px] font-extrabold uppercase px-1.5 py-0.2 rounded hidden sm:inline-block ${
                           isAdmin
                             ? 'bg-purple-500/30 text-purple-300 border border-purple-500/40'
                             : 'bg-blue-500/30 text-blue-300 border border-blue-500/40'
@@ -581,7 +627,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                         {isAdmin ? 'Admin' : 'User'}
                       </span>
                     </div>
-                    <div className="text-[10px] text-slate-400 font-mono">
+                    <div className="text-[10px] text-slate-400 font-mono hidden xl:block">
                       Cap: {userProfile.maxOtHoursPerDay !== undefined ? `${userProfile.maxOtHoursPerDay}h` : '2h'} &bull; {userProfile.claimType || 'OT'}
                     </div>
                   </div>

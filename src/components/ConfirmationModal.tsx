@@ -60,8 +60,8 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
   const { icon: Icon, iconBg, btnBg, border } = getVariantStyles();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-fade-in">
-      <div className="relative w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl border border-slate-200/80 animate-scale-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-xs animate-fade-in">
+      <div className="relative w-full max-w-md rounded-3xl bg-white p-5 sm:p-6 shadow-2xl border border-slate-200/80 animate-scale-in max-h-[92vh] overflow-y-auto">
         {/* Close cross button */}
         <button
           onClick={onClose}

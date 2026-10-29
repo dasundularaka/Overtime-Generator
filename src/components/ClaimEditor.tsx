@@ -2649,9 +2649,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           </div>
         )}
 
-        {/* Desktop Table View - Non-scrollable, fits 100% in one line screen fit */}
-        <div className={`overflow-hidden w-full ${mobileViewMode === 'cards' ? 'hidden md:block' : 'block'}`}>
-          <table className="w-full table-fixed text-left border-collapse text-xs">
+        {/* Desktop / Full Table View - Horizontally scrollable on small screens to prevent squashed columns */}
+        <div className={`overflow-x-auto w-full rounded-xl border border-slate-200 ${mobileViewMode === 'cards' ? 'hidden md:block' : 'block'}`}>
+          <table className="w-full min-w-[820px] table-fixed text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-100 text-slate-700 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200">
                 <th className="py-2 px-1 w-6 text-center">#</th>
@@ -2894,8 +2894,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         </div>
       </div>
 
-      {/* Bottom Action Bar: Preview, Save, Download */}
-      <div className="rounded-2xl bg-white p-4 sm:p-5 shadow-lg border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4 sticky bottom-4 z-20 backdrop-blur-md bg-white/95">
+      {/* Bottom Action Bar: Preview, Save, Download - Elevated above bottom nav bar on mobile */}
+      <div className="rounded-2xl bg-white p-4 sm:p-5 shadow-lg border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4 sticky bottom-20 md:bottom-4 z-30 backdrop-blur-md bg-white/95">
         <div className="flex items-center gap-3">
           <div className="text-xs text-slate-500">
             <span className="font-semibold text-slate-800">Total Claimable OT:</span>{' '}
@@ -2914,27 +2914,25 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto justify-end">
           {/* 1. Preview PDF Button */}
           <button
             type="button"
             onClick={handlePreviewPdf}
             disabled={isGeneratingPdf}
-            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50"
+            className="flex-1 sm:flex-none min-w-[100px] inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50"
             title="Preview print-ready A4 Overtime Sheet"
           >
             <Eye className="w-4 h-4" />
             <span>{isGeneratingPdf ? 'Rendering...' : 'Preview'}</span>
           </button>
 
-          
-
-          {/* 3. Save & Submit Claim Button */}
+          {/* 2. Save & Submit Claim Button */}
           <button
             type="button"
             onClick={handleSaveClaim}
             disabled={isGeneratingPdf}
-            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl border border-emerald-600 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50"
+            className="flex-1 sm:flex-none min-w-[110px] inline-flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl border border-emerald-600 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50"
             title="Finalize and submit overtime claim"
           >
             <CheckCircle2 className="w-4 h-4 text-white" />
@@ -2946,7 +2944,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             type="button"
             onClick={handleInitiateDownload}
             disabled={isGeneratingPdf}
-            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white text-xs font-bold shadow-md hover:shadow-lg transition cursor-pointer disabled:opacity-50"
+            className="flex-1 sm:flex-none min-w-[110px] inline-flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white text-xs font-bold shadow-md hover:shadow-lg transition cursor-pointer disabled:opacity-50"
             title="Download official PDF sheet & save claim"
           >
             <Download className="w-4 h-4" />
