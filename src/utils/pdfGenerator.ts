@@ -122,6 +122,52 @@ function fitText(
 }
 
 /**
+ * Robustly parses a row's date string into a numerical key (YYYYMMDD) for sorting.
+ * Supports ISO (YYYY-MM-DD), slashes (YYYY/MM/DD, DD/MM/YYYY), and raw numbers.
+ */
+function parseRowDateValue(dateStr?: string): number {
+  if (!dateStr || !dateStr.trim()) return 0;
+  const s = dateStr.trim();
+
+  // YYYY-MM-DD
+  const isoMatch = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (isoMatch) {
+    const y = parseInt(isoMatch[1], 10);
+    const m = parseInt(isoMatch[2], 10);
+    const d = parseInt(isoMatch[3], 10);
+    return y * 10000 + m * 100 + d;
+  }
+
+  // DD/MM/YYYY
+  const dmyMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (dmyMatch) {
+    const d = parseInt(dmyMatch[1], 10);
+    const m = parseInt(dmyMatch[2], 10);
+    const y = parseInt(dmyMatch[3], 10);
+    return y * 10000 + m * 100 + d;
+  }
+
+  // YYYY/MM/DD
+  const ymdMatch = s.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+  if (ymdMatch) {
+    const y = parseInt(ymdMatch[1], 10);
+    const m = parseInt(ymdMatch[2], 10);
+    const d = parseInt(ymdMatch[3], 10);
+    return y * 10000 + m * 100 + d;
+  }
+
+  // Fallback to Date.parse
+  const parsed = Date.parse(s);
+  if (!isNaN(parsed)) return parsed;
+
+  // Single day number
+  const num = parseInt(s, 10);
+  if (!isNaN(num)) return num;
+
+  return 0;
+}
+
+/**
  * Generates the print-ready A4 PDF by placing user data on top of the official claim form template.
  */
 export async function generateOvertimePdf(
@@ -259,10 +305,20 @@ export async function generateOvertimePdf(
       return false;
     });
     const effectiveRows = claimedRows.length > 0 ? claimedRows : claim.rows.filter(r => r.startTime || r.endTime);
-    const maxRowsToRender = Math.min(effectiveRows.length, tbl.maxRows);
+
+    // Arrange rows into correct chronological date order in PDF (keeping user's entry order unchanged in New Claim panel)
+    const sortedRows = [...effectiveRows].sort((a, b) => {
+      const valA = parseRowDateValue(a.date);
+      const valB = parseRowDateValue(b.date);
+      if (valA !== valB) return valA - valB;
+      // Secondary sort: start time
+      return (a.startTime || '').localeCompare(b.startTime || '');
+    });
+
+    const maxRowsToRender = Math.min(sortedRows.length, tbl.maxRows);
 
     for (let i = 0; i < maxRowsToRender; i++) {
-      const row = effectiveRows[i];
+      const row = sortedRows[i];
       const rowYMm = tbl.startY + i * tbl.rowHeight;
 
       // Columns mapping matching Overtime Sheet: date, day, reason, approvedBy, startTime, endTime, totalHours, otHoursClaimed, specialHoursClaimed
