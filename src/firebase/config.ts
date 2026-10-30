@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
-import { initializeFirestore, getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
 import bundledConfig from '../firebase-applet-config.json';
 
 export const firebaseConfig = {
@@ -16,41 +16,9 @@ export const firebaseConfig = {
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-const targetDbId = firebaseConfig.firestoreDatabaseId;
-const dbId = (targetDbId && targetDbId !== '(default)' && targetDbId !== 'default') ? targetDbId : undefined;
-
-function getOrInitFirestore() {
-  const isBrowser = typeof window !== 'undefined';
-  const firestoreSettings = isBrowser
-    ? {
-        experimentalForceLongPolling: true,
-      }
-    : {};
-
-  try {
-    return dbId
-      ? initializeFirestore(app, firestoreSettings, dbId)
-      : initializeFirestore(app, firestoreSettings);
-  } catch {
-    return dbId ? getFirestore(app, dbId) : getFirestore(app);
-  }
-}
-
-export const db = getOrInitFirestore();
+// Initialize Firestore per skill specification (CRITICAL: passing databaseId)
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
 googleProvider.addScope('https://www.googleapis.com/auth/gmail.send');
-
-// Validate Connection to Firestore per skill requirements
-async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Please check your Firebase configuration.');
-    }
-  }
-}
-
-testConnection();
