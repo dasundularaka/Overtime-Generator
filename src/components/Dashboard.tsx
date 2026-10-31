@@ -74,20 +74,51 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [claimToDeleteRecord, setClaimToDeleteRecord] = useState<ClaimRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Fetch claims from Firestore based on role (Users cannot see others details)
+  // Fetch claims from Firestore: strictly fetch relevant user's own claims for the Dashboard (for all users, including Admins)
   const fetchClaims = async () => {
     if (!currentUser) return;
     setLoading(true);
     try {
-      let q;
-      if (isAdmin) {
-        q = collection(db, 'claims');
-      } else {
-        q = query(collection(db, 'claims'), where('userId', '==', currentUser.uid));
+      const myUid = currentUser.uid;
+      const myProfileId = userProfile?.id;
+      const myPf = (userProfile?.employeeNumber || userProfile?.pfNumber || '').toUpperCase().trim();
+
+      const claimMap = new Map<string, ClaimRecord>();
+
+      // 1. Query by UID
+      try {
+        const snapUid = await getDocs(query(collection(db, 'claims'), where('userId', '==', myUid)));
+        snapUid.forEach(d => claimMap.set(d.id, d.data() as ClaimRecord));
+      } catch (e) {
+        console.warn('Dashboard fetch by UID error:', e);
       }
-      const snap = await getDocs(q);
-      const list: ClaimRecord[] = [];
-      snap.forEach(d => list.push(d.data() as ClaimRecord));
+
+      // 2. Query by userProfile.id if different
+      if (myProfileId && myProfileId !== myUid) {
+        try {
+          const snapProf = await getDocs(query(collection(db, 'claims'), where('userId', '==', myProfileId)));
+          snapProf.forEach(d => claimMap.set(d.id, d.data() as ClaimRecord));
+        } catch (e) {
+          console.warn('Dashboard fetch by profile ID error:', e);
+        }
+      }
+
+      // 3. Query by employeeNumber (PF Number)
+      if (myPf) {
+        try {
+          const snapPf = await getDocs(query(collection(db, 'claims'), where('employeeNumber', '==', myPf)));
+          snapPf.forEach(d => {
+            const c = d.data() as ClaimRecord;
+            if (c.employeeNumber?.toUpperCase().trim() === myPf) {
+              claimMap.set(d.id, c);
+            }
+          });
+        } catch (e) {
+          console.warn('Dashboard fetch by PF error:', e);
+        }
+      }
+
+      const list = Array.from(claimMap.values());
       list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
       setClaims(list);
     } catch (err) {
@@ -99,7 +130,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   useEffect(() => {
     fetchClaims();
-  }, [currentUser, isAdmin]);
+  }, [currentUser, userProfile]);
 
   // Submitted Claims (Drafts excluded from Recent Claims and Totals)
   const submittedClaims = useMemo(() => {
@@ -262,13 +293,24 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </button>
 
             {isAdmin && (
-              <button
-                onClick={() => onNavigate('users')}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 px-4 py-2.5 text-xs font-semibold border border-purple-500/40 transition cursor-pointer"
-              >
-                <UserCheck className="w-4 h-4" />
-                <span>Assign User OT Limits</span>
-              </button>
+              <>
+                <button
+                  onClick={() => onNavigate('history')}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 px-4 py-2.5 text-xs font-semibold border border-indigo-500/40 transition cursor-pointer"
+                  title="View staff submitted overtime sheets"
+                >
+                  <FileText className="w-4 h-4 text-indigo-300" />
+                  <span>View Staff OT Sheets</span>
+                </button>
+
+                <button
+                  onClick={() => onNavigate('users')}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 px-4 py-2.5 text-xs font-semibold border border-purple-500/40 transition cursor-pointer"
+                >
+                  <UserCheck className="w-4 h-4" />
+                  <span>Assign User OT Limits</span>
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -280,7 +322,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         <div className="rounded-2xl bg-white p-5 shadow-xs border border-slate-200">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              {isAdmin ? 'Total Company OT' : 'My Total Overtime'}
+              My Total Overtime
             </span>
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
               <Clock className="w-5 h-5" />
@@ -303,7 +345,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         <div className="rounded-2xl bg-white p-5 shadow-xs border border-slate-200">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              {isAdmin ? 'Total OT Payment' : 'My Total OT Pay'}
+              My Total OT Pay
             </span>
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
               <Banknote className="w-5 h-5" />
@@ -323,7 +365,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         <div className="rounded-2xl bg-white p-5 shadow-xs border border-slate-200">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              {isAdmin ? 'All Submitted Claims' : 'My Claims'}
+              My Claims
             </span>
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
               <FileText className="w-5 h-5" />
@@ -388,23 +430,36 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
       {/* Recent Claims Section */}
       <div className="rounded-2xl bg-white shadow-xs border border-slate-200 overflow-hidden">
-        <div className="p-5 border-b border-slate-200 flex items-center justify-between">
+        <div className="p-5 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-bold text-slate-900">
-              {isAdmin ? 'Recent Company Overtime Claims' : 'My Recent Overtime Claims'}
+              My Recent Overtime Claims
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Review, edit, or re-download official A4 PDFs of past submissions.
+              Review, edit, or re-download official A4 PDFs of your past submissions.
             </p>
           </div>
 
-          <button
-            onClick={() => onNavigate('history')}
-            className="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800"
-          >
-            <span>View All History</span>
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+              <button
+                onClick={() => onNavigate('history')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold border border-indigo-200 transition cursor-pointer"
+                title="View and inspect all staff members submitted OT sheets"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>View Staff Submitted OT Sheets</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <button
+              onClick={() => onNavigate('history')}
+              className="inline-flex items-center gap-1 text-xs font-bold text-slate-600 hover:text-slate-900 px-2 py-1"
+            >
+              <span>My Full History</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
         {loading ? (
