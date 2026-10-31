@@ -20,30 +20,64 @@ import { AuditLogViewer } from './components/AuditLogViewer';
 import { ClaimRecord } from './types';
 import { initAutomatedUserCreationListener } from './services/automatedDispatchTrigger';
 
+const TAB_TITLES: Record<NavigationTab, { message: string; subMessage: string }> = {
+  dashboard: { message: 'Loading Dashboard...', subMessage: 'Summarizing claims and monthly statistics...' },
+  'new-claim': { message: 'Preparing Overtime Claim...', subMessage: 'Loading timesheet calibrator & branch rates...' },
+  history: { message: 'Loading Claim History...', subMessage: 'Retrieving records and printable documents...' },
+  calendar: { message: 'Loading Calendar & Holidays...', subMessage: 'Checking gazetted and mercantile poya days...' },
+  branches: { message: 'Loading Branch Network...', subMessage: 'Listing active branches and locations...' },
+  roles: { message: 'Loading Role Policies...', subMessage: 'Syncing overtime limits and hourly rates...' },
+  users: { message: 'Loading User Management...', subMessage: 'Verifying user access and permission roles...' },
+  audit: { message: 'Loading Audit Trail...', subMessage: 'Fetching security logs and activity records...' },
+  employees: { message: 'Loading Employee Registry...', subMessage: 'Synchronizing staff records...' },
+  designer: { message: 'Loading Template Calibration Designer...', subMessage: 'Loading precision millimeter canvas...' },
+  settings: { message: 'Loading System Settings...', subMessage: 'Loading shift hours and system preferences...' },
+};
+
 function AppContent() {
-  const { currentUser, userProfile, isAdmin, loading, refreshUserProfile } = useAuth();
+  const { currentUser, userProfile, isAdmin, loading, isLoggingOut, refreshUserProfile } = useAuth();
   const [activeTab, setActiveTab] = useState<NavigationTab>('dashboard');
   const [editingClaim, setEditingClaim] = useState<ClaimRecord | null>(null);
-  const [isPageTransitioning, setIsPageTransitioning] = useState(false);
-  const [isInitialReloading, setIsInitialReloading] = useState(true);
+
+  // Real initial load tracking based on real auth/database load duration
+  const [isInitialReady, setIsInitialReady] = useState(false);
   const [isInitialFadingOut, setIsInitialFadingOut] = useState(false);
+  const minTimerElapsedRef = useRef(false);
+
+  const [pageTransition, setPageTransition] = useState<{
+    isVisible: boolean;
+    message: string;
+    subMessage: string;
+  }>({
+    isVisible: false,
+    message: 'Loading...',
+    subMessage: 'Switching view...',
+  });
+
   const transitionTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // 2-second animation on reloading/initial startup: starts with fade in, stays for 1.6s, stops with 0.4s fade out
+  // Automatically adjust initial load time according to real database & auth load time
   useEffect(() => {
-    const fadeTimer = setTimeout(() => {
-      setIsInitialFadingOut(true);
-    }, 1600);
+    const minTimer = setTimeout(() => {
+      minTimerElapsedRef.current = true;
+      if (!loading) {
+        setIsInitialFadingOut(true);
+        setTimeout(() => setIsInitialReady(true), 300);
+      }
+    }, 550);
 
-    const finishTimer = setTimeout(() => {
-      setIsInitialReloading(false);
-    }, 2000);
-
-    return () => {
-      clearTimeout(fadeTimer);
-      clearTimeout(finishTimer);
-    };
+    return () => clearTimeout(minTimer);
   }, []);
+
+  useEffect(() => {
+    if (!loading && minTimerElapsedRef.current && !isInitialReady && !isInitialFadingOut) {
+      setIsInitialFadingOut(true);
+      const finishTimer = setTimeout(() => {
+        setIsInitialReady(true);
+      }, 300);
+      return () => clearTimeout(finishTimer);
+    }
+  }, [loading, isInitialReady, isInitialFadingOut]);
 
   // Virtual keyboard scroll-into-view handler: automatically scroll any focused input field into clear view
   useEffect(() => {
@@ -56,7 +90,6 @@ function AppContent() {
           target.tagName === 'SELECT' ||
           target.isContentEditable)
       ) {
-        // Small delay to let mobile virtual keyboard finish popping up and resizing the viewport
         setTimeout(() => {
           try {
             target.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -73,28 +106,46 @@ function AppContent() {
     };
   }, []);
 
-  // Centralized tab transition with 2-second animation
-  const transitionToTab = (targetTab: NavigationTab, onBeforeSwitch?: () => void) => {
+  // Centralized tab transition with real render synchronization
+  const transitionToTab = (
+    targetTab: NavigationTab,
+    onBeforeSwitch?: () => void,
+    customMessage?: string,
+    customSubMessage?: string
+  ) => {
     if (targetTab === activeTab && !onBeforeSwitch) return;
 
     if (transitionTimerRef.current) {
       clearTimeout(transitionTimerRef.current);
     }
 
-    setIsPageTransitioning(true);
+    const info = TAB_TITLES[targetTab] || {
+      message: 'Loading Page...',
+      subMessage: 'Switching view...',
+    };
 
-    setTimeout(() => {
+    setPageTransition({
+      isVisible: true,
+      message: customMessage || info.message,
+      subMessage: customSubMessage || info.subMessage,
+    });
+
+    const switchTimer = setTimeout(() => {
       if (onBeforeSwitch) onBeforeSwitch();
       if (targetTab === 'designer' && !isAdmin) {
         setActiveTab('dashboard');
       } else {
         setActiveTab(targetTab);
       }
-    }, 350);
 
-    transitionTimerRef.current = setTimeout(() => {
-      setIsPageTransitioning(false);
-    }, 2000);
+      requestAnimationFrame(() => {
+        transitionTimerRef.current = setTimeout(() => {
+          setPageTransition(prev => ({ ...prev, isVisible: false }));
+        }, 400);
+      });
+    }, 250);
+
+    return () => clearTimeout(switchTimer);
   };
 
   // Initialize automated user creation email dispatch trigger for admins
@@ -120,7 +171,18 @@ function AppContent() {
     }
   }, [loading, isAdmin, activeTab]);
 
-  if (loading || isInitialReloading) {
+  // Loading screen during logout
+  if (isLoggingOut) {
+    return (
+      <LoadingScreen
+        message="Signing Out..."
+        subMessage="Securing session & clearing credentials..."
+      />
+    );
+  }
+
+  // Loading screen on initial load (adjusted to real loading time)
+  if (loading || !isInitialReady) {
     return (
       <LoadingScreen
         message="Loading Overtime Claim Engine..."
@@ -150,17 +212,31 @@ function AppContent() {
   }
 
   const handleEditClaim = (claim: ClaimRecord) => {
-    transitionToTab('new-claim', () => setEditingClaim(claim));
+    transitionToTab(
+      'new-claim',
+      () => setEditingClaim(claim),
+      'Loading Timesheet...',
+      'Opening overtime record for editing...'
+    );
   };
 
   const handleStartFreshClaim = () => {
-    transitionToTab('new-claim', () => setEditingClaim(null));
+    transitionToTab(
+      'new-claim',
+      () => setEditingClaim(null),
+      'Preparing New Claim...',
+      'Initializing timesheet template & rates...'
+    );
   };
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
-      {/* Inter-Pages Transmission Animation (2-Second Duration, 50% Transparent Blur Background) */}
-      <PageTransitionOverlay isVisible={isPageTransitioning} />
+      {/* Inter-Pages Transmission with White Background Expanding from Center */}
+      <PageTransitionOverlay
+        isVisible={pageTransition.isVisible}
+        message={pageTransition.message}
+        subMessage={pageTransition.subMessage}
+      />
 
       {/* Top Navigation */}
       <Navbar
@@ -186,7 +262,12 @@ function AppContent() {
           <ClaimEditor
             initialClaim={editingClaim}
             onClaimSaved={() => {
-              transitionToTab('history');
+              transitionToTab(
+                'history',
+                undefined,
+                'Saving Claim Record...',
+                'Synchronizing claim to history...'
+              );
             }}
             onNavigateToDesigner={isAdmin ? () => transitionToTab('designer') : undefined}
           />

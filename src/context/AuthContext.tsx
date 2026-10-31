@@ -44,6 +44,7 @@ interface AuthContextType {
   userProfile: UserProfile | null;
   isAdmin: boolean;
   loading: boolean;
+  isLoggingOut: boolean;
   authError: string | null;
   clearAuthError: () => void;
   loginWithGoogle: () => Promise<void>;
@@ -72,6 +73,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
   const clearAuthError = () => setAuthError(null);
@@ -852,31 +854,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
-    if (userProfile) {
-      recordAuditLog({
-        action: 'USER_LOGOUT',
-        actionLabel: 'User Signed Out of System',
-        targetType: 'auth',
-        targetId: userProfile.id,
-        targetDescription: `${userProfile.name} (${userProfile.employeeNumber || userProfile.pfNumber})`,
-        beforeState: {
-          sessionActive: true,
-          role: userProfile.role,
-          branch: userProfile.branch,
-          department: userProfile.department,
-        },
-        afterState: {
-          sessionActive: false,
-        },
-      });
-    }
+    setIsLoggingOut(true);
+    try {
+      if (userProfile) {
+        await recordAuditLog({
+          action: 'USER_LOGOUT',
+          actionLabel: 'User Signed Out of System',
+          targetType: 'auth',
+          targetId: userProfile.id,
+          targetDescription: `${userProfile.name} (${userProfile.employeeNumber || userProfile.pfNumber})`,
+          beforeState: {
+            sessionActive: true,
+            role: userProfile.role,
+            branch: userProfile.branch,
+            department: userProfile.department,
+          },
+          afterState: {
+            sessionActive: false,
+          },
+        }).catch(() => {});
+      }
 
-    await fbSignOut(auth).catch(() => {});
-    clearActiveSession();
-    setCachedGoogleToken(null);
-    setCurrentUser(null);
-    setUserProfile(null);
-    setAuthError(null);
+      await fbSignOut(auth).catch(() => {});
+      clearActiveSession();
+      setCachedGoogleToken(null);
+      setCurrentUser(null);
+      setUserProfile(null);
+      setAuthError(null);
+      // Small delay ensuring smooth visual loading transition before auth screen is revealed
+      await new Promise(res => setTimeout(res, 500));
+    } finally {
+      setIsLoggingOut(false);
+    }
   };
 
   const isBootstrapAdmin =
@@ -890,6 +899,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         userProfile,
         isAdmin,
         loading,
+        isLoggingOut,
         authError,
         clearAuthError,
         loginWithGoogle,

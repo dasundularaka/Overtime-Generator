@@ -154,4 +154,24 @@ textarea {
   }
 }
 
+/* Animated white background spreading outward from center to cover the whole loading screen */
+@keyframes spreadWhiteFromCenter {
+  0% {
+    clip-path: circle(54px at 50% 50%);
+    opacity: 0.94;
+  }
+  35% {
+    clip-path: circle(25% at 50% 50%);
+  }
+  100% {
+    clip-path: circle(150% at 50% 50%);
+    opacity: 1;
+  }
+}
+
+.animate-white-spread {
+  animation: spreadWhiteFromCenter 0.75s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: clip-path;
+}
+
 

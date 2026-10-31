@@ -16,6 +16,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { formatPfNumber } from '../utils/pfHelper';
 import { ClockLogo } from './ClockLogo';
+import { PageTransitionOverlay } from './PageTransitionOverlay';
 
 export const AuthScreen: React.FC = () => {
   const {
@@ -334,6 +335,13 @@ export const AuthScreen: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Authentication In-Flight Transition */}
+      <PageTransitionOverlay
+        isVisible={isSubmitting}
+        message="Authenticating..."
+        subMessage="Verifying credentials & session..."
+      />
     </div>
   );
 };

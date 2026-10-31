@@ -25,26 +25,34 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/50 backdrop-blur-md text-white p-6 overflow-hidden transition-opacity duration-400 ease-in-out ${opacityClass}`}
+      className={`fixed inset-0 z-[120] flex flex-col items-center justify-center select-none overflow-hidden transition-opacity duration-300 ease-in-out ${opacityClass}`}
+      role="status"
+      aria-live="polite"
     >
-      {/* Main card */}
-      <div className="relative z-10 flex flex-col items-center max-w-sm w-full text-center space-y-4 animate-scale-in">
-        {/* Suitable background container for icon only */}
-        <div className="relative flex h-28 w-28 sm:h-32 sm:w-32 items-center justify-center rounded-3xl bg-white/95 border border-white/60 shadow-[0_16px_40px_rgba(0,0,0,0.5)] p-4 ring-2 ring-white/25 overflow-hidden backdrop-blur-md">
-          <div className="absolute inset-0 bg-radial from-slate-100/60 via-transparent to-transparent pointer-events-none" />
+      {/* 50% transparent base backdrop blur */}
+      <div className="absolute inset-0 bg-slate-950/50 backdrop-blur-md" />
+
+      {/* Animated pure white background spreading outward from center across whole screen */}
+      <div className="absolute inset-0 bg-white animate-white-spread pointer-events-none" />
+
+      {/* Center content on top of spreading white background */}
+      <div className="relative z-10 flex flex-col items-center max-w-sm w-full text-center space-y-4 px-6 animate-scale-in">
+        {/* Logo container starting at the center */}
+        <div className="relative flex h-28 w-28 sm:h-32 sm:w-32 items-center justify-center rounded-3xl bg-white border border-slate-200/80 shadow-2xl shadow-slate-300/60 p-4 ring-2 ring-slate-100 overflow-hidden">
+          <div className="absolute inset-0 bg-radial from-slate-50 via-transparent to-transparent pointer-events-none" />
           <AnimatedClockIcon className="relative z-10 w-16 h-16 sm:w-20 sm:h-20" color="#000000" />
         </div>
 
-        {/* Text */}
-        <div className="space-y-1.5">
-          <h2 className="text-xl font-extrabold text-white tracking-tight drop-shadow">
+        {/* Branded Loading Typography */}
+        <div className="space-y-1.5 animate-fade-in">
+          <h2 className="text-xl font-extrabold text-slate-900 tracking-tight drop-shadow-2xs">
             Overtime Claim Manager
           </h2>
-          <p className="text-xs font-semibold text-indigo-200">
+          <p className="text-xs font-bold text-indigo-600">
             {message}
           </p>
           {subMessage && (
-            <p className="text-[11px] text-slate-300">
+            <p className="text-[11px] text-slate-500 font-medium">
               {subMessage}
             </p>
           )}
