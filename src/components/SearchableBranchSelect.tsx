@@ -237,6 +237,7 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
                     key={b.id || `${b.name}-${idx}`}
                     data-branch-item
                     type="button"
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => handleSelectBranch(b.name, b.branchCode)}
                     onMouseEnter={() => setHighlightedIndex(idx)}
                     className={`w-full text-left px-3 py-2 flex items-center justify-between gap-2 transition cursor-pointer ${

@@ -36,6 +36,34 @@ function AppContent() {
     return () => clearTimeout(timer);
   }, []);
 
+  // Virtual keyboard scroll-into-view handler: automatically scroll any focused input field into clear view
+  useEffect(() => {
+    const handleFocusIn = (e: FocusEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        // Small delay to let mobile virtual keyboard finish popping up and resizing the viewport
+        setTimeout(() => {
+          try {
+            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          } catch {
+            target.scrollIntoView();
+          }
+        }, 280);
+      }
+    };
+
+    window.addEventListener('focusin', handleFocusIn);
+    return () => {
+      window.removeEventListener('focusin', handleFocusIn);
+    };
+  }, []);
+
   // Centralized tab transition with 2-second animation
   const transitionToTab = (targetTab: NavigationTab, onBeforeSwitch?: () => void) => {
     if (targetTab === activeTab && !onBeforeSwitch) return;
@@ -128,7 +156,7 @@ function AppContent() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-24 md:pb-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-36 sm:pb-32 md:pb-8">
         {activeTab === 'dashboard' && (
           <Dashboard
             onNavigate={(tab) => {

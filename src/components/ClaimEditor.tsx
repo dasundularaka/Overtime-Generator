@@ -119,6 +119,73 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   }, []);
 
   const [mobileViewMode, setMobileViewMode] = useState<'cards' | 'table'>('cards');
+  const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
+
+  // Monitor keyboard display on mobile devices so floating bars do not cover inputs
+  useEffect(() => {
+    const handleFocusIn = (e: FocusEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        setIsKeyboardOpen(true);
+      }
+    };
+
+    const handleFocusOut = () => {
+      setTimeout(() => {
+        const active = document.activeElement as HTMLElement | null;
+        const isInputFocused =
+          active &&
+          (active.tagName === 'INPUT' ||
+            active.tagName === 'TEXTAREA' ||
+            active.tagName === 'SELECT' ||
+            active.isContentEditable);
+        if (!isInputFocused) {
+          setIsKeyboardOpen(false);
+        }
+      }, 150);
+    };
+
+    const handleViewportResize = () => {
+      if (window.visualViewport) {
+        const windowHeight = window.innerHeight;
+        const viewportHeight = window.visualViewport.height;
+        if (windowHeight - viewportHeight > 120) {
+          setIsKeyboardOpen(true);
+        } else {
+          const active = document.activeElement as HTMLElement | null;
+          const isInputFocused =
+            active &&
+            (active.tagName === 'INPUT' ||
+              active.tagName === 'TEXTAREA' ||
+              active.tagName === 'SELECT' ||
+              active.isContentEditable);
+          if (!isInputFocused) {
+            setIsKeyboardOpen(false);
+          }
+        }
+      }
+    };
+
+    window.addEventListener('focusin', handleFocusIn);
+    window.addEventListener('focusout', handleFocusOut);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleViewportResize);
+    }
+
+    return () => {
+      window.removeEventListener('focusin', handleFocusIn);
+      window.removeEventListener('focusout', handleFocusOut);
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', handleViewportResize);
+      }
+    };
+  }, []);
 
   // Determine templates the user is allowed to use based on admin assignment
   const userAllowedTemplates = useMemo(() => {
@@ -2895,7 +2962,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       </div>
 
       {/* Bottom Action Bar: Preview, Save, Download - Elevated above bottom nav bar on mobile */}
-      <div className="rounded-2xl bg-white p-4 sm:p-5 shadow-lg border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4 sticky bottom-20 md:bottom-4 z-30 backdrop-blur-md bg-white/95">
+      <div className={`rounded-2xl bg-white p-4 sm:p-5 shadow-lg border border-slate-200 flex-col sm:flex-row items-center justify-between gap-4 sticky bottom-20 md:bottom-4 z-30 backdrop-blur-md bg-white/95 transition-all duration-200 ${
+        isKeyboardOpen ? 'hidden md:flex' : 'flex'
+      }`}>
         <div className="flex items-center gap-3">
           <div className="text-xs text-slate-500">
             <span className="font-semibold text-slate-800">Total Claimable OT:</span>{' '}
