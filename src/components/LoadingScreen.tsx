@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { AnimatedClockIcon } from './AnimatedClockIcon';
 
 interface LoadingScreenProps {
@@ -12,20 +12,11 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
   subMessage = 'Connecting to database & loading profile...',
   isFadingOut = false,
 }) => {
-  const [isFadedIn, setIsFadedIn] = useState(false);
-
-  useEffect(() => {
-    const animFrame = requestAnimationFrame(() => {
-      setIsFadedIn(true);
-    });
-    return () => cancelAnimationFrame(animFrame);
-  }, []);
-
-  const opacityClass = !isFadedIn || isFadingOut ? 'opacity-0' : 'opacity-100';
-
   return (
     <div
-      className={`fixed inset-0 z-[120] flex flex-col items-center justify-center select-none overflow-hidden transition-opacity duration-300 ease-in-out ${opacityClass}`}
+      className={`fixed inset-0 z-[120] flex flex-col items-center justify-center select-none overflow-hidden transition-opacity duration-300 ease-in-out ${
+        isFadingOut ? 'opacity-0 pointer-events-none' : 'opacity-100'
+      }`}
       role="status"
       aria-live="polite"
     >

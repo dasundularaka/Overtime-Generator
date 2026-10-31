@@ -42,7 +42,7 @@ function AppContent() {
   // Real initial load tracking based on real auth/database load duration
   const [isInitialReady, setIsInitialReady] = useState(false);
   const [isInitialFadingOut, setIsInitialFadingOut] = useState(false);
-  const minTimerElapsedRef = useRef(false);
+  const loadStartRef = useRef<number>(Date.now());
 
   const [pageTransition, setPageTransition] = useState<{
     isVisible: boolean;
@@ -58,26 +58,34 @@ function AppContent() {
 
   // Automatically adjust initial load time according to real database & auth load time
   useEffect(() => {
-    const minTimer = setTimeout(() => {
-      minTimerElapsedRef.current = true;
-      if (!loading) {
-        setIsInitialFadingOut(true);
-        setTimeout(() => setIsInitialReady(true), 300);
-      }
-    }, 550);
+    if (loading) return;
 
-    return () => clearTimeout(minTimer);
-  }, []);
+    // Real loading complete: smoothly fade out with minimum 350ms to appreciate clock spread animation
+    const elapsed = Date.now() - loadStartRef.current;
+    const remainingDelay = Math.max(0, 350 - elapsed);
 
-  useEffect(() => {
-    if (!loading && minTimerElapsedRef.current && !isInitialReady && !isInitialFadingOut) {
+    const fadeTimer = setTimeout(() => {
       setIsInitialFadingOut(true);
       const finishTimer = setTimeout(() => {
         setIsInitialReady(true);
       }, 300);
       return () => clearTimeout(finishTimer);
-    }
-  }, [loading, isInitialReady, isInitialFadingOut]);
+    }, remainingDelay);
+
+    return () => clearTimeout(fadeTimer);
+  }, [loading]);
+
+  // Safety fallback: ensure initial loading screen never stays visible longer than 3.5s under any condition
+  useEffect(() => {
+    const safetyTimer = setTimeout(() => {
+      setIsInitialFadingOut(true);
+      setTimeout(() => {
+        setIsInitialReady(true);
+      }, 300);
+    }, 3500);
+
+    return () => clearTimeout(safetyTimer);
+  }, []);
 
   // Virtual keyboard scroll-into-view handler: automatically scroll any focused input field into clear view
   useEffect(() => {
@@ -181,13 +189,13 @@ function AppContent() {
     );
   }
 
-  // Loading screen on initial load (adjusted to real loading time)
-  if (loading || !isInitialReady) {
+  // Loading screen on initial load (strictly adjusted to real loading time)
+  if (!isInitialReady) {
     return (
       <LoadingScreen
         message="Loading Overtime Claim Engine..."
         subMessage="Authenticating session & verifying roles..."
-        isFadingOut={!loading && isInitialFadingOut}
+        isFadingOut={isInitialFadingOut}
       />
     );
   }

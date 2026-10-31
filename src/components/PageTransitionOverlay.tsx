@@ -44,7 +44,7 @@ export const PageTransitionOverlay: React.FC<PageTransitionOverlayProps> = ({
   return (
     <div
       className={`fixed inset-0 z-[120] flex flex-col items-center justify-center select-none overflow-hidden transition-opacity duration-300 ease-in-out ${
-        isFadedIn ? 'opacity-100' : 'opacity-0'
+        isFadedIn && isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
       }`}
       aria-live="polite"
       aria-busy={isVisible}
