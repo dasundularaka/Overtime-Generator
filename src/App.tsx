@@ -26,14 +26,23 @@ function AppContent() {
   const [editingClaim, setEditingClaim] = useState<ClaimRecord | null>(null);
   const [isPageTransitioning, setIsPageTransitioning] = useState(false);
   const [isInitialReloading, setIsInitialReloading] = useState(true);
+  const [isInitialFadingOut, setIsInitialFadingOut] = useState(false);
   const transitionTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // 2-second animation on reloading/initial startup
+  // 2-second animation on reloading/initial startup: starts with fade in, stays for 1.6s, stops with 0.4s fade out
   useEffect(() => {
-    const timer = setTimeout(() => {
+    const fadeTimer = setTimeout(() => {
+      setIsInitialFadingOut(true);
+    }, 1600);
+
+    const finishTimer = setTimeout(() => {
       setIsInitialReloading(false);
     }, 2000);
-    return () => clearTimeout(timer);
+
+    return () => {
+      clearTimeout(fadeTimer);
+      clearTimeout(finishTimer);
+    };
   }, []);
 
   // Virtual keyboard scroll-into-view handler: automatically scroll any focused input field into clear view
@@ -112,7 +121,13 @@ function AppContent() {
   }, [loading, isAdmin, activeTab]);
 
   if (loading || isInitialReloading) {
-    return <LoadingScreen message="Loading Overtime Claim Engine..." subMessage="Authenticating session & verifying roles..." />;
+    return (
+      <LoadingScreen
+        message="Loading Overtime Claim Engine..."
+        subMessage="Authenticating session & verifying roles..."
+        isFadingOut={!loading && isInitialFadingOut}
+      />
+    );
   }
 
   // If not logged in, show Auth screen

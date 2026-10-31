@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { AnimatedClockIcon } from './AnimatedClockIcon';
 
 interface PageTransitionOverlayProps {
   isVisible: boolean;
@@ -48,14 +49,10 @@ export const PageTransitionOverlay: React.FC<PageTransitionOverlayProps> = ({
     >
       <div className="flex flex-col items-center justify-center space-y-4 p-6 text-center animate-scale-in">
         {/* Suitable background container for icon only */}
-        <div className="relative flex h-28 w-28 sm:h-32 sm:w-32 items-center justify-center rounded-3xl bg-gradient-to-b from-slate-900 via-[#18163f] to-slate-900 border border-indigo-500/30 shadow-2xl shadow-indigo-950/60 p-4 ring-1 ring-white/15 overflow-hidden">
+        <div className="relative flex h-28 w-28 sm:h-32 sm:w-32 items-center justify-center rounded-3xl bg-white/95 border border-white/60 shadow-[0_16px_40px_rgba(0,0,0,0.5)] p-4 ring-2 ring-white/25 overflow-hidden backdrop-blur-md">
           {/* Subtle inner soft ambient light */}
-          <div className="absolute inset-0 bg-radial from-indigo-500/15 via-transparent to-transparent pointer-events-none" />
-          <img
-            src="/infinite-clock.gif"
-            alt="Overtime Claim Manager"
-            className="relative z-10 w-full h-full object-contain drop-shadow-[0_4px_14px_rgba(0,0,0,0.5)]"
-          />
+          <div className="absolute inset-0 bg-radial from-slate-100/60 via-transparent to-transparent pointer-events-none" />
+          <AnimatedClockIcon className="relative z-10 w-16 h-16 sm:w-20 sm:h-20" color="#000000" />
         </div>
 
         {/* Optional Label / Message */}

@@ -135,3 +135,23 @@ textarea {
   touch-action: manipulation;
 }
 
+/* Clock hand sweeps matching 2-second reload and transmission cycle */
+@keyframes clockMinuteSweep {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes clockHourSweep {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+
