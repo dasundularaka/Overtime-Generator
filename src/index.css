@@ -126,22 +126,12 @@
   }
 }
 
-/* Virtual Keyboard and Mobile Viewport Adaptation */
-@media screen and (max-width: 768px) {
-  /* Prevent browser auto-zoom when tapping into input fields */
-  input,
-  select,
-  textarea {
-    font-size: 16px !important;
-    touch-action: manipulation;
-  }
-}
-
 /* Ensure all form inputs have scroll margin so they are never flush against screen edges */
 input,
 select,
 textarea {
   scroll-margin-top: 80px;
   scroll-margin-bottom: 120px;
+  touch-action: manipulation;
 }
 
