@@ -100,7 +100,7 @@ export const AuthScreen: React.FC = () => {
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 flex flex-col justify-center items-center px-4 py-8 sm:py-12">
       {/* App Brand Header */}
       <div className="text-center mb-6 sm:mb-8">
-        <div className="inline-flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center mb-3">
+        <div className="inline-flex h-16 w-16 sm:h-20 sm:w-20 items-center justify-center mb-3">
           <ClockLogo className="w-full h-full" />
         </div>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
