@@ -285,7 +285,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSelectTab,
   onOpenHelp,
 }) => {
-  const { userProfile, isAdmin, logout, currentUser } = useAuth();
+  const { userProfile, isSuperAdmin, isAdmin, logout, currentUser } = useAuth();
   const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -376,14 +376,19 @@ export const Navbar: React.FC<NavbarProps> = ({
       badge: 'OT Rates',
       color: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
     },
-    {
-      id: 'designer' as NavigationTab,
-      label: 'Template Designer',
-      description: 'Official Form 10756 A4 canvas layout engine',
-      icon: Sliders,
-      badge: 'Canvas',
-      color: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/30',
-    },
+    // Template Designer is exclusive to Super Admin (Owner)
+    ...(isSuperAdmin
+      ? [
+          {
+            id: 'designer' as NavigationTab,
+            label: 'Template Designer',
+            description: 'Official Form 10756 A4 canvas layout engine',
+            icon: Sliders,
+            badge: 'Super Admin',
+            color: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
+          },
+        ]
+      : []),
     {
       id: 'audit' as NavigationTab,
       label: 'Audit Logs',
@@ -619,12 +624,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                       </span>
                       <span
                         className={`text-[9px] font-extrabold uppercase px-1.5 py-0.2 rounded hidden sm:inline-block ${
-                          isAdmin
+                          isSuperAdmin
+                            ? 'bg-amber-500/30 text-amber-300 border border-amber-500/40'
+                            : isAdmin
                             ? 'bg-purple-500/30 text-purple-300 border border-purple-500/40'
                             : 'bg-blue-500/30 text-blue-300 border border-blue-500/40'
                         }`}
                       >
-                        {isAdmin ? 'Admin' : 'User'}
+                        {isSuperAdmin ? 'Super Admin' : isAdmin ? 'Admin' : 'User'}
                       </span>
                     </div>
                     <div className="text-[10px] text-slate-400 font-mono hidden xl:block">
@@ -663,8 +670,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                             <span className="font-mono text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-1.5 py-0.2 rounded border border-indigo-500/20">
                               {userProfile.employeeNumber || userProfile.pfNumber}
                             </span>
-                            <span className="text-[10px] font-bold uppercase text-purple-300 bg-purple-500/20 px-1.5 py-0.2 rounded border border-purple-500/30">
-                              {isAdmin ? 'Administrator' : 'Standard User'}
+                            <span className={`text-[10px] font-bold uppercase px-1.5 py-0.2 rounded border ${
+                              isSuperAdmin
+                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                : isAdmin
+                                ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                                : 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                            }`}>
+                              {isSuperAdmin ? 'Super Admin (Owner)' : isAdmin ? 'Administrator' : 'Standard User'}
                             </span>
                           </div>
                         </div>
@@ -865,14 +878,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                           color: 'text-blue-400',
                           activeBg: 'bg-blue-900/40 border-blue-500 text-blue-200',
                         },
-                        {
-                          id: 'designer' as NavigationTab,
-                          label: 'Designer',
-                          desc: 'A4 Template Calib',
-                          icon: Sliders,
-                          color: 'text-indigo-400',
-                          activeBg: 'bg-indigo-900/40 border-indigo-500 text-indigo-200',
-                        },
+                        ...(isSuperAdmin
+                          ? [
+                              {
+                                id: 'designer' as NavigationTab,
+                                label: 'Designer',
+                                desc: 'A4 Template Calib',
+                                icon: Sliders,
+                                color: 'text-indigo-400',
+                                activeBg: 'bg-indigo-900/40 border-indigo-500 text-indigo-200',
+                              },
+                            ]
+                          : []),
                         {
                           id: 'employees' as NavigationTab,
                           label: 'Employees',

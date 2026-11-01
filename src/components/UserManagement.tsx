@@ -53,11 +53,11 @@ import {
 } from '../utils/branchRoleManager';
 
 export const UserManagement: React.FC = () => {
-  const { currentUser, isAdmin, refreshUserProfile } = useAuth();
+  const { currentUser, isAdmin, isSuperAdmin, refreshUserProfile } = useAuth();
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [roleFilter, setRoleFilter] = useState<'ALL' | 'admin' | 'user'>('ALL');
+  const [roleFilter, setRoleFilter] = useState<'ALL' | 'super_admin' | 'admin' | 'user'>('ALL');
   const [branchFilter, setBranchFilter] = useState<string>('ALL');
   const [designationFilter, setDesignationFilter] = useState<string>('ALL');
 
@@ -255,7 +255,8 @@ export const UserManagement: React.FC = () => {
     setName(user.name);
     setEmail(user.email);
     setPassword('');
-    setRole(user.role);
+    const isOwner = user.email?.toLowerCase() === 'dasundularaka@gmail.com';
+    setRole(isOwner ? 'super_admin' : user.role);
     setRoleId(user.roleId || '');
     setClaimType(user.claimType || 'OT');
     setEmployeeNumber(user.employeeNumber || user.pfNumber || '');
@@ -362,10 +363,12 @@ export const UserManagement: React.FC = () => {
 
       if (editingUser) {
         // Update existing user profile in Firestore
+        const isEditingOwner = editingUser.email?.toLowerCase() === 'dasundularaka@gmail.com';
+        const effectiveSaveRole: UserRole = isEditingOwner ? 'super_admin' : role;
         const userRef = doc(db, 'users', editingUser.id);
         const updatedData: Record<string, any> = {
           name: name.trim(),
-          role,
+          role: effectiveSaveRole,
           roleId: roleId || deleteField(),
           claimType,
           employeeNumber: cleanPf,
@@ -431,7 +434,7 @@ export const UserManagement: React.FC = () => {
         }
 
         // Update admin marker collection
-        if (role === 'admin') {
+        if (effectiveSaveRole === 'admin' || effectiveSaveRole === 'super_admin' || isEditingOwner) {
           await setDoc(doc(db, 'admins', editingUser.id), {
             email: editingUser.email,
             assignedAt: new Date().toISOString(),
@@ -871,7 +874,9 @@ export const UserManagement: React.FC = () => {
       u.department.toLowerCase().includes(searchQuery.toLowerCase()) ||
       u.employeeNumber.toLowerCase().includes(searchQuery.toLowerCase());
 
-    const matchesRole = roleFilter === 'ALL' || u.role === roleFilter;
+    const isOwner = u.email?.toLowerCase() === 'dasundularaka@gmail.com';
+    const effectiveRole: UserRole = isOwner ? 'super_admin' : (u.role || 'user');
+    const matchesRole = roleFilter === 'ALL' || effectiveRole === roleFilter;
     const matchesBranch = branchFilter === 'ALL' || u.branch === branchFilter;
     const matchesDesignation =
       designationFilter === 'ALL' ||
@@ -935,6 +940,7 @@ export const UserManagement: React.FC = () => {
             className="rounded-xl border border-slate-300 bg-white py-2 px-3 text-xs text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
           >
             <option value="ALL">All System Roles</option>
+            <option value="super_admin">Super Admins (Owner)</option>
             <option value="admin">Administrators Only</option>
             <option value="user">Standard Users Only</option>
           </select>
@@ -985,6 +991,7 @@ export const UserManagement: React.FC = () => {
             <div className="md:hidden divide-y divide-slate-100">
               {filteredUsers.map(u => {
                 const isCurrent = u.id === currentUser?.uid;
+                const isSuperAdminOwner = u.email?.toLowerCase() === 'dasundularaka@gmail.com' || u.role === 'super_admin';
                 const pfNum = (u.employeeNumber || u.pfNumber || '').toUpperCase();
                 return (
                   <div key={u.id} className="p-4 space-y-3 bg-white">
@@ -1012,20 +1019,25 @@ export const UserManagement: React.FC = () => {
                               </span>
                             )}
                           </div>
-                          <div className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
+                          <div className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5 flex-wrap">
                             <span className="font-mono font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
                               {pfNum || 'No PF'}
                             </span>
-                            <span
-                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                u.role === 'admin'
-                                  ? 'bg-purple-50 text-purple-700 border border-purple-200'
-                                  : 'bg-slate-100 text-slate-700'
-                              }`}
-                            >
-                              {u.role === 'admin' && <Shield className="w-2.5 h-2.5 text-purple-600" />}
-                              <span className="capitalize">{u.role}</span>
-                            </span>
+                            {isSuperAdminOwner ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                                <Shield className="w-2.5 h-2.5 text-amber-600 fill-amber-500" />
+                                <span>Super Admin (Owner)</span>
+                              </span>
+                            ) : u.role === 'admin' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                                <Shield className="w-2.5 h-2.5 text-purple-600" />
+                                <span>Admin</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-700">
+                                <span>User</span>
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1048,13 +1060,19 @@ export const UserManagement: React.FC = () => {
                         </button>
                         <button
                           onClick={() => setUserToDelete(u)}
-                          disabled={isCurrent}
+                          disabled={isCurrent || isSuperAdminOwner}
                           className={`p-1.5 rounded-lg transition ${
-                            isCurrent
-                              ? 'text-slate-300 cursor-not-allowed'
-                              : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
+                            isCurrent || isSuperAdminOwner
+                              ? 'text-slate-300 cursor-not-allowed opacity-40'
+                              : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer'
                           }`}
-                          title="Delete user"
+                          title={
+                            isSuperAdminOwner
+                              ? 'Super Admin (Owner) cannot be deleted'
+                              : isCurrent
+                              ? 'Cannot delete your own account'
+                              : 'Delete user'
+                          }
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -1101,6 +1119,7 @@ export const UserManagement: React.FC = () => {
               <tbody className="divide-y divide-slate-100 text-xs">
                 {filteredUsers.map(u => {
                   const isCurrent = u.id === currentUser?.uid;
+                  const isSuperAdminOwner = u.email?.toLowerCase() === 'dasundularaka@gmail.com' || u.role === 'super_admin';
                   const pfNum = (u.employeeNumber || u.pfNumber || '').toUpperCase();
                   return (
                     <tr key={u.id} className="hover:bg-slate-50/70 transition-colors">
@@ -1141,16 +1160,21 @@ export const UserManagement: React.FC = () => {
 
                       {/* Role */}
                       <td className="py-3.5 px-4">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
-                            u.role === 'admin'
-                              ? 'bg-purple-50 text-purple-700 border border-purple-200'
-                              : 'bg-slate-100 text-slate-700'
-                          }`}
-                        >
-                          {u.role === 'admin' && <Shield className="w-3 h-3 text-purple-600" />}
-                          <span className="capitalize">{u.role}</span>
-                        </span>
+                        {isSuperAdminOwner ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs">
+                            <Shield className="w-3 h-3 text-amber-600 fill-amber-500" />
+                            <span>Super Admin (Owner)</span>
+                          </span>
+                        ) : u.role === 'admin' ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                            <Shield className="w-3 h-3 text-purple-600" />
+                            <span>Admin</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-700">
+                            <span>User</span>
+                          </span>
+                        )}
                       </td>
 
                       {/* Claim Type (OT = Overtime, OP = Out of Pocket) */}
@@ -1242,13 +1266,19 @@ export const UserManagement: React.FC = () => {
                           </button>
                           <button
                             onClick={() => setUserToDelete(u)}
-                            disabled={isCurrent}
+                            disabled={isCurrent || isSuperAdminOwner}
                             className={`p-1.5 rounded-lg transition ${
-                              isCurrent
-                                ? 'text-slate-300 cursor-not-allowed'
-                                : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
+                              isCurrent || isSuperAdminOwner
+                                ? 'text-slate-300 cursor-not-allowed opacity-40'
+                                : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer'
                             }`}
-                            title="Delete user"
+                            title={
+                              isSuperAdminOwner
+                                ? 'Super Admin (Owner) cannot be deleted'
+                                : isCurrent
+                                ? 'Cannot delete your own account'
+                                : 'Delete user'
+                            }
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -1326,11 +1356,20 @@ export const UserManagement: React.FC = () => {
                   <select
                     value={role}
                     onChange={e => setRole(e.target.value as UserRole)}
-                    className="w-full rounded-xl border border-slate-300 py-2 px-2.5 bg-white text-slate-800 font-semibold"
+                    disabled={editingUser?.email?.toLowerCase() === 'dasundularaka@gmail.com'}
+                    className="w-full rounded-xl border border-slate-300 py-2 px-2.5 bg-white text-slate-800 font-semibold disabled:bg-slate-100 disabled:text-slate-500"
                   >
                     <option value="user">User (Enters own claims)</option>
-                    <option value="admin">Admin (All claims &amp; Template)</option>
+                    <option value="admin">Admin (Branch administration)</option>
+                    {(isSuperAdmin || editingUser?.email?.toLowerCase() === 'dasundularaka@gmail.com') && (
+                      <option value="super_admin">Super Admin (System Owner)</option>
+                    )}
                   </select>
+                  {editingUser?.email?.toLowerCase() === 'dasundularaka@gmail.com' && (
+                    <p className="text-[10px] text-amber-700 font-semibold mt-1">
+                      * System Owner role is protected and cannot be changed.
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Claim Type</label>
@@ -1898,7 +1937,7 @@ export const UserManagement: React.FC = () => {
           { label: 'Account Email', value: email },
           { label: 'PF Username', value: employeeNumber },
           { label: 'Assigned Shift', value: `${shiftStartTime} - ${shiftEndTime}` },
-          { label: 'Role', value: role === 'admin' ? 'Administrator' : 'Standard User' },
+          { label: 'Role', value: role === 'super_admin' ? 'Super Admin (Owner)' : role === 'admin' ? 'Administrator' : 'Standard User' },
           { label: 'Department', value: department },
           { label: 'Branch', value: branch },
           { label: 'Daily OT Cap', value: `${maxOtHoursPerDay} hrs/day` },

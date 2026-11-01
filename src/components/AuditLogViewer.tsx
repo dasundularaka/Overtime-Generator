@@ -38,8 +38,12 @@ import {
 } from 'lucide-react';
 import { AuditLogEntry, AuditActionType, AuditFieldDiff } from '../types';
 import { fetchAuditLogs, exportAuditLogsToCsv, extractDiffFromLog } from '../utils/auditLogger';
+import { useAuth } from '../context/AuthContext';
 
 export const AuditLogViewer: React.FC = () => {
+  const { userProfile, isSuperAdmin } = useAuth();
+  const adminBranch = (userProfile?.branch || '').trim();
+
   const [logs, setLogs] = useState<AuditLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -78,37 +82,53 @@ export const AuditLogViewer: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedLogForDetails]);
 
+  // Access Scope Enforcement: Admins view users in same branch only; Super Admin views all
+  const accessibleLogs = useMemo(() => {
+    if (isSuperAdmin) return logs;
+    if (!adminBranch) return logs;
+    const branchLower = adminBranch.toLowerCase();
+    return logs.filter(
+      l =>
+        (l.userBranch || '').trim().toLowerCase() === branchLower ||
+        (l.targetDescription || '').toLowerCase().includes(branchLower) ||
+        (l.details?.branch || '').toLowerCase().includes(branchLower)
+    );
+  }, [logs, isSuperAdmin, adminBranch]);
+
   // Distinct branches for filtering
   const availableBranches = useMemo(() => {
+    if (!isSuperAdmin) {
+      return adminBranch ? [adminBranch] : [];
+    }
     const set = new Set<string>();
     logs.forEach(l => {
       if (l.userBranch) set.add(l.userBranch);
     });
     return Array.from(set).sort();
-  }, [logs]);
+  }, [logs, isSuperAdmin, adminBranch]);
 
   // Precompute genuine diffs for all logs to avoid recomputation
   const logDiffMap = useMemo(() => {
     const map = new Map<string, AuditFieldDiff[]>();
-    logs.forEach(log => {
+    accessibleLogs.forEach(log => {
       map.set(log.id, extractDiffFromLog(log));
     });
     return map;
-  }, [logs]);
+  }, [accessibleLogs]);
 
   // Count logs with genuine changes
   const realChangesCount = useMemo(() => {
     let count = 0;
-    logs.forEach(log => {
+    accessibleLogs.forEach(log => {
       const diffs = logDiffMap.get(log.id) || [];
       if (diffs.length > 0) count++;
     });
     return count;
-  }, [logs, logDiffMap]);
+  }, [accessibleLogs, logDiffMap]);
 
   // Filtered logs
   const filteredLogs = useMemo(() => {
-    return logs.filter(log => {
+    return accessibleLogs.filter(log => {
       const diffs = logDiffMap.get(log.id) || [];
 
       // 1. Only Real Changes Filter
@@ -170,29 +190,29 @@ export const AuditLogViewer: React.FC = () => {
           return false;
       }
 
-      // 4. Branch Filter
-      if (selectedBranch !== 'ALL' && log.userBranch !== selectedBranch) {
+      // 4. Branch Filter (Super admin can select branch; regular admin is already scoped to same branch)
+      if (isSuperAdmin && selectedBranch !== 'ALL' && log.userBranch !== selectedBranch) {
         return false;
       }
 
       return true;
     });
-  }, [logs, searchQuery, selectedActionCategory, selectedBranch, onlyRealChanges, logDiffMap]);
+  }, [accessibleLogs, searchQuery, selectedActionCategory, selectedBranch, onlyRealChanges, logDiffMap, isSuperAdmin]);
 
   // Statistics
   const stats = useMemo(() => {
     return {
-      total: logs.length,
+      total: accessibleLogs.length,
       realChanges: realChangesCount,
-      claimEvents: logs.filter(l => l.action.startsWith('CLAIM_')).length,
-      userSecurityEvents: logs.filter(
+      claimEvents: accessibleLogs.filter(l => l.action.startsWith('CLAIM_')).length,
+      userSecurityEvents: accessibleLogs.filter(
         l =>
           l.action.startsWith('USER_') ||
           l.action.startsWith('EMPLOYEE_') ||
           l.action.includes('PASSWORD')
       ).length,
     };
-  }, [logs, realChangesCount]);
+  }, [accessibleLogs, realChangesCount]);
 
   const getActionBadgeColor = (action: AuditActionType) => {
     if (action.includes('CREATE') || action.includes('ADD') || action.includes('IMPORT') || action.includes('RESTORE')) {
@@ -262,9 +282,23 @@ export const AuditLogViewer: React.FC = () => {
       <div className="rounded-3xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-5 sm:p-7 md:p-8 text-white shadow-xl border border-slate-800">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
           <div className="space-y-2">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-xs font-semibold border border-indigo-500/30">
-              <ShieldCheck className="w-4 h-4 text-indigo-400" />
-              <span>Administrative Traceability &amp; Change Governance</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-xs font-semibold border border-indigo-500/30">
+                <ShieldCheck className="w-4 h-4 text-indigo-400" />
+                <span>Administrative Traceability &amp; Change Governance</span>
+              </div>
+              <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${
+                isSuperAdmin
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                  : 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+              }`}>
+                <Building2 className="w-3.5 h-3.5" />
+                <span>
+                  {isSuperAdmin
+                    ? 'Super Admin (Owner): All Branches'
+                    : `Branch Admin Scope: ${adminBranch || 'Your Branch'} only`}
+                </span>
+              </div>
             </div>
             <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold tracking-tight">
               System Audit Logs &amp; Real Change Compare

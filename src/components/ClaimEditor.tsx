@@ -428,6 +428,53 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   // Corporate Role Rates Subscription - initialized immediately from local cache
   const [roleRates, setRoleRates] = useState<RoleRate[]>(getLocalRoleRates());
 
+  // Scroll to bottom visibility for preview, submit and download action panel
+  const [isScrolledToBottom, setIsScrolledToBottom] = useState(false);
+  const bottomSentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      entries => {
+        const [entry] = entries;
+        if (entry) {
+          setIsScrolledToBottom(entry.isIntersecting);
+        }
+      },
+      {
+        root: null,
+        rootMargin: '140px',
+        threshold: 0.05,
+      }
+    );
+
+    if (bottomSentinelRef.current) {
+      observer.observe(bottomSentinelRef.current);
+    }
+
+    const handleScroll = () => {
+      const windowHeight = window.innerHeight;
+      const docHeight = document.documentElement.scrollHeight;
+      const scrollY = window.scrollY || document.documentElement.scrollTop;
+
+      // When user is near the bottom (within 240px), make buttons panel visible
+      if (docHeight - (scrollY + windowHeight) < 240) {
+        setIsScrolledToBottom(true);
+      } else if (bottomSentinelRef.current) {
+        const rect = bottomSentinelRef.current.getBoundingClientRect();
+        if (rect.top > windowHeight + 120) {
+          setIsScrolledToBottom(false);
+        }
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('scroll', handleScroll);
+    };
+  }, []);
+
   useEffect(() => {
     fetchRoleRatesFromFirestore().then(list => {
       if (list && list.length > 0) setRoleRates(list);
@@ -2961,9 +3008,30 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         </div>
       </div>
 
-      {/* Bottom Action Bar: Preview, Save, Download - Elevated above bottom nav bar on mobile */}
-      <div className={`rounded-2xl bg-white p-4 sm:p-5 shadow-lg border border-slate-200 flex-col sm:flex-row items-center justify-between gap-4 sticky bottom-20 md:bottom-4 z-30 backdrop-blur-md bg-white/95 transition-all duration-200 ${
-        isKeyboardOpen ? 'hidden md:flex' : 'flex'
+      {/* Sentinel for detecting bottom scroll */}
+      <div ref={bottomSentinelRef} className="h-6 w-full pointer-events-none -mt-3 mb-1" />
+
+      {/* Floating prompt button when not yet scrolled to bottom */}
+      {!isScrolledToBottom && (
+        <button
+          type="button"
+          onClick={() => {
+            bottomSentinelRef.current?.scrollIntoView({ behavior: 'smooth' });
+            setIsScrolledToBottom(true);
+          }}
+          className="fixed bottom-20 md:bottom-6 right-6 z-30 inline-flex items-center gap-2 px-3.5 py-2 rounded-full bg-slate-900/90 hover:bg-slate-900 text-white text-xs font-bold shadow-xl backdrop-blur-md transition-all duration-200 hover:scale-105 cursor-pointer border border-slate-700/60"
+          title="Scroll down to Preview, Submit & Download"
+        >
+          <span>Scroll down for Submit &amp; Download</span>
+          <ChevronDown className="w-4 h-4 animate-bounce text-indigo-400" />
+        </button>
+      )}
+
+      {/* Bottom Action Bar: Preview, Save, Download - Only visible when scrolling bottom down */}
+      <div className={`rounded-2xl bg-white p-4 sm:p-5 shadow-xl border border-slate-200 flex-col sm:flex-row items-center justify-between gap-4 sticky bottom-20 md:bottom-4 z-30 backdrop-blur-md bg-white/95 transition-all duration-300 ${
+        isScrolledToBottom && !isKeyboardOpen
+          ? 'flex opacity-100 translate-y-0 pointer-events-auto'
+          : 'hidden opacity-0 translate-y-8 pointer-events-none'
       }`}>
         <div className="flex items-center gap-3">
           <div className="text-xs text-slate-500">

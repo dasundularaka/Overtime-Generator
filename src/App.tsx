@@ -35,7 +35,7 @@ const TAB_TITLES: Record<NavigationTab, { message: string; subMessage: string }>
 };
 
 function AppContent() {
-  const { currentUser, userProfile, isAdmin, loading, isLoggingOut, refreshUserProfile } = useAuth();
+  const { currentUser, userProfile, isSuperAdmin, isAdmin, loading, isLoggingOut, refreshUserProfile } = useAuth();
   const [activeTab, setActiveTab] = useState<NavigationTab>('dashboard');
   const [editingClaim, setEditingClaim] = useState<ClaimRecord | null>(null);
 
@@ -140,7 +140,7 @@ function AppContent() {
 
     const switchTimer = setTimeout(() => {
       if (onBeforeSwitch) onBeforeSwitch();
-      if (targetTab === 'designer' && !isAdmin) {
+      if (targetTab === 'designer' && !isSuperAdmin) {
         setActiveTab('dashboard');
       } else {
         setActiveTab(targetTab);
@@ -164,20 +164,23 @@ function AppContent() {
     }
   }, [isAdmin]);
 
-  // Safeguard: non-admins cannot stay on designer, users, audit, roles, or employees tabs (branches is accessible to all staff)
+  // Safeguard: non-super-admins cannot access designer; non-admins cannot stay on users, audit, roles, or employees tabs
   useEffect(() => {
+    if (loading) return;
+    if (activeTab === 'designer' && !isSuperAdmin) {
+      transitionToTab('dashboard');
+      return;
+    }
     if (
-      !loading &&
       !isAdmin &&
-      (activeTab === 'designer' ||
-        activeTab === 'users' ||
+      (activeTab === 'users' ||
         activeTab === 'audit' ||
         activeTab === 'roles' ||
         activeTab === 'employees')
     ) {
       transitionToTab('dashboard');
     }
-  }, [loading, isAdmin, activeTab]);
+  }, [loading, isAdmin, isSuperAdmin, activeTab]);
 
   // Loading screen during logout
   if (isLoggingOut) {
@@ -277,7 +280,7 @@ function AppContent() {
                 'Synchronizing claim to history...'
               );
             }}
-            onNavigateToDesigner={isAdmin ? () => transitionToTab('designer') : undefined}
+            onNavigateToDesigner={isSuperAdmin ? () => transitionToTab('designer') : undefined}
           />
         )}
 
@@ -297,7 +300,7 @@ function AppContent() {
           />
         )}
 
-        {activeTab === 'designer' && isAdmin && <TemplateDesigner />}
+        {activeTab === 'designer' && isSuperAdmin && <TemplateDesigner />}
 
         {activeTab === 'settings' && <SettingsPage />}
       </main>
@@ -309,7 +312,7 @@ function AppContent() {
             <strong>OT Claim</strong> &bull; Official A4 Timesheet &amp; Claim System
           </div>
           <div className="flex items-center gap-3 text-[11px] text-slate-400">
-            <span>Signed in as: <strong className="text-slate-700">{userProfile?.name || currentUser.email}</strong> ({isAdmin ? 'Admin' : 'User'})</span>
+            <span>Signed in as: <strong className="text-slate-700">{userProfile?.name || currentUser.email}</strong> ({isSuperAdmin ? 'Super Admin (Owner)' : isAdmin ? 'Admin' : 'User'})</span>
           </div>
         </div>
       </footer>

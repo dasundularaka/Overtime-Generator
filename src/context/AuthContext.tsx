@@ -42,6 +42,7 @@ import { setCachedGoogleToken } from '../services/googleWorkspaceService';
 interface AuthContextType {
   currentUser: FirebaseUser | null;
   userProfile: UserProfile | null;
+  isSuperAdmin: boolean;
   isAdmin: boolean;
   loading: boolean;
   isLoggingOut: boolean;
@@ -88,10 +89,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const snap = await getDoc(userDocRef);
     if (snap.exists()) {
       const data = snap.data() as UserProfile;
-      // Ensure bootstrap admin always has admin role
-      if (isBootstrapAdmin && data.role !== 'admin') {
-        await updateDoc(userDocRef, { role: 'admin' });
-        data.role = 'admin';
+      // Ensure owner (dasundularaka@gmail.com) always has super_admin role
+      if (isBootstrapAdmin && data.role !== 'super_admin') {
+        await updateDoc(userDocRef, { role: 'super_admin' }).catch(() => {});
+        data.role = 'super_admin';
       }
       // Pick up Google account profile picture if available and not set or changed
       if (user.photoURL && data.photoURL !== user.photoURL) {
@@ -172,13 +173,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const bootstrapProfile: UserProfile = {
         id: user.uid,
         email: userEmail,
-        name: 'Administrator', // Real name for bootstrap admin
-        role: 'admin',
+        name: 'Administrator (Owner)', // Real name for bootstrap super admin
+        role: 'super_admin',
         claimType: 'OT',
         employeeNumber: 'PF100000',
         pfNumber: 'PF100000',
         photoURL: user.photoURL || undefined,
-        designation: 'System Administrator',
+        designation: 'Owner & Super Administrator',
         branch: 'Head Office - Colombo',
         department: 'IT & Infrastructure Operations',
         maxOtHoursPerDay: 2.0,
@@ -888,15 +889,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const isBootstrapAdmin =
-    (currentUser?.email || '').toLowerCase() === BOOTSTRAP_ADMIN_EMAIL.toLowerCase();
-  const isAdmin = isBootstrapAdmin || userProfile?.role === 'admin';
+  const isOwnerEmail =
+    (currentUser?.email || userProfile?.email || '').toLowerCase().trim() === BOOTSTRAP_ADMIN_EMAIL.toLowerCase();
+  const isSuperAdmin = isOwnerEmail || userProfile?.role === 'super_admin';
+  const isAdmin = isSuperAdmin || userProfile?.role === 'admin';
 
   return (
     <AuthContext.Provider
       value={{
         currentUser,
         userProfile,
+        isSuperAdmin,
         isAdmin,
         loading,
         isLoggingOut,

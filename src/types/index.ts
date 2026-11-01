@@ -2,7 +2,7 @@ export type FontFamily = 'Helvetica' | 'TimesRoman' | 'Courier';
 export type TextAlignment = 'left' | 'center' | 'right';
 export type TimeFormat = '24h' | '12h';
 export type OTDisplayFormat = 'hhmm' | 'decimal';
-export type UserRole = 'admin' | 'user';
+export type UserRole = 'super_admin' | 'admin' | 'user';
 export type ClaimType = 'OT' | 'OP';
 export type HolidayType = 'public' | 'bank' | 'mercantile' | 'special';
 
