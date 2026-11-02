@@ -219,15 +219,9 @@ export const UserManagement: React.FC = () => {
     } else {
       setClaimType('OT');
     }
-    if (firstRole) {
-      setHourlyRate(firstRole.hourlyRateWorkingDays);
-      setDaysPay(firstRole.daysPaymentNonWorkingDays);
-      setHourlyRateNonWorkingDays(firstRole.hourlyRateNonWorkingDays);
-    } else {
-      setHourlyRate('');
-      setDaysPay('');
-      setHourlyRateNonWorkingDays('');
-    }
+    setHourlyRate('');
+    setDaysPay('');
+    setHourlyRateNonWorkingDays('');
     // Generate standard PF Number starting with PF and 6 digits (e.g. PF123456)
     setEmployeeNumber(generateStandardPfNumber());
     const firstBranch = branches.length > 0 ? branches[0].name : 'Head Office - Colombo';
@@ -290,15 +284,21 @@ export const UserManagement: React.FC = () => {
     const found = roleRates.find(r => r.name === selectedDesignationName);
     if (found) {
       setRoleId(found.id);
-      // Load payment rates into relevant places
-      setHourlyRate(found.hourlyRateWorkingDays);
-      setDaysPay(found.daysPaymentNonWorkingDays);
-      setHourlyRateNonWorkingDays(found.hourlyRateNonWorkingDays);
+      // Only set payment rates if fields are empty, preserving any custom user rates
+      if (hourlyRate === '' && found.hourlyRateWorkingDays !== undefined) {
+        setHourlyRate(found.hourlyRateWorkingDays);
+      }
+      if (daysPay === '' && found.daysPaymentNonWorkingDays !== undefined) {
+        setDaysPay(found.daysPaymentNonWorkingDays);
+      }
+      if (hourlyRateNonWorkingDays === '' && found.hourlyRateNonWorkingDays !== undefined) {
+        setHourlyRateNonWorkingDays(found.hourlyRateNonWorkingDays);
+      }
       // Automatically assign claim type (OT or OP) with designation
-      if (found.claimType) {
+      if (found.claimType && !claimType) {
         setClaimType(found.claimType);
       }
-      if (found.isRatesLocked !== undefined) {
+      if (editingUser?.isRatesLocked === undefined && found.isRatesLocked !== undefined) {
         setIsRatesLocked(found.isRatesLocked);
       }
     }

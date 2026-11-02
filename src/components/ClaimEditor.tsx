@@ -591,31 +591,47 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     return null;
   }, [targetProfile, designation, roleRates]);
 
-  // Lock status of the user's relevant role: locked if corporate role is locked or profile is locked
-  const isRoleRatesLocked = Boolean(
-    (!isAdmin && targetProfile?.isRatesLocked) ||
-    userRelevantRole?.isRatesLocked ||
-    (targetProfile?.roleId && roleRates.some(r => r.id === targetProfile.roleId && r.isRatesLocked)) ||
-    (targetProfile?.designation && roleRates.some(r => (r.name || '').toLowerCase().trim() === targetProfile.designation.toLowerCase().trim() && r.isRatesLocked))
+  // Lock status: if user profile explicitly defines isRatesLocked, that takes precedence (false = unlocked, true = locked)
+  // If not set on profile, fall back to corporate role rate lock status.
+  const isTargetUserRatesLocked = Boolean(
+    targetProfile?.isRatesLocked !== undefined
+      ? targetProfile.isRatesLocked
+      : (
+          userRelevantRole?.isRatesLocked ||
+          (targetProfile?.roleId && roleRates.some(r => r.id === targetProfile.roleId && r.isRatesLocked)) ||
+          (targetProfile?.designation && roleRates.some(r => (r.name || '').toLowerCase().trim() === targetProfile.designation.toLowerCase().trim() && r.isRatesLocked))
+        )
   );
+
+  // For the current UI session: admins are never locked, standard users locked according to target user lock status
+  const isRoleRatesLocked = !isAdmin && isTargetUserRatesLocked;
 
   // Standard users cannot edit if locked; Admins can always edit
   const canEditRates = isAdmin || !isRoleRatesLocked;
 
   // Enforce locked rates in form: if locked by admin, standard users cannot change rates
+  // Respect user's own assigned rates first! Never overwrite a user's assigned rate with generic role rate.
   useEffect(() => {
-    if (!isAdmin && isRoleRatesLocked && userRelevantRole) {
-      if (userRelevantRole.hourlyRateWorkingDays !== undefined) {
+    if (!isAdmin && isRoleRatesLocked) {
+      if (targetProfile?.hourlyRate !== undefined && targetProfile.hourlyRate !== '') {
+        setHourlyRate(targetProfile.hourlyRate);
+      } else if (userRelevantRole?.hourlyRateWorkingDays !== undefined) {
         setHourlyRate(userRelevantRole.hourlyRateWorkingDays);
       }
-      if (userRelevantRole.daysPaymentNonWorkingDays !== undefined) {
+
+      if (targetProfile?.daysPay !== undefined && targetProfile.daysPay !== '') {
+        setDaysPay(targetProfile.daysPay);
+      } else if (userRelevantRole?.daysPaymentNonWorkingDays !== undefined) {
         setDaysPay(userRelevantRole.daysPaymentNonWorkingDays);
       }
-      if (userRelevantRole.hourlyRateNonWorkingDays !== undefined) {
+
+      if (targetProfile?.hourlyRateNonWorkingDays !== undefined && targetProfile.hourlyRateNonWorkingDays !== '') {
+        setHourlyRateNonWorkingDays(targetProfile.hourlyRateNonWorkingDays);
+      } else if (userRelevantRole?.hourlyRateNonWorkingDays !== undefined) {
         setHourlyRateNonWorkingDays(userRelevantRole.hourlyRateNonWorkingDays);
       }
     }
-  }, [isAdmin, isRoleRatesLocked, userRelevantRole]);
+  }, [isAdmin, isRoleRatesLocked, userRelevantRole, targetProfile]);
 
   // Sync profile details into form
   useEffect(() => {
@@ -641,6 +657,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       setTotalRemuneration(initialClaim.totalRemuneration !== undefined ? initialClaim.totalRemuneration : '');
       setHourlyRate(initialClaim.hourlyRate !== undefined ? initialClaim.hourlyRate : '');
       setDaysPay(initialClaim.daysPay !== undefined ? initialClaim.daysPay : '');
+      setHourlyRateNonWorkingDays(initialClaim.hourlyRateNonWorkingDays !== undefined ? initialClaim.hourlyRateNonWorkingDays : '');
       setOtPaymentDueB(initialClaim.otPaymentDueB !== undefined ? initialClaim.otPaymentDueB : '');
       setActiveClaimId(initialClaim.id);
       setActiveClaimNumber(initialClaim.claimNumber);
@@ -995,13 +1012,16 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       const isSpecial = isSpecialAssignedOt || !!target.isSpecialAssignment;
       const isHolOverride = !!target.isHolidayOverride;
 
+      // If user rates are unlocked (!isTargetUserRatesLocked), treat non-working days like working days for shift calculation
+      const treatAsOtherForShiftCalc = isOther && isTargetUserRatesLocked;
+
       // Calculate shift overtime according to company rules
       const calc = calculateShiftOvertime(
         target.startTime,
         target.endTime,
         0,
         maxOtLimitHours,
-        isOther,
+        treatAsOtherForShiftCalc,
         userShiftEndTime || GENERAL_SHIFT_END,
         userShiftStartTime || GENERAL_SHIFT_START,
         isSpecial,
@@ -1011,7 +1031,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       target.totalWorkMinutes = calc.totalWorkMinutes;
       target.rawOtMinutes = calc.rawOtMinutes;
       target.totalMinutes = calc.totalMinutes;
-      target.totalFormatted = (isOther && !isHolOverride) ? '' : formatMinutesToTime(calc.totalMinutes, otDisplayFormat);
+      target.totalFormatted = (isOther && !isHolOverride && isTargetUserRatesLocked) ? '' : formatMinutesToTime(calc.totalMinutes, otDisplayFormat);
       target.isOvernight = calc.isOvernight;
       target.isCapped = calc.isCapped;
       target.uncappedMinutes = calc.uncappedMinutes;
@@ -1025,7 +1045,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     });
   };
 
-  // Re-calculate all rows when user OT limit or shift changes
+  // Re-calculate all rows when user OT limit, shift, or rates lock status changes
   useEffect(() => {
     setRows(prevRows =>
       prevRows.map(row => {
@@ -1034,12 +1054,13 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         const isOther = row.dayOfWeek === 'Sat' || row.dayOfWeek === 'Sun' || isHoliday;
         const isSpecial = isSpecialAssignedOt || !!row.isSpecialAssignment;
         const isHolOverride = !!row.isHolidayOverride;
+        const treatAsOtherForShiftCalc = isOther && isTargetUserRatesLocked;
         const calc = calculateShiftOvertime(
           row.startTime,
           row.endTime,
           0,
           maxOtLimitHours,
-          isOther,
+          treatAsOtherForShiftCalc,
           userShiftEndTime || GENERAL_SHIFT_END,
           userShiftStartTime || GENERAL_SHIFT_START,
           isSpecial,
@@ -1050,7 +1071,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           totalWorkMinutes: calc.totalWorkMinutes,
           rawOtMinutes: calc.rawOtMinutes,
           totalMinutes: calc.totalMinutes,
-          totalFormatted: (isOther && !isHolOverride) ? '' : formatMinutesToTime(calc.totalMinutes, otDisplayFormat),
+          totalFormatted: (isOther && !isHolOverride && isTargetUserRatesLocked) ? '' : formatMinutesToTime(calc.totalMinutes, otDisplayFormat),
           isOvernight: calc.isOvernight,
           isCapped: calc.isCapped,
           uncappedMinutes: calc.uncappedMinutes,
@@ -1061,7 +1082,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         };
       })
     );
-  }, [maxOtLimitHours, otDisplayFormat, holidayMap, userShiftEndTime, userShiftStartTime, isSpecialAssignedOt]);
+  }, [maxOtLimitHours, otDisplayFormat, holidayMap, userShiftEndTime, userShiftStartTime, isSpecialAssignedOt, isTargetUserRatesLocked]);
 
   // Auto-Fill Month: Loads ALL dates in the selected month with holidays & Sundays shown
   const handleAutoFillMonth = () => {
@@ -1413,11 +1434,19 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     const totalHoursFormatted = formatMinutesToTime(totalMinutes, otDisplayFormat);
 
     // Column A: ONLY regular weekday OT (NOT special OT, NOT holiday override)
+    // If rates are unlocked (!isTargetUserRatesLocked), non-working days with claimed OT are also included in Column A
     const calculatedPaymentA =
       hourlyRate !== '' && !isNaN(Number(hourlyRate))
         ? Math.round(
             activeRows
-              .filter(r => isWeekdayWorkingDay(r) && !(r.isSpecialAssignment ?? isSpecialAssignedOt) && !r.isHolidayOverride)
+              .filter(r => {
+                if (r.isSpecialAssignment ?? isSpecialAssignedOt) return false;
+                if (r.isHolidayOverride) return false;
+                if (!isTargetUserRatesLocked) {
+                  return (r.totalMinutes || 0) > 0;
+                }
+                return isWeekdayWorkingDay(r);
+              })
               .reduce((acc, r) => acc + (r.totalMinutes || 0), 0) /
               60 *
               Number(hourlyRate) *
@@ -1479,6 +1508,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       totalRemuneration: totalRemuneration !== '' ? Number(totalRemuneration) : undefined,
       hourlyRate: hourlyRate !== '' ? Number(hourlyRate) : undefined,
       daysPay: daysPay !== '' ? Number(daysPay) : undefined,
+      hourlyRateNonWorkingDays: hourlyRateNonWorkingDays !== '' ? Number(hourlyRateNonWorkingDays) : undefined,
+      isRatesUnlocked: !isTargetUserRatesLocked,
+      isRatesLocked: isTargetUserRatesLocked,
       daysPayCount: currentDaysPayCount,
       daysPayTotal: currentDaysPayTotal,
       otPaymentDueA: calculatedPaymentA,
@@ -2723,11 +2755,11 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Start Time</label>
                       <input
                         type="time"
-                        disabled={isHol && !row.isHolidayOverride}
-                        value={(isHol && !row.isHolidayOverride) ? '' : row.startTime}
+                        disabled={isHol && !row.isHolidayOverride && isTargetUserRatesLocked}
+                        value={(isHol && !row.isHolidayOverride && isTargetUserRatesLocked) ? '' : row.startTime}
                         onChange={e => updateRowField(index, 'startTime', e.target.value)}
                         className={`w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs ${
-                          (isHol && !row.isHolidayOverride) ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white text-slate-800'
+                          (isHol && !row.isHolidayOverride && isTargetUserRatesLocked) ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white text-slate-800'
                         }`}
                       />
                     </div>
@@ -2735,11 +2767,11 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       <label className="block text-[10px] font-bold text-slate-500 mb-0.5">End Time</label>
                       <input
                         type="time"
-                        disabled={isHol && !row.isHolidayOverride}
-                        value={(isHol && !row.isHolidayOverride) ? '' : row.endTime}
+                        disabled={isHol && !row.isHolidayOverride && isTargetUserRatesLocked}
+                        value={(isHol && !row.isHolidayOverride && isTargetUserRatesLocked) ? '' : row.endTime}
                         onChange={e => updateRowField(index, 'endTime', e.target.value)}
                         className={`w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs ${
-                          (isHol && !row.isHolidayOverride) ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white text-slate-800'
+                          (isHol && !row.isHolidayOverride && isTargetUserRatesLocked) ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white text-slate-800'
                         }`}
                       />
                     </div>
@@ -2770,7 +2802,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                         <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
                           Col B: {row.totalFormatted} (Special OT)
                         </span>
-                      ) : isOther ? (
+                      ) : isOther && isTargetUserRatesLocked ? (
                         row.totalWorkMinutes > 0 ? (
                           <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded border ${
                             isSat && row.totalWorkMinutes < 360
@@ -2908,34 +2940,34 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       />
                     </td>
 
-                    {/* Time In (Enabled when Holiday is Overridden) */}
+                    {/* Time In (Enabled when Holiday is Overridden or for unlocked rates users) */}
                     <td className="py-2 px-1 text-center">
                       <input
                         type="time"
-                        disabled={isHol && !row.isHolidayOverride}
-                        value={(isHol && !row.isHolidayOverride) ? '' : row.startTime}
+                        disabled={isHol && !row.isHolidayOverride && isTargetUserRatesLocked}
+                        value={(isHol && !row.isHolidayOverride && isTargetUserRatesLocked) ? '' : row.startTime}
                         onChange={e => updateRowField(index, 'startTime', e.target.value)}
-                        title={(isHol && !row.isHolidayOverride) ? "Tick 'Override' checkbox to enter times on holidays" : "Starting Time"}
-                        placeholder={(isHol && !row.isHolidayOverride) ? "--:--" : ""}
+                        title={(isHol && !row.isHolidayOverride && isTargetUserRatesLocked) ? "Tick 'Override' checkbox to enter times on holidays" : "Starting Time"}
+                        placeholder={(isHol && !row.isHolidayOverride && isTargetUserRatesLocked) ? "--:--" : ""}
                         className={`w-full rounded-md border border-slate-200 px-1 py-1 text-xs text-center font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                          (isHol && !row.isHolidayOverride)
+                          (isHol && !row.isHolidayOverride && isTargetUserRatesLocked)
                             ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                             : 'bg-white text-slate-800'
                         }`}
                       />
                     </td>
 
-                    {/* Time Out (Enabled when Holiday is Overridden) */}
+                    {/* Time Out (Enabled when Holiday is Overridden or for unlocked rates users) */}
                     <td className="py-2 px-1 text-center">
                       <input
                         type="time"
-                        disabled={isHol && !row.isHolidayOverride}
-                        value={(isHol && !row.isHolidayOverride) ? '' : row.endTime}
+                        disabled={isHol && !row.isHolidayOverride && isTargetUserRatesLocked}
+                        value={(isHol && !row.isHolidayOverride && isTargetUserRatesLocked) ? '' : row.endTime}
                         onChange={e => updateRowField(index, 'endTime', e.target.value)}
-                        title={(isHol && !row.isHolidayOverride) ? "Tick 'Override' checkbox to enter times on holidays" : "Ending Time"}
-                        placeholder={(isHol && !row.isHolidayOverride) ? "--:--" : ""}
+                        title={(isHol && !row.isHolidayOverride && isTargetUserRatesLocked) ? "Tick 'Override' checkbox to enter times on holidays" : "Ending Time"}
+                        placeholder={(isHol && !row.isHolidayOverride && isTargetUserRatesLocked) ? "--:--" : ""}
                         className={`w-full rounded-md border border-slate-200 px-1 py-1 text-xs text-center font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                          (isHol && !row.isHolidayOverride)
+                          (isHol && !row.isHolidayOverride && isTargetUserRatesLocked)
                             ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                             : 'bg-white text-slate-800'
                         }`}
@@ -2946,7 +2978,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                     <td className="py-2 px-1 text-center font-mono text-[11px] text-slate-600">
                       {row.isHolidayOverride && row.totalWorkMinutes > 0 ? (
                         <span className="font-bold text-amber-800">{formatMinutesToTime(row.totalWorkMinutes, 'hhmm')}</span>
-                      ) : isOther ? (
+                      ) : isOther && isTargetUserRatesLocked ? (
                         row.totalWorkMinutes > 0 ? (
                           <span className="font-bold text-slate-700 text-[10px]">Day&apos;s Pay</span>
                         ) : (
@@ -2959,9 +2991,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       )}
                     </td>
 
-                    {/* Overtime (A): Regular Weekday Overtime ONLY */}
+                    {/* Overtime (A): Regular Weekday Overtime OR Non-working Day OT if rates are unlocked */}
                     <td className="py-2 px-1 text-center font-mono text-xs font-bold">
-                      {!isRowSpecial && !row.isHolidayOverride && !isOther && hasOt ? (
+                      {!isRowSpecial && !row.isHolidayOverride && (!isOther || !isTargetUserRatesLocked) && hasOt ? (
                         <span className="text-indigo-600">{row.totalFormatted || '00:00'}</span>
                       ) : (
                         <span className="text-slate-300 font-normal">-</span>

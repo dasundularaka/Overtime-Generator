@@ -232,6 +232,9 @@ export interface ClaimRecord {
   totalRemuneration?: number; // Total basic remuneration / salary (Rs.)
   hourlyRate?: number; // Hourly OT Rate (Rs.)
   daysPay?: number; // Days Payment of OT / Day's Pay (Rs.)
+  hourlyRateNonWorkingDays?: number; // Hourly OT Rate in Non-Working Days (Rs.)
+  isRatesUnlocked?: boolean; // When true, user was authorized to manually set rates
+  isRatesLocked?: boolean; // When true, rates are locked
   otPaymentDueA?: number; // Overtime Payment Due 'A' (Rs.)
   daysPayCount?: number; // Number of non-working/weekend/holiday days worked
   daysPayTotal?: number; // Total Days Payment (Rs.)

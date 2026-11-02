@@ -246,6 +246,7 @@ export async function generateOvertimePdf(
     claimNumber: claim.claimNumber || '',
     hourlyRate: claim.hourlyRate !== undefined ? Number(claim.hourlyRate).toFixed(2) : '',
     daysPay: claim.daysPay !== undefined ? Number(claim.daysPay).toFixed(2) : '',
+    hourlyRateNonWorkingDays: claim.hourlyRateNonWorkingDays !== undefined ? Number(claim.hourlyRateNonWorkingDays).toFixed(2) : '',
     daysPayCount: String(claim.daysPayCount || 0),
     daysPayTotal: claim.daysPayTotal !== undefined ? Number(claim.daysPayTotal).toFixed(2) : '',
     totalRemuneration: claim.totalRemuneration !== undefined ? Number(claim.totalRemuneration).toFixed(2) : '',
@@ -316,6 +317,7 @@ export async function generateOvertimePdf(
     });
 
     const maxRowsToRender = Math.min(sortedRows.length, tbl.maxRows);
+    const isRatesUnlocked = Boolean(claim.isRatesUnlocked || claim.isRatesLocked === false);
 
     for (let i = 0; i < maxRowsToRender; i++) {
       const row = sortedRows[i];
@@ -338,11 +340,16 @@ export async function generateOvertimePdf(
         { col: cols.endTime, val: row.endTime ? `${row.endTime}${row.isOvernight ? '*' : ''}` : '' },
         { col: cols.totalHours, val: row.totalWorkMinutes > 0 ? formatMinutesToTime(row.totalWorkMinutes, 'hhmm') : '' },
         // Column A: Regular weekday OT only (Do NOT add special OT or holiday override OT to Column A)
+        // If rates are unlocked (isRatesUnlocked), non-working days OT period is shown like other working days!
         {
           col: cols.otHoursClaimed || (cols.breakMinutes ? undefined : cols.totalHours),
-          val: (!row.isSpecialAssignment && !row.isHolidayOverride && !isOtherDay && (row.totalMinutes || 0) > 0)
-            ? (row.totalFormatted || '')
-            : '',
+          val: isRatesUnlocked
+            ? (!row.isSpecialAssignment && !row.isHolidayOverride && (row.totalMinutes || 0) > 0
+                ? (row.totalFormatted || '')
+                : '')
+            : (!row.isSpecialAssignment && !row.isHolidayOverride && !isOtherDay && (row.totalMinutes || 0) > 0
+                ? (row.totalFormatted || '')
+                : ''),
         },
         // Column B: Special Assigned OT AND Holiday Override OT must be added to Column B
         {
