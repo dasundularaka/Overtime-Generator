@@ -131,53 +131,36 @@ export function calculateShiftOvertime(
   // Deduct break from work diff
   const netWorkDuration = Math.max(0, totalWorkDiff - (breakMinutes || 0));
 
-  // Policy: Non-working days (Saturdays, Sundays, Holidays)
-  // If NOT overridden: earn Day's Payment with 0 regular weekday OT
-  // If OVERRIDDEN: users can claim overtime in holidays (Day's Pay + non-working days hourly rate)
+  // Policy: Non-working days (Saturdays or other non-working days)
+  // Shift is valid for working days only.
+  // In saturdays or other non working days, full time is OT 15 min by 15 min.
   if (isOtherDay) {
-    if (!isHolidayOverride) {
-      return {
-        totalWorkMinutes: netWorkDuration,
-        rawOtMinutes: 0,
-        totalMinutes: 0,
-        totalFormatted: '00:00',
-        isOvernight,
-        isCapped: false,
-        uncappedMinutes: 0,
-        lateDeductionMinutes: 0,
-        isLateDisqualified: false,
-        lateNote: netWorkDuration > 0 ? "Day's Pay (Non-working day)" : '',
-        isDaysPayment: netWorkDuration > 0,
-      };
-    }
-
-    // Holiday Overridden: Time worked earns Day's Pay + non-working day hourly rate!
-    // Overtime calculated in 15-minute stepped blocks
-    const steppedHolidayOt = Math.floor(netWorkDuration / OT_INCREMENT_STEP) * OT_INCREMENT_STEP;
-    let finalHolidayOt = steppedHolidayOt;
+    const rawOtMinutes = netWorkDuration;
+    const steppedOtMinutes = Math.floor(rawOtMinutes / OT_INCREMENT_STEP) * OT_INCREMENT_STEP;
+    let finalOtMinutes = steppedOtMinutes;
     let isCapped = false;
 
-    // Special overtime has no limit
+    // Apply assigned User Overtime Limit (unless Special Assignment is ticked: Special OT has NO limit!)
     if (!isSpecialAssignment && maxOtHoursLimit !== undefined && maxOtHoursLimit !== null && maxOtHoursLimit > 0) {
       const maxAllowed = Math.round(maxOtHoursLimit * 60);
-      if (steppedHolidayOt > maxAllowed) {
-        finalHolidayOt = maxAllowed;
+      if (steppedOtMinutes > maxAllowed) {
+        finalOtMinutes = maxAllowed;
         isCapped = true;
       }
     }
 
     return {
       totalWorkMinutes: netWorkDuration,
-      rawOtMinutes: netWorkDuration,
-      totalMinutes: finalHolidayOt,
-      totalFormatted: formatMinutesToTime(finalHolidayOt, 'hhmm'),
+      rawOtMinutes,
+      totalMinutes: finalOtMinutes,
+      totalFormatted: formatMinutesToTime(finalOtMinutes, 'hhmm'),
       isOvernight,
       isCapped,
-      uncappedMinutes: steppedHolidayOt,
+      uncappedMinutes: steppedOtMinutes,
       lateDeductionMinutes: 0,
       isLateDisqualified: false,
-      lateNote: "Holiday Overridden: Day's Pay + Non-Working Rate",
-      isDaysPayment: true,
+      lateNote: isHolidayOverride ? "Holiday Overridden: Full Time OT (15-min blocks)" : "Non-Working Day: Full Time OT (15-min blocks)",
+      isDaysPayment: netWorkDuration > 0,
     };
   }
 

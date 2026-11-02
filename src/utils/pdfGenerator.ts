@@ -339,17 +339,12 @@ export async function generateOvertimePdf(
         { col: cols.startTime, val: row.startTime || '' },
         { col: cols.endTime, val: row.endTime ? `${row.endTime}${row.isOvernight ? '*' : ''}` : '' },
         { col: cols.totalHours, val: row.totalWorkMinutes > 0 ? formatMinutesToTime(row.totalWorkMinutes, 'hhmm') : '' },
-        // Column A: Regular weekday OT only (Do NOT add special OT or holiday override OT to Column A)
-        // If rates are unlocked (isRatesUnlocked), non-working days OT period is shown like other working days!
+        // Column A: Regular overtime (Working days and Saturdays / non-working days; NOT special OT, NOT holiday override)
         {
           col: cols.otHoursClaimed || (cols.breakMinutes ? undefined : cols.totalHours),
-          val: isRatesUnlocked
-            ? (!row.isSpecialAssignment && !row.isHolidayOverride && (row.totalMinutes || 0) > 0
-                ? (row.totalFormatted || '')
-                : '')
-            : (!row.isSpecialAssignment && !row.isHolidayOverride && !isOtherDay && (row.totalMinutes || 0) > 0
-                ? (row.totalFormatted || '')
-                : ''),
+          val: (!row.isSpecialAssignment && !row.isHolidayOverride && (row.totalMinutes || 0) > 0)
+            ? (row.totalFormatted || '')
+            : '',
         },
         // Column B: Special Assigned OT AND Holiday Override OT must be added to Column B
         {

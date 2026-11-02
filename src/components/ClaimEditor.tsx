@@ -944,6 +944,11 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       const nextOverride = !target.isHolidayOverride;
       target.isHolidayOverride = nextOverride;
 
+      const dow = target.dayOfWeek || getDayOfWeek(target.date);
+      const isSun = dow === 'Sun';
+      const isHoliday = !!target.isHoliday || holidayMap.has(target.date) || isSun;
+      const isOther = dow === 'Sat' || dow === 'Sun' || isHoliday;
+
       if (nextOverride) {
         if (!target.startTime) target.startTime = userShiftStartTime || GENERAL_SHIFT_START;
       } else {
@@ -952,7 +957,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         target.totalWorkMinutes = 0;
         target.rawOtMinutes = 0;
         target.totalMinutes = 0;
-        target.totalFormatted = '00:00';
+        target.totalFormatted = '';
+        const holName = holidayMap.get(target.date)?.name || (isSun ? 'Sunday' : 'Holiday');
+        target.reason = defaultHolidayReason.trim() ? defaultHolidayReason.trim() : holName;
       }
 
       if (target.startTime && target.endTime) {
@@ -962,7 +969,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           target.endTime,
           0,
           maxOtLimitHours,
-          true,
+          isOther,
           userShiftEndTime || GENERAL_SHIFT_END,
           userShiftStartTime || GENERAL_SHIFT_START,
           isSpecial,
@@ -972,7 +979,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         target.rawOtMinutes = calc.rawOtMinutes;
         target.totalMinutes = calc.totalMinutes;
         target.totalFormatted = formatMinutesToTime(calc.totalMinutes, otDisplayFormat);
-        target.isDaysPayment = true;
+        target.isDaysPayment = isOther && calc.totalWorkMinutes > 0;
       }
 
       updated[index] = target;
@@ -985,17 +992,29 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     markUserModified();
     setRows(prevRows => {
       const updated = [...prevRows];
-      const target = { ...updated[index], [field]: value };
+      const current = updated[index];
+      const currentDow = current.dayOfWeek || getDayOfWeek(current.date);
+      const currentIsSun = currentDow === 'Sun';
+      const currentIsHoliday = !!current.isHoliday || holidayMap.has(current.date) || currentIsSun;
+
+      // Policy: Holidays, users can't enter times or reason without overriding
+      if (currentIsHoliday && !current.isHolidayOverride && (field === 'startTime' || field === 'endTime' || field === 'reason')) {
+        return prevRows; // Strictly block editing times or reason on holidays without override
+      }
+
+      const target = { ...current, [field]: value };
 
       if (field === 'date') {
         target.dayOfWeek = getDayOfWeek(value);
         target.isWeekend = isWeekendDay(value);
-        if (holidayMap.has(value) || target.dayOfWeek === 'Sun') {
+        const checkHol = holidayMap.has(value) || target.dayOfWeek === 'Sun';
+        if (checkHol) {
           target.isHoliday = true;
-          target.holidayName = holidayMap.get(value)?.name || 'Sunday';
+          target.holidayName = holidayMap.get(value)?.name || (target.dayOfWeek === 'Sun' ? 'Sunday' : 'Holiday');
           if (!target.isHolidayOverride) {
             target.startTime = '';
             target.endTime = '';
+            target.reason = defaultHolidayReason.trim() ? defaultHolidayReason.trim() : (target.holidayName || 'Holiday');
           }
         }
       }
@@ -1004,24 +1023,32 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         if (!target.isHolidayOverride) {
           target.startTime = '';
           target.endTime = '';
+          const holName = holidayMap.get(target.date)?.name || (target.dayOfWeek === 'Sun' ? 'Sunday' : 'Holiday');
+          target.reason = defaultHolidayReason.trim() ? defaultHolidayReason.trim() : holName;
         }
       }
 
-      const isHoliday = !!target.isHoliday || holidayMap.has(target.date) || target.dayOfWeek === 'Sun';
-      const isOther = target.dayOfWeek === 'Sat' || target.dayOfWeek === 'Sun' || isHoliday;
+      const effectiveDow = target.dayOfWeek || getDayOfWeek(target.date);
+      const effectiveIsHoliday = !!target.isHoliday || holidayMap.has(target.date) || effectiveDow === 'Sun';
+      const isOther = effectiveDow === 'Sat' || effectiveDow === 'Sun' || effectiveIsHoliday;
       const isSpecial = isSpecialAssignedOt || !!target.isSpecialAssignment;
       const isHolOverride = !!target.isHolidayOverride;
 
-      // If user rates are unlocked (!isTargetUserRatesLocked), treat non-working days like working days for shift calculation
-      const treatAsOtherForShiftCalc = isOther && isTargetUserRatesLocked;
+      // If holiday is not overridden, ensure times are blank and reason is protected
+      if (effectiveIsHoliday && !isHolOverride) {
+        target.startTime = '';
+        target.endTime = '';
+      }
 
-      // Calculate shift overtime according to company rules
+      // Calculate shift overtime according to company rules:
+      // Shift is valid for working days only.
+      // In saturdays or other non working days, full time is ot 15min by 15 min.
       const calc = calculateShiftOvertime(
         target.startTime,
         target.endTime,
         0,
         maxOtLimitHours,
-        treatAsOtherForShiftCalc,
+        isOther,
         userShiftEndTime || GENERAL_SHIFT_END,
         userShiftStartTime || GENERAL_SHIFT_START,
         isSpecial,
@@ -1031,7 +1058,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       target.totalWorkMinutes = calc.totalWorkMinutes;
       target.rawOtMinutes = calc.rawOtMinutes;
       target.totalMinutes = calc.totalMinutes;
-      target.totalFormatted = (isOther && !isHolOverride && isTargetUserRatesLocked) ? '' : formatMinutesToTime(calc.totalMinutes, otDisplayFormat);
+      target.totalFormatted = (effectiveIsHoliday && !isHolOverride) ? '' : formatMinutesToTime(calc.totalMinutes, otDisplayFormat);
       target.isOvernight = calc.isOvernight;
       target.isCapped = calc.isCapped;
       target.uncappedMinutes = calc.uncappedMinutes;
@@ -1045,22 +1072,36 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     });
   };
 
-  // Re-calculate all rows when user OT limit, shift, or rates lock status changes
+  // Re-calculate all rows when user OT limit, shift, or calendar changes
   useEffect(() => {
     setRows(prevRows =>
       prevRows.map(row => {
         if (!row.startTime || !row.endTime) return row;
-        const isHoliday = !!row.isHoliday || holidayMap.has(row.date) || row.dayOfWeek === 'Sun';
-        const isOther = row.dayOfWeek === 'Sat' || row.dayOfWeek === 'Sun' || isHoliday;
+        const dow = row.dayOfWeek || getDayOfWeek(row.date);
+        const isHoliday = !!row.isHoliday || holidayMap.has(row.date) || dow === 'Sun';
+        const isOther = dow === 'Sat' || dow === 'Sun' || isHoliday;
         const isSpecial = isSpecialAssignedOt || !!row.isSpecialAssignment;
         const isHolOverride = !!row.isHolidayOverride;
-        const treatAsOtherForShiftCalc = isOther && isTargetUserRatesLocked;
+
+        if (isHoliday && !isHolOverride) {
+          return {
+            ...row,
+            startTime: '',
+            endTime: '',
+            totalWorkMinutes: 0,
+            rawOtMinutes: 0,
+            totalMinutes: 0,
+            totalFormatted: '',
+            isDaysPayment: false,
+          };
+        }
+
         const calc = calculateShiftOvertime(
           row.startTime,
           row.endTime,
           0,
           maxOtLimitHours,
-          treatAsOtherForShiftCalc,
+          isOther,
           userShiftEndTime || GENERAL_SHIFT_END,
           userShiftStartTime || GENERAL_SHIFT_START,
           isSpecial,
@@ -1071,7 +1112,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           totalWorkMinutes: calc.totalWorkMinutes,
           rawOtMinutes: calc.rawOtMinutes,
           totalMinutes: calc.totalMinutes,
-          totalFormatted: (isOther && !isHolOverride && isTargetUserRatesLocked) ? '' : formatMinutesToTime(calc.totalMinutes, otDisplayFormat),
+          totalFormatted: formatMinutesToTime(calc.totalMinutes, otDisplayFormat),
           isOvernight: calc.isOvernight,
           isCapped: calc.isCapped,
           uncappedMinutes: calc.uncappedMinutes,
@@ -1082,7 +1123,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         };
       })
     );
-  }, [maxOtLimitHours, otDisplayFormat, holidayMap, userShiftEndTime, userShiftStartTime, isSpecialAssignedOt, isTargetUserRatesLocked]);
+  }, [maxOtLimitHours, otDisplayFormat, holidayMap, userShiftEndTime, userShiftStartTime, isSpecialAssignedOt]);
 
   // Auto-Fill Month: Loads ALL dates in the selected month with holidays & Sundays shown
   const handleAutoFillMonth = () => {
@@ -1433,20 +1474,12 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     const totalDecimalHours = parseFloat((totalMinutes / 60).toFixed(2));
     const totalHoursFormatted = formatMinutesToTime(totalMinutes, otDisplayFormat);
 
-    // Column A: ONLY regular weekday OT (NOT special OT, NOT holiday override)
-    // If rates are unlocked (!isTargetUserRatesLocked), non-working days with claimed OT are also included in Column A
+    // Column A: Regular overtime (Working days and Saturdays / non-working days; NOT special OT, NOT holiday override)
     const calculatedPaymentA =
       hourlyRate !== '' && !isNaN(Number(hourlyRate))
         ? Math.round(
             activeRows
-              .filter(r => {
-                if (r.isSpecialAssignment ?? isSpecialAssignedOt) return false;
-                if (r.isHolidayOverride) return false;
-                if (!isTargetUserRatesLocked) {
-                  return (r.totalMinutes || 0) > 0;
-                }
-                return isWeekdayWorkingDay(r);
-              })
+              .filter(r => !(r.isSpecialAssignment ?? isSpecialAssignedOt) && !r.isHolidayOverride)
               .reduce((acc, r) => acc + (r.totalMinutes || 0), 0) /
               60 *
               Number(hourlyRate) *
