@@ -96,7 +96,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   onClaimSaved,
   onNavigateToDesigner,
 }) => {
-  const { currentUser, userProfile, isAdmin } = useAuth();
+  const { currentUser, userProfile, isAdmin, isSuperAdmin } = useAuth();
   const settings = useMemo(() => getSettings(), []);
 
   // Templates from Cloud Firestore
@@ -512,20 +512,43 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     return dow !== 'Sat' && dow !== 'Sun' && !r.isHoliday && !holidayMap.has(r.date);
   };
 
-  // Fetch users if admin
+  // Fetch users if admin (Admins only see users in their same branch; Super Admin sees all)
   useEffect(() => {
     if (isAdmin) {
       getDocs(collection(db, 'users'))
         .then(snap => {
           const list: any[] = [];
           snap.forEach(d => list.push(d.data()));
-          setAllUsers(list);
+          const filtered = isSuperAdmin
+            ? list
+            : list.filter(u => {
+                if (u.id === currentUser?.uid) return true;
+                const adminBranch = (userProfile?.branch || '').toLowerCase().trim();
+                const userBranch = (u.branch || '').toLowerCase().trim();
+                return adminBranch && userBranch && adminBranch === userBranch;
+              });
+          setAllUsers(filtered);
         })
         .catch(err => {
           console.warn('Could not fetch all users', err);
         });
     }
-  }, [isAdmin]);
+  }, [isAdmin, isSuperAdmin, userProfile?.branch, currentUser?.uid]);
+
+  // Check if admin is attempting to view or prepare a claim from another branch
+  const isBranchForbidden = useMemo(() => {
+    if (!initialClaim) return false;
+    if (isSuperAdmin) return false;
+    if (!isAdmin) {
+      return initialClaim.userId !== currentUser?.uid;
+    }
+    // For regular admins: can view/edit own claims OR claims of staff from same branch
+    if (initialClaim.userId === currentUser?.uid) return false;
+    const adminBranch = (userProfile?.branch || '').toLowerCase().trim();
+    const claimBranch = (initialClaim.branch || '').toLowerCase().trim();
+    if (!adminBranch || !claimBranch) return false;
+    return adminBranch !== claimBranch;
+  }, [initialClaim, isSuperAdmin, isAdmin, currentUser?.uid, userProfile?.branch]);
 
   // Target profile being edited (admin can choose other user, or defaults to current logged-in user profile)
   const targetProfile = useMemo(() => {
@@ -1888,6 +1911,22 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     }
   };
 
+  if (isBranchForbidden) {
+    return (
+      <div className="max-w-3xl mx-auto p-6 sm:p-8">
+        <div className="bg-amber-50 border-2 border-amber-300 rounded-3xl p-8 text-center space-y-4 shadow-sm">
+          <div className="w-14 h-14 rounded-2xl bg-amber-100 border border-amber-200 flex items-center justify-center mx-auto text-amber-700">
+            <ShieldAlert className="w-7 h-7" />
+          </div>
+          <h2 className="text-xl font-bold text-amber-950">Branch Access Restricted</h2>
+          <p className="text-sm text-amber-900/80 max-w-lg mx-auto leading-relaxed">
+            Administrators can only prepare and view overtime sheets for users belonging to their own branch (<span className="font-bold text-amber-950">{userProfile?.branch || 'Unassigned'}</span>). This claim belongs to the <span className="font-bold text-amber-950">{initialClaim?.branch || 'another'}</span> branch.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 pb-16">
       {/* Top Card */}
@@ -2071,7 +2110,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
               )}
             </div>
 
-            {isAdmin && onNavigateToDesigner && (
+            {isSuperAdmin && onNavigateToDesigner && (
               <button
                 type="button"
                 onClick={onNavigateToDesigner}

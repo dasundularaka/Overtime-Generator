@@ -312,7 +312,7 @@ function AppContent() {
             <strong>OT Claim</strong> &bull; Official A4 Timesheet &amp; Claim System
           </div>
           <div className="flex items-center gap-3 text-[11px] text-slate-400">
-            <span>Signed in as: <strong className="text-slate-700">{userProfile?.name || currentUser.email}</strong> ({isSuperAdmin ? 'Super Admin (Owner)' : isAdmin ? 'Admin' : 'User'})</span>
+            <span>Signed in as: <strong className="text-slate-700">{userProfile?.name || currentUser.email}</strong> ({isSuperAdmin ? 'Super Admin' : isAdmin ? 'Admin' : 'User'})</span>
           </div>
         </div>
       </footer>

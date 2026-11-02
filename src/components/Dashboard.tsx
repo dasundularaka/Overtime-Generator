@@ -360,53 +360,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
           <div className="flex flex-col sm:flex-row md:flex-col gap-2.5 shrink-0">
             <button
-              onClick={() => onNavigate('new-claim')}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-3 text-xs font-bold shadow-lg transition cursor-pointer"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>Submit Timesheet</span>
-            </button>
-
-            <button
               onClick={() => onNavigate('branches')}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2.5 text-xs font-semibold border border-slate-700 transition cursor-pointer"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-100 px-5 py-3 text-xs font-semibold border border-slate-700 shadow-md transition cursor-pointer"
               title="Access corporate bank branch network directory"
             >
               <Building2 className="w-4 h-4 text-emerald-400" />
               <span>Branch Network</span>
             </button>
-
-            {isAdmin && (
-              <>
-                <button
-                  onClick={() => onNavigate('history')}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 px-4 py-2.5 text-xs font-semibold border border-indigo-500/40 transition cursor-pointer"
-                  title="View staff submitted overtime sheets"
-                >
-                  <FileText className="w-4 h-4 text-indigo-300" />
-                  <span>View Staff OT Sheets</span>
-                </button>
-
-                <button
-                  onClick={() => onNavigate('users')}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 px-4 py-2.5 text-xs font-semibold border border-purple-500/40 transition cursor-pointer"
-                >
-                  <UserCheck className="w-4 h-4" />
-                  <span>Assign User OT Limits</span>
-                </button>
-
-                {isSuperAdmin && (
-                  <button
-                    onClick={() => onNavigate('designer')}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-600/30 hover:bg-amber-600/50 text-amber-200 px-4 py-2.5 text-xs font-semibold border border-amber-500/40 transition cursor-pointer"
-                    title="Design and calibrate Form 10756 A4 PDF layout (Owner exclusive)"
-                  >
-                    <Sliders className="w-4 h-4 text-amber-300" />
-                    <span>Template Designer</span>
-                  </button>
-                )}
-              </>
-            )}
           </div>
         </div>
       </div>
@@ -421,7 +381,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </div>
               <div>
                 <h3 className="text-sm font-bold text-slate-900">
-                  Super Admin (Owner) Dashboard Scope
+                  Super Admin Dashboard Scope
                 </h3>
                 <p className="text-[11px] text-slate-500">
                   Switch between personal overtime or inspect all staff company records with live filters.

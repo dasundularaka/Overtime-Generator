@@ -33,7 +33,8 @@ import { ConfirmationModal } from './ConfirmationModal';
 import { MONTH_NAMES, DAYS_SHORT } from '../utils/timeCalculations';
 
 export const CalendarManager: React.FC = () => {
-  const { isAdmin } = useAuth();
+  const { isAdmin, isSuperAdmin } = useAuth();
+  const canEditCalendar = isSuperAdmin;
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
@@ -74,6 +75,7 @@ export const CalendarManager: React.FC = () => {
   }, []);
 
   const openAddModal = (initialDate?: string) => {
+    if (!canEditCalendar) return;
     setEditingHoliday(null);
     setFormDate(initialDate || `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-01`);
     setFormName('');
@@ -84,6 +86,7 @@ export const CalendarManager: React.FC = () => {
   };
 
   const openEditModal = (h: Holiday) => {
+    if (!canEditCalendar) return;
     setEditingHoliday(h);
     setFormDate(h.date);
     setFormName(h.name);
@@ -95,6 +98,10 @@ export const CalendarManager: React.FC = () => {
 
   const handleSaveHoliday = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canEditCalendar) {
+      setActionError('Only Super Admin can modify the calendar.');
+      return;
+    }
     if (!formDate || !formName.trim()) {
       setActionError('Please provide both holiday date and name.');
       return;
@@ -136,7 +143,7 @@ export const CalendarManager: React.FC = () => {
   };
 
   const handleConfirmDelete = async () => {
-    if (!holidayToDelete) return;
+    if (!canEditCalendar || !holidayToDelete) return;
     setIsDeleting(true);
     try {
       await deleteHoliday(holidayToDelete.id);
@@ -161,6 +168,7 @@ export const CalendarManager: React.FC = () => {
   };
 
   const handleConfirmSeed = async () => {
+    if (!canEditCalendar) return;
     setIsSeeding(true);
     try {
       const count = await seedStandardHolidays();
@@ -188,6 +196,7 @@ export const CalendarManager: React.FC = () => {
   };
 
   const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canEditCalendar) return;
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -310,7 +319,7 @@ export const CalendarManager: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {isAdmin && (
+            {canEditCalendar ? (
               <>
                 <input
                   type="file"
@@ -350,6 +359,11 @@ export const CalendarManager: React.FC = () => {
                   <span>Add Holiday</span>
                 </button>
               </>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-semibold border border-slate-200">
+                <Info className="w-3.5 h-3.5 text-slate-500" />
+                <span>Calendar View Mode</span>
+              </span>
             )}
           </div>
         </div>
@@ -475,9 +489,9 @@ export const CalendarManager: React.FC = () => {
               return (
                 <div
                   key={item.dateStr}
-                  onClick={() => isAdmin && openAddModal(item.dateStr)}
+                  onClick={() => canEditCalendar && openAddModal(item.dateStr)}
                   className={`min-h-[56px] sm:min-h-[74px] p-1 sm:p-1.5 rounded-xl border flex flex-col justify-between transition group relative ${
-                    isAdmin ? 'cursor-pointer hover:shadow-xs' : ''
+                    canEditCalendar ? 'cursor-pointer hover:shadow-xs' : ''
                   } ${
                     isHol
                       ? 'bg-purple-50/70 border-purple-200 text-purple-950'
@@ -542,7 +556,7 @@ export const CalendarManager: React.FC = () => {
                 <p className="text-[11px] text-slate-400 mt-0.5">
                   Sundays are regular weekly non-working days.
                 </p>
-                {isAdmin && (
+                {canEditCalendar && (
                   <button
                     type="button"
                     onClick={() => openAddModal()}
@@ -578,7 +592,7 @@ export const CalendarManager: React.FC = () => {
                     )}
                   </div>
 
-                  {isAdmin && (
+                  {canEditCalendar && (
                     <div className="flex items-center gap-1 shrink-0 pt-0.5">
                       <button
                         type="button"

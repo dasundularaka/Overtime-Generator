@@ -173,13 +173,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const bootstrapProfile: UserProfile = {
         id: user.uid,
         email: userEmail,
-        name: 'Administrator (Owner)', // Real name for bootstrap super admin
+        name: 'Super Administrator',
         role: 'super_admin',
         claimType: 'OT',
         employeeNumber: 'PF100000',
         pfNumber: 'PF100000',
         photoURL: user.photoURL || undefined,
-        designation: 'Owner & Super Administrator',
+        designation: 'Super Administrator',
         branch: 'Head Office - Colombo',
         department: 'IT & Infrastructure Operations',
         maxOtHoursPerDay: 2.0,

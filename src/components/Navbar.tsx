@@ -376,7 +376,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       badge: 'OT Rates',
       color: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
     },
-    // Template Designer is exclusive to Super Admin (Owner)
+    // Template Designer is exclusive to Super Admin
     ...(isSuperAdmin
       ? [
           {
@@ -645,90 +645,112 @@ export const Navbar: React.FC<NavbarProps> = ({
                   />
                 </button>
 
-                {/* Profile Details Dropdown Popover */}
+                {/* Profile Details Modal Card - Centered on screen, auto-adjusting to screen size */}
                 {isProfileMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-80 rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl py-3 z-50 animate-scale-in">
-                    {/* User Info Header */}
-                    <div className="px-4 pb-3 border-b border-slate-800">
-                      <div className="flex items-center gap-3">
-                        {userProfile.photoURL ? (
-                          <img
-                            src={userProfile.photoURL}
-                            alt={userProfile.name}
-                            className="h-10 w-10 rounded-xl object-cover border border-slate-600 shrink-0"
-                            referrerPolicy="no-referrer"
-                          />
-                        ) : (
-                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 font-bold text-white text-sm shrink-0">
-                            {userProfile.name?.slice(0, 2).toUpperCase() || 'U'}
-                          </div>
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <h4 className="font-bold text-sm text-white truncate">{userProfile.name}</h4>
-                          <p className="text-xs text-slate-400 truncate">{userProfile.email}</p>
-                          <div className="flex items-center gap-1.5 mt-1">
-                            <span className="font-mono text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-1.5 py-0.2 rounded border border-indigo-500/20">
-                              {userProfile.employeeNumber || userProfile.pfNumber}
-                            </span>
-                            <span className={`text-[10px] font-bold uppercase px-1.5 py-0.2 rounded border ${
-                              isSuperAdmin
-                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                                : isAdmin
-                                ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
-                                : 'bg-blue-500/20 text-blue-300 border-blue-500/30'
-                            }`}>
-                              {isSuperAdmin ? 'Super Admin (Owner)' : isAdmin ? 'Administrator' : 'Standard User'}
-                            </span>
+                  <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-950/70 backdrop-blur-xs animate-fade-in">
+                    {/* Backdrop click to close */}
+                    <div
+                      className="fixed inset-0"
+                      onClick={() => setIsProfileMenuOpen(false)}
+                    />
+
+                    <div className="relative w-full max-w-sm sm:max-w-md rounded-3xl bg-slate-900 border border-slate-700/90 shadow-2xl py-4 z-10 animate-scale-in max-h-[92vh] overflow-y-auto">
+                      {/* Card Title & Close Button */}
+                      <div className="px-5 pb-3 border-b border-slate-800 flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                          Employee Profile &amp; Account
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setIsProfileMenuOpen(false)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      {/* User Info Header */}
+                      <div className="px-5 py-4 border-b border-slate-800">
+                        <div className="flex items-center gap-3.5">
+                          {userProfile.photoURL ? (
+                            <img
+                              src={userProfile.photoURL}
+                              alt={userProfile.name}
+                              className="h-12 w-12 rounded-2xl object-cover border border-slate-600 shrink-0 shadow-md"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 font-bold text-white text-base shrink-0 shadow-md">
+                              {userProfile.name?.slice(0, 2).toUpperCase() || 'U'}
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <h4 className="font-bold text-sm sm:text-base text-white truncate">{userProfile.name}</h4>
+                            <p className="text-xs text-slate-400 truncate">{userProfile.email}</p>
+                            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                              <span className="font-mono text-[10px] font-bold text-indigo-300 bg-indigo-500/20 px-2 py-0.5 rounded-md border border-indigo-500/30">
+                                {userProfile.employeeNumber || userProfile.pfNumber}
+                              </span>
+                              <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-md border ${
+                                isSuperAdmin
+                                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                  : isAdmin
+                                  ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                                  : 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                              }`}>
+                                {isSuperAdmin ? 'Super Admin' : isAdmin ? 'Administrator' : 'Standard User'}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
 
-                    {/* Profile Specifics Matrix */}
-                    <div className="px-4 py-2.5 text-xs border-b border-slate-800 space-y-1.5 text-slate-300">
-                      <div className="flex items-center justify-between text-[11px]">
-                        <span className="text-slate-400">Branch:</span>
-                        <span className="font-semibold text-slate-200 truncate max-w-[170px] text-right">{userProfile.branch}</span>
+                      {/* Profile Specifics Matrix */}
+                      <div className="px-5 py-3.5 text-xs border-b border-slate-800 space-y-2 text-slate-300">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-slate-400">Branch Office:</span>
+                          <span className="font-semibold text-slate-100 truncate max-w-[200px] text-right">{userProfile.branch}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-slate-400">Designation:</span>
+                          <span className="font-semibold text-slate-100 truncate max-w-[200px] text-right">{userProfile.designation || 'Staff'}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-slate-400">Department:</span>
+                          <span className="font-semibold text-slate-100 truncate max-w-[200px] text-right">{userProfile.department}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-slate-400">Daily OT Limit:</span>
+                          <span className="font-semibold text-emerald-400">
+                            {userProfile.maxOtHoursPerDay !== undefined ? `${userProfile.maxOtHoursPerDay} hrs max/day` : '2.0 hrs max/day'} &bull; {userProfile.claimType || 'OT'} Sheet
+                          </span>
+                        </div>
                       </div>
-                      <div className="flex items-center justify-between text-[11px]">
-                        <span className="text-slate-400">Designation:</span>
-                        <span className="font-semibold text-slate-200 truncate max-w-[170px] text-right">{userProfile.designation || 'Staff'}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-[11px]">
-                        <span className="text-slate-400">Department:</span>
-                        <span className="font-semibold text-slate-200 truncate max-w-[170px] text-right">{userProfile.department}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-[11px]">
-                        <span className="text-slate-400">Daily Cap &amp; Claim:</span>
-                        <span className="font-semibold text-emerald-400">
-                          {userProfile.maxOtHoursPerDay !== undefined ? `${userProfile.maxOtHoursPerDay} hrs max` : '2.0 hrs max'} &bull; {userProfile.claimType || 'OT'} Sheet
-                        </span>
-                      </div>
-                    </div>
 
-                    {/* Action Shortcuts */}
-                    <div className="p-2 space-y-1 text-xs">
-                      <button
-                        onClick={() => {
-                          setIsProfileMenuOpen(false);
-                          onSelectTab('settings');
-                        }}
-                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 transition text-left cursor-pointer"
-                      >
-                        <Settings className="w-4 h-4 text-slate-400" />
-                        <span>Preferences &amp; Printer Offsets</span>
-                      </button>
+                      {/* Action Shortcuts */}
+                      <div className="p-3 space-y-1.5 text-xs">
+                        <button
+                          onClick={() => {
+                            setIsProfileMenuOpen(false);
+                            onSelectTab('settings');
+                          }}
+                          className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-200 hover:text-white hover:bg-slate-800/80 transition text-left cursor-pointer border border-transparent hover:border-slate-700"
+                        >
+                          <Settings className="w-4 h-4 text-slate-400" />
+                          <span>Preferences &amp; Printer Offsets</span>
+                        </button>
 
-                      <button
-                        onClick={() => {
-                          setIsProfileMenuOpen(false);
-                          setIsLogoutConfirmOpen(true);
-                        }}
-                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-rose-300 hover:text-rose-200 hover:bg-rose-950/40 border border-transparent hover:border-rose-900/50 transition text-left cursor-pointer"
-                      >
-                        <LogOut className="w-4 h-4 text-rose-400" />
-                        <span>Sign Out</span>
-                      </button>
+                        <button
+                          onClick={() => {
+                            setIsProfileMenuOpen(false);
+                            setIsLogoutConfirmOpen(true);
+                          }}
+                          className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-rose-300 hover:text-rose-200 hover:bg-rose-950/40 border border-transparent hover:border-rose-900/50 transition text-left cursor-pointer"
+                        >
+                          <LogOut className="w-4 h-4 text-rose-400" />
+                          <span>Sign Out</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}

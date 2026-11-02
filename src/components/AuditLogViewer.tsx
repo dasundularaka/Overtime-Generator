@@ -295,7 +295,7 @@ export const AuditLogViewer: React.FC = () => {
                 <Building2 className="w-3.5 h-3.5" />
                 <span>
                   {isSuperAdmin
-                    ? 'Super Admin (Owner): All Branches'
+                    ? 'Super Admin: All Branches'
                     : `Branch Admin Scope: ${adminBranch || 'Your Branch'} only`}
                 </span>
               </div>

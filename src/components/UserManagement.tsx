@@ -251,12 +251,16 @@ export const UserManagement: React.FC = () => {
   };
 
   const openEditModal = (user: UserProfile) => {
+    const isTargetSuperAdmin = user.role === 'super_admin' || user.email?.toLowerCase() === 'dasundularaka@gmail.com';
+    if (!isSuperAdmin && isTargetSuperAdmin) {
+      setFormError('Only Super Admin can edit Super Admin accounts.');
+      return;
+    }
     setEditingUser(user);
     setName(user.name);
     setEmail(user.email);
     setPassword('');
-    const isOwner = user.email?.toLowerCase() === 'dasundularaka@gmail.com';
-    setRole(isOwner ? 'super_admin' : user.role);
+    setRole(isTargetSuperAdmin ? 'super_admin' : user.role);
     setRoleId(user.roleId || '');
     setClaimType(user.claimType || 'OT');
     setEmployeeNumber(user.employeeNumber || user.pfNumber || '');
@@ -323,6 +327,16 @@ export const UserManagement: React.FC = () => {
 
     if (cleanPf.length < 3 || !/^PF[0-9A-Z_-]+$/i.test(cleanPf)) {
       setFormError('PF Number must start with "PF" (e.g. PF1001, PF002) and be valid.');
+      return;
+    }
+
+    if (!isSuperAdmin && (editingUser?.role === 'super_admin' || editingUser?.email?.toLowerCase() === 'dasundularaka@gmail.com')) {
+      setFormError('Admins cannot edit Super Admin accounts.');
+      return;
+    }
+
+    if (!isSuperAdmin && role === 'super_admin') {
+      setFormError('Only Super Admin can assign the Super Admin role.');
       return;
     }
 
@@ -624,6 +638,12 @@ export const UserManagement: React.FC = () => {
 
   const confirmDeleteUser = async () => {
     if (!userToDelete) return;
+    const isTargetSuperAdmin = userToDelete.role === 'super_admin' || userToDelete.email?.toLowerCase() === 'dasundularaka@gmail.com';
+    if (!isSuperAdmin && isTargetSuperAdmin) {
+      setFormError('Only Super Admin can manage Super Admin accounts.');
+      setUserToDelete(null);
+      return;
+    }
     setIsDeletingUser(true);
     try {
       const cleanPf = formatPfNumber(userToDelete.employeeNumber || userToDelete.pfNumber || '');
@@ -676,6 +696,11 @@ export const UserManagement: React.FC = () => {
   };
 
   const openPasswordModal = (user: UserProfile) => {
+    const isTargetSuperAdmin = user.role === 'super_admin' || user.email?.toLowerCase() === 'dasundularaka@gmail.com';
+    if (!isSuperAdmin && isTargetSuperAdmin) {
+      setFormError('Only Super Admin can reset Super Admin passwords.');
+      return;
+    }
     setPasswordModalUser(user);
     setEmployeeNumberInput('');
     setIsResetPanelUnlocked(false);
@@ -940,7 +965,7 @@ export const UserManagement: React.FC = () => {
             className="rounded-xl border border-slate-300 bg-white py-2 px-3 text-xs text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
           >
             <option value="ALL">All System Roles</option>
-            <option value="super_admin">Super Admins (Owner)</option>
+            <option value="super_admin">Super Admins Only</option>
             <option value="admin">Administrators Only</option>
             <option value="user">Standard Users Only</option>
           </select>
@@ -1026,7 +1051,7 @@ export const UserManagement: React.FC = () => {
                             {isSuperAdminOwner ? (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
                                 <Shield className="w-2.5 h-2.5 text-amber-600 fill-amber-500" />
-                                <span>Super Admin (Owner)</span>
+                                <span>Super Admin</span>
                               </span>
                             ) : u.role === 'admin' ? (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
@@ -1046,31 +1071,41 @@ export const UserManagement: React.FC = () => {
                       <div className="flex items-center gap-1 shrink-0">
                         <button
                           onClick={() => openPasswordModal(u)}
-                          className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition cursor-pointer"
-                          title="Change User Password"
+                          disabled={!isSuperAdmin && isSuperAdminOwner}
+                          className={`p-1.5 rounded-lg transition ${
+                            !isSuperAdmin && isSuperAdminOwner
+                              ? 'text-slate-300 cursor-not-allowed opacity-30'
+                              : 'text-slate-500 hover:text-amber-600 hover:bg-amber-50 cursor-pointer'
+                          }`}
+                          title={!isSuperAdmin && isSuperAdminOwner ? 'Only Super Admin can reset Super Admin passwords' : 'Change User Password'}
                         >
                           <KeyRound className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => openEditModal(u)}
-                          className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
-                          title="Edit User & Overtime Limit"
+                          disabled={!isSuperAdmin && isSuperAdminOwner}
+                          className={`p-1.5 rounded-lg transition ${
+                            !isSuperAdmin && isSuperAdminOwner
+                              ? 'text-slate-300 cursor-not-allowed opacity-30'
+                              : 'text-slate-500 hover:text-indigo-600 hover:bg-slate-100 cursor-pointer'
+                          }`}
+                          title={!isSuperAdmin && isSuperAdminOwner ? 'Only Super Admin can edit Super Admin accounts' : 'Edit User & Overtime Limit'}
                         >
                           <Edit2 className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => setUserToDelete(u)}
-                          disabled={isCurrent || isSuperAdminOwner}
+                          disabled={isCurrent || (!isSuperAdmin && isSuperAdminOwner)}
                           className={`p-1.5 rounded-lg transition ${
-                            isCurrent || isSuperAdminOwner
+                            isCurrent || (!isSuperAdmin && isSuperAdminOwner)
                               ? 'text-slate-300 cursor-not-allowed opacity-40'
                               : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer'
                           }`}
                           title={
-                            isSuperAdminOwner
-                              ? 'Super Admin (Owner) cannot be deleted'
-                              : isCurrent
+                            isCurrent
                               ? 'Cannot delete your own account'
+                              : !isSuperAdmin && isSuperAdminOwner
+                              ? 'Only Super Admin can delete Super Admin accounts'
                               : 'Delete user'
                           }
                         >
@@ -1163,7 +1198,7 @@ export const UserManagement: React.FC = () => {
                         {isSuperAdminOwner ? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs">
                             <Shield className="w-3 h-3 text-amber-600 fill-amber-500" />
-                            <span>Super Admin (Owner)</span>
+                            <span>Super Admin</span>
                           </span>
                         ) : u.role === 'admin' ? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
@@ -1252,29 +1287,39 @@ export const UserManagement: React.FC = () => {
                         <div className="flex items-center justify-end gap-1">
                           <button
                             onClick={() => openPasswordModal(u)}
-                            className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition cursor-pointer"
-                            title="Change User Password"
+                            disabled={!isSuperAdmin && isSuperAdminOwner}
+                            className={`p-1.5 rounded-lg transition ${
+                              !isSuperAdmin && isSuperAdminOwner
+                                ? 'text-slate-300 cursor-not-allowed opacity-40'
+                                : 'text-slate-500 hover:text-amber-600 hover:bg-amber-50 cursor-pointer'
+                            }`}
+                            title={!isSuperAdmin && isSuperAdminOwner ? 'Only Super Admin can reset Super Admin passwords' : 'Change User Password'}
                           >
                             <KeyRound className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => openEditModal(u)}
-                            className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
-                            title="Edit User &amp; Overtime Limit"
+                            disabled={!isSuperAdmin && isSuperAdminOwner}
+                            className={`p-1.5 rounded-lg transition ${
+                              !isSuperAdmin && isSuperAdminOwner
+                                ? 'text-slate-300 cursor-not-allowed opacity-40'
+                                : 'text-slate-500 hover:text-indigo-600 hover:bg-slate-100 cursor-pointer'
+                            }`}
+                            title={!isSuperAdmin && isSuperAdminOwner ? 'Only Super Admin can edit Super Admin accounts' : 'Edit User & Overtime Limit'}
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => setUserToDelete(u)}
-                            disabled={isCurrent || isSuperAdminOwner}
+                            disabled={isCurrent || (!isSuperAdmin && isSuperAdminOwner)}
                             className={`p-1.5 rounded-lg transition ${
-                              isCurrent || isSuperAdminOwner
+                              isCurrent || (!isSuperAdmin && isSuperAdminOwner)
                                 ? 'text-slate-300 cursor-not-allowed opacity-40'
                                 : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer'
                             }`}
                             title={
-                              isSuperAdminOwner
-                                ? 'Super Admin (Owner) cannot be deleted'
+                              !isSuperAdmin && isSuperAdminOwner
+                                ? 'Only Super Admin can delete Super Admin accounts'
                                 : isCurrent
                                 ? 'Cannot delete your own account'
                                 : 'Delete user'
@@ -1356,18 +1401,18 @@ export const UserManagement: React.FC = () => {
                   <select
                     value={role}
                     onChange={e => setRole(e.target.value as UserRole)}
-                    disabled={editingUser?.email?.toLowerCase() === 'dasundularaka@gmail.com'}
+                    disabled={!isSuperAdmin && (editingUser?.role === 'super_admin' || editingUser?.email?.toLowerCase() === 'dasundularaka@gmail.com')}
                     className="w-full rounded-xl border border-slate-300 py-2 px-2.5 bg-white text-slate-800 font-semibold disabled:bg-slate-100 disabled:text-slate-500"
                   >
                     <option value="user">User (Enters own claims)</option>
                     <option value="admin">Admin (Branch administration)</option>
-                    {(isSuperAdmin || editingUser?.email?.toLowerCase() === 'dasundularaka@gmail.com') && (
-                      <option value="super_admin">Super Admin (System Owner)</option>
+                    {isSuperAdmin && (
+                      <option value="super_admin">Super Admin</option>
                     )}
                   </select>
                   {editingUser?.email?.toLowerCase() === 'dasundularaka@gmail.com' && (
                     <p className="text-[10px] text-amber-700 font-semibold mt-1">
-                      * System Owner role is protected and cannot be changed.
+                      * Super Admin role is protected and cannot be changed.
                     </p>
                   )}
                 </div>
@@ -1937,7 +1982,7 @@ export const UserManagement: React.FC = () => {
           { label: 'Account Email', value: email },
           { label: 'PF Username', value: employeeNumber },
           { label: 'Assigned Shift', value: `${shiftStartTime} - ${shiftEndTime}` },
-          { label: 'Role', value: role === 'super_admin' ? 'Super Admin (Owner)' : role === 'admin' ? 'Administrator' : 'Standard User' },
+          { label: 'Role', value: role === 'super_admin' ? 'Super Admin' : role === 'admin' ? 'Administrator' : 'Standard User' },
           { label: 'Department', value: department },
           { label: 'Branch', value: branch },
           { label: 'Daily OT Cap', value: `${maxOtHoursPerDay} hrs/day` },

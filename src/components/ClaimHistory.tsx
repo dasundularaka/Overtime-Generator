@@ -45,7 +45,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
   onEditClaim,
   onNavigateToNewClaim,
 }) => {
-  const { currentUser, userProfile, isAdmin } = useAuth();
+  const { currentUser, userProfile, isAdmin, isSuperAdmin } = useAuth();
   const [claims, setClaims] = useState<ClaimRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [templates, setTemplates] = useState<TemplateConfig[]>([getActiveTemplate()]);
@@ -108,8 +108,12 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
         snap.forEach(d => {
           list.push(d.data() as ClaimRecord);
         });
-        list.sort((a, b) => (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || ''));
-        setClaims(list);
+        // Regular admins can only access claims from their same branch or their own claims; Super Admin can access all
+        const branchFiltered = isSuperAdmin
+          ? list
+          : list.filter(c => isOwnClaim(c) || isSameBranch(c));
+        branchFiltered.sort((a, b) => (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || ''));
+        setClaims(branchFiltered);
       } else {
         const myUid = currentUser.uid;
         const myProfileId = userProfile?.id;
@@ -163,7 +167,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
 
   useEffect(() => {
     fetchClaims();
-  }, [currentUser, userProfile, isAdmin]);
+  }, [currentUser, userProfile, isAdmin, isSuperAdmin]);
 
   const handlePreviewPdf = async (claim: ClaimRecord) => {
     try {
@@ -341,17 +345,21 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
 
   // First, don't show other users submissions or drafts (default: only show own claims)
   // Admins can search other users' timesheets ONLY IF that user is assigned to the same branch
+  // Super Admin can view all users' data across all branches
   const accessibleClaims = useMemo(() => {
+    if (isSuperAdmin) {
+      return claims;
+    }
     if (!isAdmin) {
       return claims.filter(c => isOwnClaim(c));
     }
-    // For admin: if searching or branch view is toggled, include other users from the SAME branch
+    // For admin: if searching or branch view is toggled, include other users from the SAME branch only
     if (isSearching || showBranchTimesheets) {
       return claims.filter(c => isOwnClaim(c) || isSameBranch(c));
     }
     // Initially / without search, don't show other users submissions or drafts
     return claims.filter(c => isOwnClaim(c));
-  }, [claims, isAdmin, isSearching, showBranchTimesheets, userProfile, currentUser]);
+  }, [claims, isSuperAdmin, isAdmin, isSearching, showBranchTimesheets, userProfile, currentUser]);
 
   const availableYears = Array.from(new Set(accessibleClaims.map(c => c.year))).sort((a, b) => b - a);
 
@@ -818,28 +826,40 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
             <div className="flex items-center gap-2">
               <Building2 className="w-4 h-4 text-indigo-600" />
               <span>
-                Assigned Branch: <strong className="text-slate-800 font-semibold">{userProfile?.branch || 'General'}</strong>
+                {isSuperAdmin ? (
+                  <>
+                    Scope: <strong className="text-slate-800 font-semibold">Super Admin (All Branches)</strong>
+                  </>
+                ) : (
+                  <>
+                    Assigned Branch: <strong className="text-slate-800 font-semibold">{userProfile?.branch || 'General'}</strong>
+                  </>
+                )}
               </span>
               <span className="text-[11px] text-slate-400">
-                (Admins can search timesheets within their same branch)
+                {isSuperAdmin
+                  ? '(Super Admin can view and filter all users across all branches)'
+                  : '(Admins can view timesheets within their same branch)'}
               </span>
               {isSearching && (
                 <span className="text-[10px] bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded border border-indigo-200">
-                  Branch Search Active
+                  Search Active
                 </span>
               )}
             </div>
-            <button
-              type="button"
-              onClick={() => setShowBranchTimesheets(!showBranchTimesheets)}
-              className={`text-xs font-semibold px-3 py-1 rounded-xl border transition cursor-pointer ${
-                showBranchTimesheets
-                  ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
-                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-              }`}
-            >
-              {showBranchTimesheets ? `Showing All ${userProfile?.branch || 'Branch'} Timesheets` : `Browse All ${userProfile?.branch || 'Branch'} Staff`}
-            </button>
+            {!isSuperAdmin && (
+              <button
+                type="button"
+                onClick={() => setShowBranchTimesheets(!showBranchTimesheets)}
+                className={`text-xs font-semibold px-3 py-1 rounded-xl border transition cursor-pointer ${
+                  showBranchTimesheets
+                    ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                }`}
+              >
+                {showBranchTimesheets ? `Showing All ${userProfile?.branch || 'Branch'} Timesheets` : `Browse All ${userProfile?.branch || 'Branch'} Staff`}
+              </button>
+            )}
           </div>
         )}
       </div>
