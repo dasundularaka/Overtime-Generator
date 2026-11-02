@@ -47,6 +47,7 @@ export default defineConfig(() => {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
           maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
         },
+        injectRegister: process.env.NODE_ENV === 'production' ? 'auto' : null,
         devOptions: {
           enabled: false,
         },
