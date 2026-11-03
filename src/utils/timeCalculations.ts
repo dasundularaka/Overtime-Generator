@@ -133,33 +133,33 @@ export function calculateShiftOvertime(
 
   // Policy: Non-working days (Saturdays or other non-working days)
   // Shift is valid for working days only.
-  // In saturdays or other non working days, full time is OT 15 min by 15 min.
+  // In saturdays or other non-working days, OT calculations start from 8:00 AM (480 mins)
+  // and calculate 15 min by 15 min. No 2-hour restriction applies to non-working days.
   if (isOtherDay) {
-    const rawOtMinutes = netWorkDuration;
-    const steppedOtMinutes = Math.floor(rawOtMinutes / OT_INCREMENT_STEP) * OT_INCREMENT_STEP;
-    let finalOtMinutes = steppedOtMinutes;
-    let isCapped = false;
-
-    // Apply assigned User Overtime Limit (unless Special Assignment is ticked: Special OT has NO limit!)
-    if (!isSpecialAssignment && maxOtHoursLimit !== undefined && maxOtHoursLimit !== null && maxOtHoursLimit > 0) {
-      const maxAllowed = Math.round(maxOtHoursLimit * 60);
-      if (steppedOtMinutes > maxAllowed) {
-        finalOtMinutes = maxAllowed;
-        isCapped = true;
-      }
+    // Overtime calculation starts from 8:00 AM (480 mins)
+    const effectiveStartMin = Math.max(startMin, 480);
+    let otDiff = 0;
+    if (isOvernight) {
+      otDiff = (1440 - effectiveStartMin) + endMin;
+    } else {
+      otDiff = Math.max(0, endMin - effectiveStartMin);
     }
+    const rawOtMinutes = Math.max(0, otDiff - (breakMinutes || 0));
+    const steppedOtMinutes = Math.floor(rawOtMinutes / OT_INCREMENT_STEP) * OT_INCREMENT_STEP;
 
     return {
       totalWorkMinutes: netWorkDuration,
       rawOtMinutes,
-      totalMinutes: finalOtMinutes,
-      totalFormatted: formatMinutesToTime(finalOtMinutes, 'hhmm'),
+      totalMinutes: steppedOtMinutes,
+      totalFormatted: formatMinutesToTime(steppedOtMinutes, 'hhmm'),
       isOvernight,
-      isCapped,
+      isCapped: false,
       uncappedMinutes: steppedOtMinutes,
       lateDeductionMinutes: 0,
       isLateDisqualified: false,
-      lateNote: isHolidayOverride ? "Holiday Overridden: Full Time OT (15-min blocks)" : "Non-Working Day: Full Time OT (15-min blocks)",
+      lateNote: isHolidayOverride
+        ? "Holiday Overridden: Full Time OT from 8:00 AM (15-min blocks)"
+        : "Non-Working Day: Full Time OT from 8:00 AM (15-min blocks)",
       isDaysPayment: netWorkDuration > 0,
     };
   }

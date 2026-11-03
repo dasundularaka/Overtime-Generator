@@ -1,5 +1,5 @@
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
-import { ClaimRecord, FontFamily, TemplateConfig } from '../types';
+import { ClaimRecord, FieldConfig, FontFamily, TemplateConfig } from '../types';
 import { formatMinutesToTime } from './timeCalculations';
 
 export const MM_TO_PT = 72 / 25.4; // ~2.83464567 points per millimeter
@@ -230,6 +230,12 @@ export async function generateOvertimePdf(
   }
 
   // Map claim data values to field keys
+  const formatRate = (val?: number | string) => {
+    if (val === undefined || val === null || val === '') return '';
+    const n = Number(val);
+    return isNaN(n) ? String(val) : n.toFixed(2);
+  };
+
   const claimDataMap: Record<string, string> = {
     employeeName: claim.employeeName || '',
     employeeNumber: claim.employeeNumber || '',
@@ -240,28 +246,89 @@ export async function generateOvertimePdf(
     year: String(claim.year || ''),
     monthYear: `${claim.month} ${claim.year}`,
     claimDate: claim.claimDate || '',
-    totalDaysCount: `${claim.otDaysCount} Days`,
-    totalHoursFormatted: `${claim.totalHoursFormatted} (${claim.totalDecimalHours.toFixed(2)}h)`,
+    totalDaysCount: `${claim.otDaysCount || 0} Days`,
+    totalHoursFormatted: claim.totalHoursFormatted ? `${claim.totalHoursFormatted} (${(claim.totalDecimalHours || 0).toFixed(2)}h)` : '',
+    totalHoursOnly: claim.totalHoursFormatted || '',
     claimantSign: claim.employeeName || '',
     claimNumber: claim.claimNumber || '',
-    hourlyRate: claim.hourlyRate !== undefined ? Number(claim.hourlyRate).toFixed(2) : '',
-    daysPay: claim.daysPay !== undefined ? Number(claim.daysPay).toFixed(2) : '',
-    hourlyRateNonWorkingDays: claim.hourlyRateNonWorkingDays !== undefined ? Number(claim.hourlyRateNonWorkingDays).toFixed(2) : '',
+    hourlyRate: formatRate(claim.hourlyRate),
+    daysPay: formatRate(claim.daysPay),
+    hourlyRateNonWorkingDays: formatRate(claim.hourlyRateNonWorkingDays),
     daysPayCount: String(claim.daysPayCount || 0),
-    daysPayTotal: claim.daysPayTotal !== undefined ? Number(claim.daysPayTotal).toFixed(2) : '',
-    totalRemuneration: claim.totalRemuneration !== undefined ? Number(claim.totalRemuneration).toFixed(2) : '',
-    otPaymentDueA: claim.otPaymentDueA !== undefined ? Number(claim.otPaymentDueA).toFixed(2) : '',
-    otPaymentDueB: claim.otPaymentDueB !== undefined ? Number(claim.otPaymentDueB).toFixed(2) : '',
-    totalOtPayment: claim.totalOtPayment !== undefined ? Number(claim.totalOtPayment).toFixed(2) : '',
+    daysPayTotal: formatRate(claim.daysPayTotal),
+    totalRemuneration: formatRate(claim.totalRemuneration),
+    otPaymentDueA: formatRate(claim.otPaymentDueA),
+    otPaymentDueB: formatRate(claim.otPaymentDueB),
+    totalOtPayment: formatRate(claim.totalOtPayment),
   };
+
+  // Resilient field value lookup supporting keys, IDs, aliases, and lowercase variations
+  function resolveClaimFieldValue(field: FieldConfig): string {
+    const rawKey = (field.key || '').trim();
+    const rawId = (field.id || '').trim();
+    const rawName = (field.name || '').trim().toLowerCase();
+
+    // 1. Exact key match
+    if (rawKey && claimDataMap[rawKey] !== undefined && claimDataMap[rawKey] !== '') {
+      return claimDataMap[rawKey];
+    }
+
+    // 2. Exact ID without 'f_' prefix
+    const strippedId = rawId.replace(/^f_/, '');
+    if (strippedId && claimDataMap[strippedId] !== undefined && claimDataMap[strippedId] !== '') {
+      return claimDataMap[strippedId];
+    }
+
+    // 3. Normalized alphanumeric lookup
+    const normKey = rawKey.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const normId = rawId.toLowerCase().replace(/^f_/, '').replace(/[^a-z0-9]/g, '');
+
+    for (const [k, v] of Object.entries(claimDataMap)) {
+      if (!v) continue;
+      const normK = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (normK === normKey || normK === normId) {
+        return v;
+      }
+    }
+
+    // 4. Semantic aliases for rate and payment fields (e.g. user manually changed in new claim)
+    if (normKey.includes('hourly') || normId.includes('hourly') || rawName.includes('hourly') || normKey === 'otrate' || normKey === 'rate') {
+      if (normKey.includes('nonworking') || normId.includes('nonworking') || rawName.includes('non-working')) {
+        return claimDataMap.hourlyRateNonWorkingDays || claimDataMap.hourlyRate || '';
+      }
+      return claimDataMap.hourlyRate || '';
+    }
+
+    if (normKey.includes('dayspay') || normId.includes('dayspay') || normKey.includes('daypay') || normId.includes('daypay') || (rawName.includes('day') && rawName.includes('pay'))) {
+      return claimDataMap.daysPay || '';
+    }
+
+    if (normKey.includes('remuneration') || normId.includes('remuneration') || rawName.includes('remuneration') || normKey.includes('salary')) {
+      return claimDataMap.totalRemuneration || '';
+    }
+
+    if (normKey.includes('paymentduea') || normId.includes('paymentduea') || normKey === 'paymenta' || rawName.includes("due 'a'")) {
+      return claimDataMap.otPaymentDueA || '';
+    }
+
+    if (normKey.includes('paymentdueb') || normId.includes('paymentdueb') || normKey === 'paymentb' || rawName.includes("due 'b'")) {
+      return claimDataMap.otPaymentDueB || '';
+    }
+
+    if (normKey.includes('totalotpayment') || normId.includes('totalotpayment') || normKey === 'totalpayment' || rawName.includes('total payment')) {
+      return claimDataMap.totalOtPayment || '';
+    }
+
+    // 5. Fallback: only use template sampleValue if the field is not a rate/payment field, or if nothing was ever entered
+    return field.sampleValue ?? '';
+  }
 
   // 1. Overlay configured single fields (header particulars, totals, signatures, etc.)
   for (const field of template.fields) {
     if (!field.isVisible) continue;
 
-    const mappedVal = claimDataMap[field.key];
-    const value = (mappedVal !== undefined && mappedVal.trim() !== '') ? mappedVal : (field.sampleValue ?? '');
-    if (!value) continue;
+    const value = resolveClaimFieldValue(field);
+    if (!value || value.trim() === '') continue;
 
     const font = await getFont(field.fontFamily, field.isBold);
     const maxWidthPt = field.width * MM_TO_PT;
@@ -329,20 +396,21 @@ export async function generateOvertimePdf(
       const isSat = row.dayOfWeek === 'Sat' || (row.date && new Date(row.date).getDay() === 6);
       const isSun = row.dayOfWeek === 'Sun' || (row.date && new Date(row.date).getDay() === 0);
       const isOtherDay = isSat || isSun || !!row.isHoliday || !!row.isDaysPayment;
+      // Show non-working days OT period (in, out, worked, and OT claimed) like other working days for rates-unlocked users or holiday override
+      const showPeriod = !isOtherDay || isRatesUnlocked || !!row.isHolidayOverride || (row.totalMinutes || 0) > 0;
 
       const rowValues = [
         { col: cols.date, val: row.date ? row.date.split('-').slice(1).join('/') : '' },
         { col: cols.day, val: row.dayOfWeek || '' },
         { col: cols.reason, val: row.reason || (isOtherDay && !row.startTime ? "Day's Pay Allocation" : '') },
         { col: cols.approvedBy, val: row.approvedBy || '' },
-        // Keep the in out times and working time for all days (including Saturdays and other days)
-        { col: cols.startTime, val: row.startTime || '' },
-        { col: cols.endTime, val: row.endTime ? `${row.endTime}${row.isOvernight ? '*' : ''}` : '' },
-        { col: cols.totalHours, val: row.totalWorkMinutes > 0 ? formatMinutesToTime(row.totalWorkMinutes, 'hhmm') : '' },
+        { col: cols.startTime, val: showPeriod ? (row.startTime || '') : '' },
+        { col: cols.endTime, val: showPeriod ? (row.endTime ? `${row.endTime}${row.isOvernight ? '*' : ''}` : '') : '' },
+        { col: cols.totalHours, val: (showPeriod && row.totalWorkMinutes > 0) ? formatMinutesToTime(row.totalWorkMinutes, 'hhmm') : '' },
         // Column A: Regular overtime (Working days and Saturdays / non-working days; NOT special OT, NOT holiday override)
         {
           col: cols.otHoursClaimed || (cols.breakMinutes ? undefined : cols.totalHours),
-          val: (!row.isSpecialAssignment && !row.isHolidayOverride && (row.totalMinutes || 0) > 0)
+          val: (!row.isSpecialAssignment && !row.isHolidayOverride && (row.totalMinutes || 0) > 0 && showPeriod)
             ? (row.totalFormatted || '')
             : '',
         },
