@@ -2771,14 +2771,20 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                     </div>
                   </div>
 
-                  {/* Duties / Reason input */}
+                  {/* Duties / Reason input - Disabled on holidays without override */}
                   <div>
                     <input
                       type="text"
+                      disabled={isHol && !row.isHolidayOverride}
                       value={row.reason}
                       onChange={e => updateRowField(index, 'reason', e.target.value)}
-                      placeholder={isOther && !row.isHolidayOverride ? (isHol ? "Holiday / Off Day" : "Weekend Duty...") : "Duties performed..."}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-800 placeholder:text-slate-300"
+                      placeholder={isHol && !row.isHolidayOverride ? "Holiday / Off Day (Tick override to edit)" : (isSat ? "Saturday Duty..." : "Duties performed...")}
+                      title={isHol && !row.isHolidayOverride ? "Holidays: Tick 'Override' to enter reason" : "Duties performed"}
+                      className={`w-full rounded-lg border px-2.5 py-1.5 text-xs ${
+                        isHol && !row.isHolidayOverride
+                          ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed select-none'
+                          : 'border-slate-200 bg-white text-slate-800'
+                      }`}
                     />
                   </div>
 
@@ -2788,11 +2794,12 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Start Time</label>
                       <input
                         type="time"
-                        disabled={isHol && !row.isHolidayOverride && isTargetUserRatesLocked}
-                        value={(isHol && !row.isHolidayOverride && isTargetUserRatesLocked) ? '' : row.startTime}
+                        disabled={isHol && !row.isHolidayOverride}
+                        value={(isHol && !row.isHolidayOverride) ? '' : row.startTime}
                         onChange={e => updateRowField(index, 'startTime', e.target.value)}
-                        className={`w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs ${
-                          (isHol && !row.isHolidayOverride && isTargetUserRatesLocked) ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white text-slate-800'
+                        title={isHol && !row.isHolidayOverride ? "Tick 'Override' to enter times on holidays" : "Start Time"}
+                        className={`w-full rounded-lg border px-2 py-1.5 text-xs ${
+                          (isHol && !row.isHolidayOverride) ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed' : 'border-slate-200 bg-white text-slate-800'
                         }`}
                       />
                     </div>
@@ -2800,11 +2807,12 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       <label className="block text-[10px] font-bold text-slate-500 mb-0.5">End Time</label>
                       <input
                         type="time"
-                        disabled={isHol && !row.isHolidayOverride && isTargetUserRatesLocked}
-                        value={(isHol && !row.isHolidayOverride && isTargetUserRatesLocked) ? '' : row.endTime}
+                        disabled={isHol && !row.isHolidayOverride}
+                        value={(isHol && !row.isHolidayOverride) ? '' : row.endTime}
                         onChange={e => updateRowField(index, 'endTime', e.target.value)}
-                        className={`w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs ${
-                          (isHol && !row.isHolidayOverride && isTargetUserRatesLocked) ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white text-slate-800'
+                        title={isHol && !row.isHolidayOverride ? "Tick 'Override' to enter times on holidays" : "End Time"}
+                        className={`w-full rounded-lg border px-2 py-1.5 text-xs ${
+                          (isHol && !row.isHolidayOverride) ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed' : 'border-slate-200 bg-white text-slate-800'
                         }`}
                       />
                     </div>
@@ -2835,22 +2843,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                         <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
                           Col B: {row.totalFormatted} (Special OT)
                         </span>
-                      ) : isOther && isTargetUserRatesLocked ? (
-                        row.totalWorkMinutes > 0 ? (
-                          <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded border ${
-                            isSat && row.totalWorkMinutes < 360
-                              ? 'bg-rose-50 text-rose-800 border-rose-200'
-                              : 'bg-amber-50 text-amber-800 border-amber-200'
-                          }`}>
-                            Day&apos;s Pay {isSat && row.totalWorkMinutes < 360 ? '(Sat < 6h)' : ''}
-                          </span>
-                        ) : (
-                          <span className="text-slate-300 text-xs">-</span>
-                        )
-                      ) : (
+                      ) : hasOt ? (
                         <div className="flex items-center gap-1">
-                          <span className={`font-mono text-xs font-bold ${hasOt ? 'text-indigo-600' : 'text-slate-400'}`}>
-                            {hasOt ? `Col A: ${row.totalFormatted}` : '00:00 OT'}
+                          <span className="font-mono text-xs font-bold text-indigo-600">
+                            Col A: {row.totalFormatted}
                           </span>
                           {row.isLateDisqualified && (
                             <span className="text-[9px] font-bold text-rose-700 bg-rose-50 px-1 rounded border border-rose-200">
@@ -2858,6 +2854,12 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                             </span>
                           )}
                         </div>
+                      ) : isOther && row.totalWorkMinutes > 0 ? (
+                        <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded border bg-amber-50 text-amber-800 border-amber-200">
+                          Day&apos;s Pay
+                        </span>
+                      ) : (
+                        <span className="text-slate-300 text-xs">-</span>
                       )}
                     </div>
                   </div>
@@ -2966,41 +2968,47 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                     <td className="py-2 px-2">
                       <input
                         type="text"
+                        disabled={isHol && !row.isHolidayOverride}
                         value={row.reason}
                         onChange={e => updateRowField(index, 'reason', e.target.value)}
-                        placeholder={isOther && !row.isHolidayOverride ? (isHol ? "Holiday / Off Day" : "Weekend Duty...") : "Duties performed..."}
-                        className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500 truncate"
+                        placeholder={isHol && !row.isHolidayOverride ? "Holiday / Off Day (Tick override to edit)" : (isSat ? "Saturday Duty..." : "Duties performed...")}
+                        title={isHol && !row.isHolidayOverride ? "Holidays: Tick 'Override' to enter reason" : "Duties performed"}
+                        className={`w-full rounded-md border px-2 py-1 text-xs truncate focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                          isHol && !row.isHolidayOverride
+                            ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed select-none'
+                            : 'border-slate-200 bg-white text-slate-800'
+                        }`}
                       />
                     </td>
 
-                    {/* Time In (Enabled when Holiday is Overridden or for unlocked rates users) */}
+                    {/* Time In (Enabled on holidays only when Overridden) */}
                     <td className="py-2 px-1 text-center">
                       <input
                         type="time"
-                        disabled={isHol && !row.isHolidayOverride && isTargetUserRatesLocked}
-                        value={(isHol && !row.isHolidayOverride && isTargetUserRatesLocked) ? '' : row.startTime}
+                        disabled={isHol && !row.isHolidayOverride}
+                        value={(isHol && !row.isHolidayOverride) ? '' : row.startTime}
                         onChange={e => updateRowField(index, 'startTime', e.target.value)}
-                        title={(isHol && !row.isHolidayOverride && isTargetUserRatesLocked) ? "Tick 'Override' checkbox to enter times on holidays" : "Starting Time"}
-                        placeholder={(isHol && !row.isHolidayOverride && isTargetUserRatesLocked) ? "--:--" : ""}
+                        title={(isHol && !row.isHolidayOverride) ? "Tick 'Override' checkbox to enter times on holidays" : "Starting Time"}
+                        placeholder={(isHol && !row.isHolidayOverride) ? "--:--" : ""}
                         className={`w-full rounded-md border border-slate-200 px-1 py-1 text-xs text-center font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                          (isHol && !row.isHolidayOverride && isTargetUserRatesLocked)
+                          (isHol && !row.isHolidayOverride)
                             ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                             : 'bg-white text-slate-800'
                         }`}
                       />
                     </td>
 
-                    {/* Time Out (Enabled when Holiday is Overridden or for unlocked rates users) */}
+                    {/* Time Out (Enabled on holidays only when Overridden) */}
                     <td className="py-2 px-1 text-center">
                       <input
                         type="time"
-                        disabled={isHol && !row.isHolidayOverride && isTargetUserRatesLocked}
-                        value={(isHol && !row.isHolidayOverride && isTargetUserRatesLocked) ? '' : row.endTime}
+                        disabled={isHol && !row.isHolidayOverride}
+                        value={(isHol && !row.isHolidayOverride) ? '' : row.endTime}
                         onChange={e => updateRowField(index, 'endTime', e.target.value)}
-                        title={(isHol && !row.isHolidayOverride && isTargetUserRatesLocked) ? "Tick 'Override' checkbox to enter times on holidays" : "Ending Time"}
-                        placeholder={(isHol && !row.isHolidayOverride && isTargetUserRatesLocked) ? "--:--" : ""}
+                        title={(isHol && !row.isHolidayOverride) ? "Tick 'Override' checkbox to enter times on holidays" : "Ending Time"}
+                        placeholder={(isHol && !row.isHolidayOverride) ? "--:--" : ""}
                         className={`w-full rounded-md border border-slate-200 px-1 py-1 text-xs text-center font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                          (isHol && !row.isHolidayOverride && isTargetUserRatesLocked)
+                          (isHol && !row.isHolidayOverride)
                             ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                             : 'bg-white text-slate-800'
                         }`}
@@ -3011,12 +3019,6 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                     <td className="py-2 px-1 text-center font-mono text-[11px] text-slate-600">
                       {row.isHolidayOverride && row.totalWorkMinutes > 0 ? (
                         <span className="font-bold text-amber-800">{formatMinutesToTime(row.totalWorkMinutes, 'hhmm')}</span>
-                      ) : isOther && isTargetUserRatesLocked ? (
-                        row.totalWorkMinutes > 0 ? (
-                          <span className="font-bold text-slate-700 text-[10px]">Day&apos;s Pay</span>
-                        ) : (
-                          <span className="text-slate-300">-</span>
-                        )
                       ) : row.totalWorkMinutes > 0 ? (
                         <span>{formatMinutesToTime(row.totalWorkMinutes, 'hhmm')}</span>
                       ) : (
@@ -3024,9 +3026,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       )}
                     </td>
 
-                    {/* Overtime (A): Regular Weekday Overtime OR Non-working Day OT if rates are unlocked */}
+                    {/* Overtime (A): Regular Weekday Overtime OR Saturday / Non-working Day OT */}
                     <td className="py-2 px-1 text-center font-mono text-xs font-bold">
-                      {!isRowSpecial && !row.isHolidayOverride && (!isOther || !isTargetUserRatesLocked) && hasOt ? (
+                      {!isRowSpecial && !row.isHolidayOverride && hasOt ? (
                         <span className="text-indigo-600">{row.totalFormatted || '00:00'}</span>
                       ) : (
                         <span className="text-slate-300 font-normal">-</span>
