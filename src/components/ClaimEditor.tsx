@@ -28,6 +28,8 @@ import {
   SlidersHorizontal,
   Cloud,
   CloudOff,
+  LayoutGrid,
+  Table as TableIcon,
 } from 'lucide-react';
 import {
   collection,
@@ -118,7 +120,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     return () => unsub();
   }, []);
 
-  const [mobileViewMode, setMobileViewMode] = useState<'cards' | 'table'>('cards');
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+  const [cardFilter, setCardFilter] = useState<'all' | 'claimed' | 'weekdays' | 'nonworking'>('all');
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
 
   // Monitor keyboard display on mobile devices so floating bars do not cover inputs
@@ -511,6 +514,24 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     const dow = r.dayOfWeek || getDayOfWeek(r.date);
     return dow !== 'Sat' && dow !== 'Sun' && !r.isHoliday && !holidayMap.has(r.date);
   };
+
+  // Visible rows for user-friendly Card View filtering
+  const visibleCardRows = useMemo(() => {
+    return rows
+      .map((row, originalIndex) => ({ row, originalIndex }))
+      .filter(({ row }) => {
+        if (cardFilter === 'claimed') {
+          return (row.totalMinutes || 0) > 0 || (row.totalWorkMinutes || 0) > 0;
+        }
+        if (cardFilter === 'weekdays') {
+          return isWeekdayWorkingDay(row);
+        }
+        if (cardFilter === 'nonworking') {
+          return isOtherDayRow(row);
+        }
+        return true;
+      });
+  }, [rows, cardFilter, holidayMap]);
 
   // Fetch users if admin (Admins only see users in their same branch; Super Admin sees all)
   useEffect(() => {
@@ -2640,25 +2661,33 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
               <span>Special Assigned OT (No Limit)</span>
             </label>
 
-            {/* View Mode Toggle (Mobile) */}
-            <div className="flex md:hidden items-center rounded-xl bg-slate-200/80 p-0.5 text-xs">
+            {/* View Mode Toggle: Cards View vs Table View (Prominent for all screen sizes) */}
+            <div className="flex items-center rounded-xl bg-slate-200/90 p-0.5 text-xs font-semibold shadow-2xs">
               <button
                 type="button"
-                onClick={() => setMobileViewMode('cards')}
-                className={`px-2.5 py-1 rounded-lg font-semibold transition cursor-pointer ${
-                  mobileViewMode === 'cards' ? 'bg-white text-indigo-700 shadow-2xs' : 'text-slate-600'
+                onClick={() => setViewMode('cards')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer select-none ${
+                  viewMode === 'cards'
+                    ? 'bg-white text-indigo-700 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
+                title="View daily timesheet entries as separated user-friendly cards"
               >
-                Cards
+                <LayoutGrid className="w-3.5 h-3.5" />
+                <span>Cards View</span>
               </button>
               <button
                 type="button"
-                onClick={() => setMobileViewMode('table')}
-                className={`px-2.5 py-1 rounded-lg font-semibold transition cursor-pointer ${
-                  mobileViewMode === 'table' ? 'bg-white text-indigo-700 shadow-2xs' : 'text-slate-600'
+                onClick={() => setViewMode('table')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer select-none ${
+                  viewMode === 'table'
+                    ? 'bg-white text-indigo-700 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
+                title="View daily timesheet entries in tabular spreadsheet format"
               >
-                Table
+                <TableIcon className="w-3.5 h-3.5" />
+                <span>Table View</span>
               </button>
             </div>
 
@@ -2678,254 +2707,379 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
               className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Add Row</span>
+              <span>Add Day</span>
             </button>
           </div>
         </div>
 
-        {/* Mobile Cards List View (Active on phones) */}
-        {mobileViewMode === 'cards' && (
-          <div className="block md:hidden divide-y divide-slate-100">
-            {rows.map((row, index) => {
-              const hasOt = row.totalMinutes > 0;
-              const isSat = row.dayOfWeek === 'Sat' || getDayOfWeek(row.date) === 'Sat';
-              const isSun = row.dayOfWeek === 'Sun' || getDayOfWeek(row.date) === 'Sun';
-              const isHol = !!row.isHoliday || holidayMap.has(row.date) || isSun || /holiday|poya|mercantile|off\s*day|leave/i.test(row.reason || '');
-              const isOther = isSat || isSun || isHol;
-              const isRowSpecial = row.isSpecialAssignment ?? isSpecialAssignedOt;
+        {/* Separated Days as Cards View (User-friendly grid on all screen sizes) */}
+        {viewMode === 'cards' && (
+          <div className="p-4 sm:p-5 md:p-6 bg-slate-50/70 border-b border-slate-200 space-y-4">
+            {/* Quick Filter Bar & Stats */}
+            <div className="flex flex-wrap items-center justify-between gap-2.5 pb-1">
+              <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold">
+                <span className="text-slate-500 mr-1 text-[11px] uppercase tracking-wider font-bold">Filter Days:</span>
+                <button
+                  type="button"
+                  onClick={() => setCardFilter('all')}
+                  className={`px-3 py-1 rounded-lg transition cursor-pointer select-none ${
+                    cardFilter === 'all'
+                      ? 'bg-indigo-600 text-white shadow-2xs font-bold'
+                      : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                  }`}
+                >
+                  All Days ({rows.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCardFilter('claimed')}
+                  className={`px-3 py-1 rounded-lg transition cursor-pointer select-none flex items-center gap-1.5 ${
+                    cardFilter === 'claimed'
+                      ? 'bg-emerald-600 text-white shadow-2xs font-bold'
+                      : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                  }`}
+                >
+                  <span>Claimed OT</span>
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                    cardFilter === 'claimed' ? 'bg-white/25 text-white' : 'bg-emerald-100 text-emerald-800'
+                  }`}>
+                    {rows.filter(r => (r.totalMinutes || 0) > 0 || (r.totalWorkMinutes || 0) > 0).length}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCardFilter('weekdays')}
+                  className={`px-3 py-1 rounded-lg transition cursor-pointer select-none ${
+                    cardFilter === 'weekdays'
+                      ? 'bg-indigo-600 text-white shadow-2xs font-bold'
+                      : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                  }`}
+                >
+                  Weekdays ({rows.filter(r => isWeekdayWorkingDay(r)).length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCardFilter('nonworking')}
+                  className={`px-3 py-1 rounded-lg transition cursor-pointer select-none ${
+                    cardFilter === 'nonworking'
+                      ? 'bg-amber-600 text-white shadow-2xs font-bold'
+                      : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                  }`}
+                >
+                  Saturdays &amp; Holidays ({rows.filter(r => isOtherDayRow(r)).length})
+                </button>
+              </div>
 
-              return (
-                <div key={row.id} className="p-3.5 space-y-2.5 bg-white">
-                  {/* Card Header: #, Date, Day, Holiday & Override, Caution Icon, Actions */}
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="font-mono text-xs font-bold text-slate-400">#{index + 1}</span>
-                      <input
-                        type="date"
-                        value={row.date}
-                        onChange={e => updateRowField(index, 'date', e.target.value)}
-                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-800 font-medium"
-                      />
-                      <span
-                        className={`inline-block px-1.5 py-0.5 rounded text-[11px] font-bold ${
-                          row.isHoliday || isHol
-                            ? 'bg-rose-100 text-rose-800'
-                            : isSun
-                            ? 'bg-purple-100 text-purple-800'
-                            : isSat
-                            ? 'bg-amber-100 text-amber-800'
-                            : 'bg-slate-100 text-slate-700'
-                        }`}
-                      >
-                        {row.isHoliday ? 'Holiday' : row.dayOfWeek || '-'}
-                      </span>
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <span>Showing <strong>{visibleCardRows.length}</strong> of {rows.length} days</span>
+              </div>
+            </div>
 
-                      {/* Next to holiday, show modern override option to add in/out times and claim holiday overtime */}
-                      {isHol && (
+            {/* Grid of Separated Day Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {visibleCardRows.map(({ row, originalIndex: index }) => {
+                const hasOt = (row.totalMinutes || 0) > 0;
+                const isSat = row.dayOfWeek === 'Sat' || getDayOfWeek(row.date) === 'Sat';
+                const isSun = row.dayOfWeek === 'Sun' || getDayOfWeek(row.date) === 'Sun';
+                const isHol = !!row.isHoliday || holidayMap.has(row.date) || isSun || /holiday|poya|mercantile|off\s*day|leave/i.test(row.reason || '');
+                const isOther = isSat || isSun || isHol;
+                const isRowSpecial = row.isSpecialAssignment ?? isSpecialAssignedOt;
+                const holidayInfo = holidayMap.get(row.date);
+
+                return (
+                  <div
+                    key={row.id}
+                    className={`rounded-2xl border p-4 bg-white transition-all shadow-2xs hover:shadow-md flex flex-col justify-between space-y-3.5 ${
+                      hasOt
+                        ? 'border-indigo-300 ring-1 ring-indigo-200/60 bg-linear-to-b from-indigo-50/25 to-white'
+                        : isSat
+                        ? 'border-amber-200 bg-linear-to-b from-amber-50/20 to-white'
+                        : isSun
+                        ? 'border-purple-200 bg-linear-to-b from-purple-50/20 to-white'
+                        : isHol
+                        ? 'border-rose-200 bg-linear-to-b from-rose-50/20 to-white'
+                        : 'border-slate-200/90 hover:border-slate-300'
+                    }`}
+                  >
+                    {/* 1. Card Top Bar: Day Index, Date, Day Pill, Tag & Actions */}
+                    <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
+                      <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                        <span className="font-mono text-xs font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-md">
+                          #{index + 1}
+                        </span>
+
+                        <input
+                          type="date"
+                          value={row.date}
+                          onChange={e => updateRowField(index, 'date', e.target.value)}
+                          className="font-mono text-xs font-semibold px-2 py-0.5 rounded-lg border border-slate-200 bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
+
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded-md text-xs font-bold tracking-tight ${
+                            row.isHoliday || isHol
+                              ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                              : isSun
+                              ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                              : isSat
+                              ? 'bg-amber-100 text-amber-900 border border-amber-200'
+                              : 'bg-slate-100 text-slate-700 border border-slate-200'
+                          }`}
+                        >
+                          {row.dayOfWeek || '-'}
+                        </span>
+
+                        {isHol && (
+                          <span className="text-[10px] font-semibold text-rose-700 truncate max-w-[110px]" title={row.holidayName || holidayInfo?.name || 'Public Holiday'}>
+                            {row.holidayName || holidayInfo?.name || 'Holiday'}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        {/* Duplicate Day */}
+                        <button
+                          type="button"
+                          onClick={() => handleDuplicateRow(index)}
+                          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                          title="Duplicate day"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* Holiday Toggle */}
+                        {!isSun && (
+                          <button
+                            type="button"
+                            onClick={() => updateRowField(index, 'isHoliday', !row.isHoliday)}
+                            className={`p-1.5 rounded-lg transition cursor-pointer ${
+                              row.isHoliday
+                                ? 'bg-rose-100 text-rose-700'
+                                : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                            }`}
+                            title={row.isHoliday ? "Unmark holiday" : "Mark as holiday"}
+                          >
+                            <Tag className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+
+                        {/* Delete Row */}
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteRow(index)}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                          title="Delete day"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Holiday Alert & Override Banner */}
+                    {isHol && (
+                      <div className={`p-2.5 rounded-xl border text-xs flex items-center justify-between gap-2 transition ${
+                        row.isHolidayOverride
+                          ? 'bg-amber-100/70 border-amber-300 text-amber-900'
+                          : 'bg-slate-100 border-slate-200 text-slate-600'
+                      }`}>
+                        <div className="flex items-center gap-1.5">
+                          <AlertTriangle className={`w-3.5 h-3.5 shrink-0 ${row.isHolidayOverride ? 'text-amber-600 animate-pulse' : 'text-slate-400'}`} />
+                          <span className="text-[11px] font-medium">
+                            {row.isHolidayOverride ? "Holiday Overridden (Claiming OT)" : "Holiday / Non-working day"}
+                          </span>
+                        </div>
                         <button
                           type="button"
                           onClick={() => toggleHolidayOverride(index)}
-                          className={`text-[10px] px-2 py-0.5 rounded font-bold transition flex items-center gap-1 cursor-pointer ${
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-md transition cursor-pointer ${
                             row.isHolidayOverride
-                              ? 'bg-amber-500 text-white shadow-xs border border-amber-600'
-                              : 'text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200'
+                              ? 'bg-amber-600 text-white shadow-2xs'
+                              : 'bg-white text-amber-800 border border-amber-300 hover:bg-amber-50'
                           }`}
-                          title="Override to add in/out times and claim holiday overtime & day's pay"
                         >
-                          {row.isHolidayOverride ? 'Override ✓' : 'Override OT'}
+                          {row.isHolidayOverride ? "Override Active ✓" : "Override OT"}
                         </button>
-                      )}
+                      </div>
+                    )}
 
-                      {/* Caution icon (only icon) for relevant day if override is ticked */}
-                      {row.isHolidayOverride && (
-                        <span title="Holiday Overridden" className="inline-flex items-center">
-                          <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
-                        </span>
-                      )}
+                    {/* 2. Duties & Nature of Work */}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <label className="font-bold text-slate-600">
+                          Duties / Nature of Work
+                        </label>
+                        {isSat && !row.reason && (
+                          <span className="text-[10px] text-amber-700 font-medium">Saturday Duty</span>
+                        )}
+                      </div>
+                      <input
+                        type="text"
+                        disabled={isHol && !row.isHolidayOverride}
+                        value={row.reason}
+                        onChange={e => updateRowField(index, 'reason', e.target.value)}
+                        placeholder={
+                          isHol && !row.isHolidayOverride
+                            ? "Holiday / Off Day (Click 'Override' to enter duties)"
+                            : (isSat ? "Saturday Duty..." : "Duties performed...")
+                        }
+                        className={`w-full rounded-xl border px-3 py-1.5 text-xs transition ${
+                          isHol && !row.isHolidayOverride
+                            ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed select-none'
+                            : 'border-slate-200 bg-white text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
+                        }`}
+                      />
                     </div>
 
-                    <div className="flex items-center gap-1.5">
-                      {!isSun && (
-                        <button
-                          type="button"
-                          onClick={() => updateRowField(index, 'isHoliday', !row.isHoliday)}
-                          className={`text-[10px] px-2 py-0.5 rounded font-bold transition cursor-pointer ${
-                            row.isHoliday
-                              ? 'bg-rose-200 text-rose-900 border border-rose-300'
-                              : 'text-slate-500 bg-slate-100 hover:bg-slate-200'
-                          }`}
-                        >
-                          {row.isHoliday ? 'Holiday ✓' : '+ Hol'}
-                        </button>
-                      )}
+                    {/* 3. Modern Time In & Time Out section */}
+                    <div className="grid grid-cols-2 gap-2.5 pt-0.5">
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+                            <span>Time In</span>
+                          </label>
+                          {row.startTime && (
+                            <span className="text-[10px] font-mono text-emerald-700 font-bold bg-emerald-50 px-1 rounded">
+                              {row.startTime}
+                            </span>
+                          )}
+                        </div>
+                        <div className={`relative flex items-center rounded-xl border transition-all shadow-2xs ${
+                          (isHol && !row.isHolidayOverride)
+                            ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed opacity-75'
+                            : row.startTime
+                            ? 'border-emerald-300 bg-emerald-50/40 text-emerald-950 ring-1 ring-emerald-200/50'
+                            : 'border-slate-200 bg-white hover:border-slate-300 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/20'
+                        }`}>
+                          <div className="pl-2.5 pr-1 flex items-center pointer-events-none text-slate-400">
+                            <Clock className={`w-3.5 h-3.5 ${row.startTime ? 'text-emerald-600' : 'text-slate-400'}`} />
+                          </div>
+                          <input
+                            type="time"
+                            disabled={isHol && !row.isHolidayOverride}
+                            value={(isHol && !row.isHolidayOverride) ? '' : row.startTime}
+                            onChange={e => updateRowField(index, 'startTime', e.target.value)}
+                            title={(isHol && !row.isHolidayOverride) ? "Tick 'Override' to enter times on holidays" : "Start Time"}
+                            className={`w-full bg-transparent py-1.5 pr-2 text-xs font-mono focus:outline-none ${
+                              (isHol && !row.isHolidayOverride)
+                                ? 'text-slate-400 cursor-not-allowed'
+                                : row.startTime
+                                ? 'text-emerald-950 font-bold'
+                                : 'text-slate-700 font-medium'
+                            }`}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 inline-block"></span>
+                            <span>Time Out</span>
+                          </label>
+                          {row.endTime && (
+                            <span className="text-[10px] font-mono text-indigo-700 font-bold bg-indigo-50 px-1 rounded">
+                              {row.endTime}
+                            </span>
+                          )}
+                        </div>
+                        <div className={`relative flex items-center rounded-xl border transition-all shadow-2xs ${
+                          (isHol && !row.isHolidayOverride)
+                            ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed opacity-75'
+                            : row.endTime
+                            ? 'border-indigo-300 bg-indigo-50/40 text-indigo-950 ring-1 ring-indigo-200/50'
+                            : 'border-slate-200 bg-white hover:border-slate-300 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20'
+                        }`}>
+                          <div className="pl-2.5 pr-1 flex items-center pointer-events-none text-slate-400">
+                            <Clock className={`w-3.5 h-3.5 ${row.endTime ? 'text-indigo-600' : 'text-slate-400'}`} />
+                          </div>
+                          <input
+                            type="time"
+                            disabled={isHol && !row.isHolidayOverride}
+                            value={(isHol && !row.isHolidayOverride) ? '' : row.endTime}
+                            onChange={e => updateRowField(index, 'endTime', e.target.value)}
+                            title={(isHol && !row.isHolidayOverride) ? "Tick 'Override' to enter times on holidays" : "End Time"}
+                            className={`w-full bg-transparent py-1.5 pr-2 text-xs font-mono focus:outline-none ${
+                              (isHol && !row.isHolidayOverride)
+                                ? 'text-slate-400 cursor-not-allowed'
+                                : row.endTime
+                                ? 'text-indigo-950 font-bold'
+                                : 'text-slate-700 font-medium'
+                            }`}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 4. Card Bottom Strip: Worked Time, Outcome OT Badge, and Special OT Checkbox */}
+                    <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between gap-2 flex-wrap text-xs">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {row.totalWorkMinutes > 0 ? (
+                          <span className="text-[11px] font-mono font-semibold text-slate-600 bg-white px-2 py-0.5 rounded-md border border-slate-200">
+                            {formatMinutesToTime(row.totalWorkMinutes, 'hhmm')} worked
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-slate-400">-</span>
+                        )}
+
+                        {row.isHolidayOverride && hasOt ? (
+                          <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                            Col B: {row.totalFormatted}
+                          </span>
+                        ) : isRowSpecial && hasOt ? (
+                          <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                            Col B: {row.totalFormatted} (Special)
+                          </span>
+                        ) : hasOt ? (
+                          <div className="flex items-center gap-1">
+                            {isOther ? (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded border bg-amber-50 text-amber-900 border-amber-300 shadow-2xs">
+                                Day&apos;s Pay + ({row.totalFormatted} OT)
+                              </span>
+                            ) : (
+                              <span className="font-mono text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded">
+                                Col A: {row.totalFormatted}
+                              </span>
+                            )}
+                            {row.isLateDisqualified && (
+                              <span className="text-[9px] font-bold text-rose-700 bg-rose-50 px-1 rounded border border-rose-200">
+                                Late 0 OT
+                              </span>
+                            )}
+                          </div>
+                        ) : isOther && row.totalWorkMinutes > 0 ? (
+                          <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded border bg-amber-50 text-amber-800 border-amber-200">
+                            Day&apos;s Pay
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {/* Special OT toggle button */}
                       <button
                         type="button"
-                        onClick={() => handleDeleteRow(index)}
-                        className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
-                        title="Delete row"
+                        onClick={() => updateRowField(index, 'isSpecialAssignment', !isRowSpecial)}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border transition cursor-pointer select-none ${
+                          isRowSpecial
+                            ? 'bg-emerald-600 text-white border-emerald-700 shadow-2xs'
+                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                        }`}
+                        title="Special Assigned OT (moves to Column B, no daily limit)"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Check className={`w-3 h-3 ${isRowSpecial ? 'text-white' : 'text-slate-300'}`} />
+                        <span>Special OT</span>
                       </button>
                     </div>
                   </div>
-
-                  {/* Duties / Reason input - Disabled on holidays without override */}
-                  <div>
-                    <input
-                      type="text"
-                      disabled={isHol && !row.isHolidayOverride}
-                      value={row.reason}
-                      onChange={e => updateRowField(index, 'reason', e.target.value)}
-                      placeholder={isHol && !row.isHolidayOverride ? "Holiday / Off Day (Tick override to edit)" : (isSat ? "Saturday Duty..." : "Duties performed...")}
-                      title={isHol && !row.isHolidayOverride ? "Holidays: Tick 'Override' to enter reason" : "Duties performed"}
-                      className={`w-full rounded-lg border px-2.5 py-1.5 text-xs ${
-                        isHol && !row.isHolidayOverride
-                          ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed select-none'
-                          : 'border-slate-200 bg-white text-slate-800'
-                      }`}
-                    />
-                  </div>
-
-                  {/* Modern Time Inputs: Start and End */}
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
-                          <span>Time In</span>
-                        </label>
-                        {row.startTime && (
-                          <span className="text-[10px] font-mono text-emerald-700 font-bold bg-emerald-50 px-1 rounded">
-                            {row.startTime}
-                          </span>
-                        )}
-                      </div>
-                      <div className={`relative flex items-center rounded-xl border transition-all shadow-2xs ${
-                        (isHol && !row.isHolidayOverride)
-                          ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed opacity-75'
-                          : row.startTime
-                          ? 'border-emerald-300 bg-emerald-50/40 text-emerald-950 ring-1 ring-emerald-200/50'
-                          : 'border-slate-200 bg-white hover:border-slate-300 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/20'
-                      }`}>
-                        <div className="pl-2.5 pr-1 flex items-center pointer-events-none text-slate-400">
-                          <Clock className={`w-3.5 h-3.5 ${row.startTime ? 'text-emerald-600' : 'text-slate-400'}`} />
-                        </div>
-                        <input
-                          type="time"
-                          disabled={isHol && !row.isHolidayOverride}
-                          value={(isHol && !row.isHolidayOverride) ? '' : row.startTime}
-                          onChange={e => updateRowField(index, 'startTime', e.target.value)}
-                          title={(isHol && !row.isHolidayOverride) ? "Tick 'Override' to enter times on holidays" : "Start Time"}
-                          className={`w-full bg-transparent py-2 pr-2 text-xs font-mono focus:outline-none ${
-                            (isHol && !row.isHolidayOverride)
-                              ? 'text-slate-400 cursor-not-allowed'
-                              : row.startTime
-                              ? 'text-emerald-950 font-bold'
-                              : 'text-slate-700 font-medium'
-                          }`}
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 inline-block"></span>
-                          <span>Time Out</span>
-                        </label>
-                        {row.endTime && (
-                          <span className="text-[10px] font-mono text-indigo-700 font-bold bg-indigo-50 px-1 rounded">
-                            {row.endTime}
-                          </span>
-                        )}
-                      </div>
-                      <div className={`relative flex items-center rounded-xl border transition-all shadow-2xs ${
-                        (isHol && !row.isHolidayOverride)
-                          ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed opacity-75'
-                          : row.endTime
-                          ? 'border-indigo-300 bg-indigo-50/40 text-indigo-950 ring-1 ring-indigo-200/50'
-                          : 'border-slate-200 bg-white hover:border-slate-300 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20'
-                      }`}>
-                        <div className="pl-2.5 pr-1 flex items-center pointer-events-none text-slate-400">
-                          <Clock className={`w-3.5 h-3.5 ${row.endTime ? 'text-indigo-600' : 'text-slate-400'}`} />
-                        </div>
-                        <input
-                          type="time"
-                          disabled={isHol && !row.isHolidayOverride}
-                          value={(isHol && !row.isHolidayOverride) ? '' : row.endTime}
-                          onChange={e => updateRowField(index, 'endTime', e.target.value)}
-                          title={(isHol && !row.isHolidayOverride) ? "Tick 'Override' to enter times on holidays" : "End Time"}
-                          className={`w-full bg-transparent py-2 pr-2 text-xs font-mono focus:outline-none ${
-                            (isHol && !row.isHolidayOverride)
-                              ? 'text-slate-400 cursor-not-allowed'
-                              : row.endTime
-                              ? 'text-indigo-950 font-bold'
-                              : 'text-slate-700 font-medium'
-                          }`}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Special Assigned OT Modern Tick Option & Outcome Summary */}
-                  <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => updateRowField(index, 'isSpecialAssignment', !isRowSpecial)}
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
-                        isRowSpecial
-                          ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
-                          : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                      }`}
-                      title="Tick if assigned to special overtime (No limit)"
-                    >
-                      <Check className={`w-3.5 h-3.5 ${isRowSpecial ? 'text-white' : 'text-slate-400'}`} />
-                      <span>{isRowSpecial ? 'Special OT (No Limit) ✓' : 'Special Assigned OT'}</span>
-                    </button>
-
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {row.isHolidayOverride && hasOt ? (
-                        <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
-                          Col B: {row.totalFormatted} (Hol Override)
-                        </span>
-                      ) : isRowSpecial && hasOt ? (
-                        <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
-                          Col B: {row.totalFormatted} (Special OT)
-                        </span>
-                      ) : hasOt ? (
-                        <div className="flex items-center gap-1">
-                          {isOther ? (
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded border bg-amber-50 text-amber-900 border-amber-300 shadow-2xs">
-                              Day&apos;s Pay + ({row.totalFormatted} OT)
-                            </span>
-                          ) : (
-                            <span className="font-mono text-xs font-bold text-indigo-600">
-                              Col A: {row.totalFormatted}
-                            </span>
-                          )}
-                          {row.isLateDisqualified && (
-                            <span className="text-[9px] font-bold text-rose-700 bg-rose-50 px-1 rounded border border-rose-200">
-                              Late 0 OT
-                            </span>
-                          )}
-                        </div>
-                      ) : isOther && row.totalWorkMinutes > 0 ? (
-                        <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded border bg-amber-50 text-amber-800 border-amber-200">
-                          Day&apos;s Pay
-                        </span>
-                      ) : (
-                        <span className="text-slate-300 text-xs">-</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         )}
 
-        {/* Desktop / Full Table View - Horizontally scrollable on small screens to prevent squashed columns */}
-        <div className={`overflow-x-auto w-full rounded-xl border border-slate-200 ${mobileViewMode === 'cards' ? 'hidden md:block' : 'block'}`}>
-          <table className="w-full min-w-[820px] table-fixed text-left border-collapse text-xs">
+        {/* Tabular Spreadsheet View (Available when user switches to Table) */}
+        {viewMode === 'table' && (
+          <div className="overflow-x-auto w-full rounded-xl border border-slate-200 bg-white">
+            <table className="w-full min-w-[820px] table-fixed text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-100 text-slate-700 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200">
                 <th className="py-2 px-1 w-6 text-center">#</th>
@@ -3175,6 +3329,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             </tbody>
           </table>
         </div>
+        )}
 
         {/* Footer */}
         <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
