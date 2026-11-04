@@ -86,6 +86,7 @@ import {
   getLocalRoleRates,
   DEFAULT_ROLE_RATES,
 } from '../utils/branchRoleManager';
+import { ScrollableTimePicker, parse24To12, format12To24 } from './ScrollableTimePicker';
 
 interface ClaimEditorProps {
   initialClaim?: ClaimRecord | null;
@@ -542,6 +543,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     const hasEndTime = Boolean(r.endTime && r.endTime.trim());
     const hasTimes = hasStartTime || hasEndTime;
 
+    const inPeriod = hasStartTime ? parse24To12(r.startTime).period : null;
+    const outPeriod = hasEndTime ? parse24To12(r.endTime).period : null;
+    const hasSameSession = Boolean(hasStartTime && hasEndTime && inPeriod === outPeriod);
+
     const isMissingTimeOut = hasStartTime && !hasEndTime;
     const isMissingTimeIn = !hasStartTime && hasEndTime;
     const isZeroDuration = Boolean(hasStartTime && hasEndTime && r.startTime === r.endTime);
@@ -552,6 +557,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     const isHolidayNotOverridden = Boolean(isHol && !r.isHolidayOverride && hasTimes);
 
     const issues: string[] = [];
+    if (hasSameSession) issues.push(`Same Session (${inPeriod})`);
     if (isMissingTimeOut) issues.push('Missing Time Out');
     if (isMissingTimeIn) issues.push('Missing Time In');
     if (isZeroDuration) issues.push('Zero Duration');
@@ -561,6 +567,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
     return {
       hasIssue: issues.length > 0,
+      hasSameSession,
       isMissingTimeOut,
       isMissingTimeIn,
       isZeroDuration,
@@ -1142,6 +1149,43 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         }
       }
 
+      // Policy: Users can't add their in out times in same session.
+      // If first one is AM, auto select PM for second one.
+      if (field === 'startTime') {
+        target.startTime = value;
+        if (value) {
+          const inParsed = parse24To12(value);
+          if (inParsed.period === 'AM') {
+            if (target.endTime) {
+              const outParsed = parse24To12(target.endTime);
+              if (outParsed.period === 'AM') {
+                target.endTime = format12To24(outParsed.hour, outParsed.minute, 'PM');
+              }
+            }
+          } else if (inParsed.period === 'PM') {
+            if (target.endTime) {
+              const outParsed = parse24To12(target.endTime);
+              if (outParsed.period === 'PM') {
+                target.endTime = format12To24(outParsed.hour, outParsed.minute, 'AM');
+              }
+            }
+          }
+        }
+      }
+
+      if (field === 'endTime') {
+        target.endTime = value;
+        if (value && target.startTime) {
+          const inParsed = parse24To12(target.startTime);
+          const outParsed = parse24To12(value);
+          // Users cannot add their in out times in same session!
+          if (inParsed.period === outParsed.period) {
+            const oppositePeriod = inParsed.period === 'AM' ? 'PM' : 'AM';
+            target.endTime = format12To24(outParsed.hour, outParsed.minute, oppositePeriod);
+          }
+        }
+      }
+
       const effectiveDow = target.dayOfWeek || getDayOfWeek(target.date);
       const effectiveIsHoliday = isRowHoliday(target);
       const isOther = effectiveDow === 'Sat' || effectiveDow === 'Sun' || effectiveIsHoliday;
@@ -1506,6 +1550,11 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       }
       if (val.isMissingTimeIn) {
         setValidationError(`Day #${i + 1} (${r.date || 'entry'}): Starting time cannot be empty when ending time is provided.`);
+        setCardFilter('issues');
+        return false;
+      }
+      if (val.hasSameSession) {
+        setValidationError(`Day #${i + 1} (${r.date || 'entry'}): Time In and Time Out cannot be in the same session. If Time In is AM, Time Out must be PM.`);
         setCardFilter('issues');
         return false;
       }
@@ -3121,7 +3170,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       )}
                     </div>
 
-                    {/* 3. Modern Time In & Time Out section */}
+                    {/* 3. Modern Scrollable Time In & Time Out section with AM/PM (No rotatable dial) */}
                     <div className="grid grid-cols-2 gap-2.5 pt-0.5">
                       <div>
                         <div className="flex items-center justify-between mb-1">
@@ -3129,39 +3178,15 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
                             <span>Time In</span>
                           </label>
-                          {row.startTime && (
-                            <span className="text-[10px] font-mono text-emerald-700 font-bold bg-emerald-50 px-1 rounded">
-                              {row.startTime}
-                            </span>
-                          )}
                         </div>
-                        <div className={`relative flex items-center rounded-xl border transition-all shadow-2xs ${
-                          val.isMissingTimeIn
-                            ? 'border-rose-400 ring-1 ring-rose-300 bg-rose-50/30'
-                            : (isHol && !row.isHolidayOverride)
-                            ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed opacity-75'
-                            : row.startTime
-                            ? 'border-emerald-300 bg-emerald-50/40 text-emerald-950 ring-1 ring-emerald-200/50'
-                            : 'border-slate-200 bg-white hover:border-slate-300 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/20'
-                        }`}>
-                          <div className="pl-2.5 pr-1 flex items-center pointer-events-none text-slate-400">
-                            <Clock className={`w-3.5 h-3.5 ${row.startTime ? 'text-emerald-600' : 'text-slate-400'}`} />
-                          </div>
-                          <input
-                            type="time"
-                            disabled={isHol && !row.isHolidayOverride}
-                            value={(isHol && !row.isHolidayOverride) ? '' : row.startTime}
-                            onChange={e => updateRowField(index, 'startTime', e.target.value)}
-                            title={(isHol && !row.isHolidayOverride) ? "Tick 'Override' to enter times on holidays" : "Start Time"}
-                            className={`w-full bg-transparent py-1.5 pr-2 text-xs font-mono focus:outline-none ${
-                              (isHol && !row.isHolidayOverride)
-                                ? 'text-slate-400 cursor-not-allowed'
-                                : row.startTime
-                                ? 'text-emerald-950 font-bold'
-                                : 'text-slate-700 font-medium'
-                            }`}
-                          />
-                        </div>
+                        <ScrollableTimePicker
+                          isTimeIn={true}
+                          disabled={isHol && !row.isHolidayOverride}
+                          value={(isHol && !row.isHolidayOverride) ? '' : row.startTime}
+                          onChange={val => updateRowField(index, 'startTime', val)}
+                          label="Time In (Start)"
+                          placeholder="Select In"
+                        />
                       </div>
 
                       <div>
@@ -3170,42 +3195,26 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                             <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 inline-block"></span>
                             <span>Time Out</span>
                           </label>
-                          {row.endTime && (
-                            <span className="text-[10px] font-mono text-indigo-700 font-bold bg-indigo-50 px-1 rounded">
-                              {row.endTime}
-                            </span>
-                          )}
                         </div>
-                        <div className={`relative flex items-center rounded-xl border transition-all shadow-2xs ${
-                          val.isMissingTimeOut
-                            ? 'border-rose-400 ring-1 ring-rose-300 bg-rose-50/30'
-                            : (isHol && !row.isHolidayOverride)
-                            ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed opacity-75'
-                            : row.endTime
-                            ? 'border-indigo-300 bg-indigo-50/40 text-indigo-950 ring-1 ring-indigo-200/50'
-                            : 'border-slate-200 bg-white hover:border-slate-300 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20'
-                        }`}>
-                          <div className="pl-2.5 pr-1 flex items-center pointer-events-none text-slate-400">
-                            <Clock className={`w-3.5 h-3.5 ${row.endTime ? 'text-indigo-600' : 'text-slate-400'}`} />
-                          </div>
-                          <input
-                            type="time"
-                            disabled={isHol && !row.isHolidayOverride}
-                            value={(isHol && !row.isHolidayOverride) ? '' : row.endTime}
-                            onChange={e => updateRowField(index, 'endTime', e.target.value)}
-                            title={(isHol && !row.isHolidayOverride) ? "Tick 'Override' to enter times on holidays" : "End Time"}
-                            className={`w-full bg-transparent py-1.5 pr-2 text-xs font-mono focus:outline-none ${
-                              (isHol && !row.isHolidayOverride)
-                                ? 'text-slate-400 cursor-not-allowed'
-                                : row.endTime
-                                ? 'text-indigo-950 font-bold'
-                                : 'text-slate-700 font-medium'
-                            }`}
-                          />
-                        </div>
+                        <ScrollableTimePicker
+                          isTimeIn={false}
+                          disabled={isHol && !row.isHolidayOverride}
+                          value={(isHol && !row.isHolidayOverride) ? '' : row.endTime}
+                          onChange={val => updateRowField(index, 'endTime', val)}
+                          label="Time Out (End)"
+                          placeholder="Select Out"
+                          disableSession={row.startTime ? parse24To12(row.startTime).period : null}
+                          autoSession={row.startTime ? (parse24To12(row.startTime).period === 'AM' ? 'PM' : 'AM') : 'PM'}
+                        />
                       </div>
 
                       {/* Conflict & Missing Field Warning Messages for Time Section */}
+                      {val.hasSameSession && (
+                        <div className="col-span-2 text-[10px] font-bold text-rose-600 flex items-center gap-1 mt-0.5">
+                          <AlertCircle className="w-3 h-3 shrink-0" />
+                          <span>Same session conflict: Time In and Time Out cannot both be {row.startTime ? parse24To12(row.startTime).period : 'AM/PM'}. If In is AM, Out must be PM.</span>
+                        </div>
+                      )}
                       {val.isMissingTimeOut && (
                         <div className="col-span-2 text-[10px] font-bold text-rose-600 flex items-center gap-1 mt-0.5">
                           <AlertCircle className="w-3 h-3 shrink-0" />
@@ -3422,66 +3431,30 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       />
                     </td>
 
-                    {/* Time In (Modern Sleek Control) */}
-                    <td className="py-2 px-1 text-center">
-                      <div className={`relative flex items-center rounded-lg border transition-all shadow-2xs ${
-                        (isHol && !row.isHolidayOverride)
-                          ? 'border-slate-200 bg-slate-100/90 text-slate-400 cursor-not-allowed opacity-75'
-                          : row.startTime
-                          ? 'border-emerald-300 bg-emerald-50/40 text-emerald-950 ring-1 ring-emerald-200/50'
-                          : 'border-slate-200 bg-white hover:border-slate-300 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/20'
-                      }`}>
-                        <div className={`pl-1.5 pr-0.5 flex items-center pointer-events-none ${
-                          (isHol && !row.isHolidayOverride) ? 'text-slate-300' : row.startTime ? 'text-emerald-600' : 'text-slate-400'
-                        }`}>
-                          <Clock className="w-3 h-3 shrink-0" />
-                        </div>
-                        <input
-                          type="time"
-                          disabled={isHol && !row.isHolidayOverride}
-                          value={(isHol && !row.isHolidayOverride) ? '' : row.startTime}
-                          onChange={e => updateRowField(index, 'startTime', e.target.value)}
-                          title={(isHol && !row.isHolidayOverride) ? "Tick 'Override' checkbox to enter times on holidays" : "Starting Time"}
-                          className={`w-full bg-transparent py-1 pr-1 pl-0.5 text-xs text-center font-mono focus:outline-none ${
-                            (isHol && !row.isHolidayOverride)
-                              ? 'text-slate-400 cursor-not-allowed'
-                              : row.startTime
-                              ? 'text-emerald-950 font-bold'
-                              : 'text-slate-700 font-medium'
-                          }`}
-                        />
-                      </div>
+                    {/* Time In (Modern Scrollable Control with AM/PM) */}
+                    <td className="py-2 px-1 text-center min-w-[130px]">
+                      <ScrollableTimePicker
+                        isTimeIn={true}
+                        disabled={isHol && !row.isHolidayOverride}
+                        value={(isHol && !row.isHolidayOverride) ? '' : row.startTime}
+                        onChange={val => updateRowField(index, 'startTime', val)}
+                        label="Time In (Start)"
+                        placeholder="Time In"
+                      />
                     </td>
 
-                    {/* Time Out (Modern Sleek Control) */}
-                    <td className="py-2 px-1 text-center">
-                      <div className={`relative flex items-center rounded-lg border transition-all shadow-2xs ${
-                        (isHol && !row.isHolidayOverride)
-                          ? 'border-slate-200 bg-slate-100/90 text-slate-400 cursor-not-allowed opacity-75'
-                          : row.endTime
-                          ? 'border-indigo-300 bg-indigo-50/40 text-indigo-950 ring-1 ring-indigo-200/50'
-                          : 'border-slate-200 bg-white hover:border-slate-300 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20'
-                      }`}>
-                        <div className={`pl-1.5 pr-0.5 flex items-center pointer-events-none ${
-                          (isHol && !row.isHolidayOverride) ? 'text-slate-300' : row.endTime ? 'text-indigo-600' : 'text-slate-400'
-                        }`}>
-                          <Clock className="w-3 h-3 shrink-0" />
-                        </div>
-                        <input
-                          type="time"
-                          disabled={isHol && !row.isHolidayOverride}
-                          value={(isHol && !row.isHolidayOverride) ? '' : row.endTime}
-                          onChange={e => updateRowField(index, 'endTime', e.target.value)}
-                          title={(isHol && !row.isHolidayOverride) ? "Tick 'Override' checkbox to enter times on holidays" : "Ending Time"}
-                          className={`w-full bg-transparent py-1 pr-1 pl-0.5 text-xs text-center font-mono focus:outline-none ${
-                            (isHol && !row.isHolidayOverride)
-                              ? 'text-slate-400 cursor-not-allowed'
-                              : row.endTime
-                              ? 'text-indigo-950 font-bold'
-                              : 'text-slate-700 font-medium'
-                          }`}
-                        />
-                      </div>
+                    {/* Time Out (Modern Scrollable Control with AM/PM) */}
+                    <td className="py-2 px-1 text-center min-w-[130px]">
+                      <ScrollableTimePicker
+                        isTimeIn={false}
+                        disabled={isHol && !row.isHolidayOverride}
+                        value={(isHol && !row.isHolidayOverride) ? '' : row.endTime}
+                        onChange={val => updateRowField(index, 'endTime', val)}
+                        label="Time Out (End)"
+                        placeholder="Time Out"
+                        disableSession={row.startTime ? parse24To12(row.startTime).period : null}
+                        autoSession={row.startTime ? (parse24To12(row.startTime).period === 'AM' ? 'PM' : 'AM') : 'PM'}
+                      />
                     </td>
 
                     {/* Worked */}

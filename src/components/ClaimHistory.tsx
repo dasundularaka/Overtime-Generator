@@ -25,7 +25,7 @@ import {
 import { db } from '../firebase/config';
 import { handleFirestoreError, OperationType } from '../firebase/errors';
 import { sanitizeFirestoreData } from '../utils/firestoreUtils';
-import { ClaimRecord, TemplateConfig } from '../types';
+import { ClaimRecord, TemplateConfig, Branch } from '../types';
 import { getActiveTemplate, deleteClaim } from '../utils/storage';
 import { recordAuditLog } from '../utils/auditLogger';
 import { generateOvertimePdf, printPdfDocument } from '../utils/pdfGenerator';
@@ -34,6 +34,8 @@ import { ConfirmationModal } from './ConfirmationModal';
 import { MONTH_NAMES } from '../utils/timeCalculations';
 import { useAuth } from '../context/AuthContext';
 import { subscribeToTemplates } from '../services/templateService';
+import { subscribeToBranches } from '../utils/branchRoleManager';
+import { SearchableBranchSelect } from './SearchableBranchSelect';
 import { Banknote, CheckCircle2, ChevronRight, ChevronDown, X, ExternalLink, User, Building2, Hash, Layers } from 'lucide-react';
 
 interface ClaimHistoryProps {
@@ -49,10 +51,18 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
   const [claims, setClaims] = useState<ClaimRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [templates, setTemplates] = useState<TemplateConfig[]>([getActiveTemplate()]);
+  const [branches, setBranches] = useState<Branch[]>([]);
 
   useEffect(() => {
     const unsub = subscribeToTemplates(list => {
       if (list.length > 0) setTemplates(list);
+    });
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const unsub = subscribeToBranches(list => {
+      setBranches(list);
     });
     return () => unsub();
   }, []);
@@ -68,7 +78,11 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
   };
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [showBranchTimesheets, setShowBranchTimesheets] = useState(false);
+  // Scope: 'MY_CLAIMS' shows only own claims. 'BRANCH_CLAIMS' allows admins to browse branch timesheets.
+  const [historyScope, setHistoryScope] = useState<'MY_CLAIMS' | 'BRANCH_CLAIMS'>('MY_CLAIMS');
+  // For Super Admin in BRANCH_CLAIMS mode:
+  const [selectedBranchName, setSelectedBranchName] = useState<string>('ALL');
+  const [selectedBranchCode, setSelectedBranchCode] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState('ALL');
   const [selectedYear, setSelectedYear] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'SUBMITTED' | 'DRAFTS'>('ALL');
@@ -343,23 +357,46 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
 
   const isSearching = searchQuery.trim().length > 0;
 
-  // First, don't show other users submissions or drafts (default: only show own claims)
-  // Admins can search other users' timesheets ONLY IF that user is assigned to the same branch
-  // Super Admin can view all users' data across all branches
+  // Super Admin & Branch Admin isolation:
+  // Default is ALWAYS 'MY_CLAIMS' — only show the user's own claims until they explicitly select 'BRANCH_CLAIMS'.
+  // Super Admin can browse any branch via the SearchableBranchSelect dropdown.
   const accessibleClaims = useMemo(() => {
-    if (isSuperAdmin) {
-      return claims;
-    }
     if (!isAdmin) {
       return claims.filter(c => isOwnClaim(c));
     }
-    // For admin: if searching or branch view is toggled, include other users from the SAME branch only
-    if (isSearching || showBranchTimesheets) {
-      return claims.filter(c => isOwnClaim(c) || isSameBranch(c));
+    if (historyScope === 'MY_CLAIMS') {
+      return claims.filter(c => isOwnClaim(c));
     }
-    // Initially / without search, don't show other users submissions or drafts
-    return claims.filter(c => isOwnClaim(c));
-  }, [claims, isSuperAdmin, isAdmin, isSearching, showBranchTimesheets, userProfile, currentUser]);
+    // BRANCH_CLAIMS view:
+    if (isSuperAdmin) {
+      if (selectedBranchName && selectedBranchName !== 'ALL') {
+        const targetName = selectedBranchName.trim().toLowerCase();
+        const targetCode = selectedBranchCode.trim().toLowerCase();
+        return claims.filter(c => {
+          const cBranch = (c.branch || '').trim().toLowerCase();
+          const cCode = (c.branchCode || '').trim().toLowerCase();
+          return (targetName && cBranch === targetName) || (targetCode && cCode === targetCode);
+        });
+      }
+      return claims;
+    }
+    // Regular Branch Admin:
+    return claims.filter(c => isOwnClaim(c) || isSameBranch(c));
+  }, [claims, isSuperAdmin, isAdmin, historyScope, selectedBranchName, selectedBranchCode, userProfile, currentUser]);
+
+  const branchOptions = useMemo<Branch[]>(() => {
+    const allOption: Branch = {
+      id: 'ALL_BRANCHES',
+      name: 'All Branches',
+      branchCode: 'ALL',
+      address: 'View all branch submissions across the organization',
+      telephone: '',
+      email: '',
+      notes: 'Organization-wide view',
+      createdAt: '',
+    };
+    return [allOption, ...branches];
+  }, [branches]);
 
   const availableYears = Array.from(new Set(accessibleClaims.map(c => c.year))).sort((a, b) => b - a);
 
@@ -384,6 +421,22 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
 
     return matchesSearch && matchesMonth && matchesYear && matchesStatus;
   });
+
+  // Group filtered claims by monthly period for clear visual separation
+  const groupedSections = useMemo(() => {
+    const map = new Map<string, ClaimRecord[]>();
+    for (const c of filtered) {
+      const key = `${c.month} ${c.year}`;
+      if (!map.has(key)) {
+        map.set(key, []);
+      }
+      map.get(key)!.push(c);
+    }
+    return Array.from(map.entries()).map(([periodKey, items]) => ({
+      periodKey,
+      items,
+    }));
+  }, [filtered]);
 
   const isAllSelected = filtered.length > 0 && filtered.every(c => selectedClaimIds.includes(c.id));
   const isSomeSelected = filtered.some(c => selectedClaimIds.includes(c.id)) && !isAllSelected;
@@ -486,7 +539,11 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
             </div>
             <p className="text-xs sm:text-sm text-slate-500 mt-1">
               {isAdmin
-                ? `Your overtime claims & drafts. Search to inspect timesheets of staff in your branch (${userProfile?.branch || 'Assigned Branch'}).`
+                ? historyScope === 'MY_CLAIMS'
+                  ? 'Showing your own claims & saved drafts only. Switch to Browse Branch Timesheets to inspect other records.'
+                  : isSuperAdmin
+                  ? 'Browsing branch timesheets across the organization. Use the branch selector to filter.'
+                  : `Browsing timesheets of staff in your branch (${userProfile?.branch || 'Assigned Branch'}).`
                 : 'Your personal claims and saved drafts history. Resume incomplete drafts or download print-ready forms.'}
             </p>
           </div>
@@ -498,6 +555,124 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
             <span>Create New Claim</span>
           </button>
         </div>
+
+        {/* Admin Scope Switcher: Strict Isolation by Default */}
+        {isAdmin && (
+          <div className="mt-4 p-2 bg-slate-50 border border-slate-200/80 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="flex items-center gap-1.5 overflow-x-auto">
+              <button
+                type="button"
+                onClick={() => setHistoryScope('MY_CLAIMS')}
+                className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 ${
+                  historyScope === 'MY_CLAIMS'
+                    ? 'bg-slate-900 text-white shadow-2xs'
+                    : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+                }`}
+              >
+                <User className="w-3.5 h-3.5" />
+                <span>My Claims & Drafts</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    historyScope === 'MY_CLAIMS' ? 'bg-slate-700 text-white' : 'bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  {claims.filter(c => isOwnClaim(c)).length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setHistoryScope('BRANCH_CLAIMS')}
+                className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 ${
+                  historyScope === 'BRANCH_CLAIMS'
+                    ? 'bg-indigo-600 text-white shadow-2xs'
+                    : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+                }`}
+              >
+                <Building2 className="w-3.5 h-3.5" />
+                <span>Browse Branch Timesheets</span>
+                {isSuperAdmin && (
+                  <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-indigo-500/30 text-indigo-100">
+                    All Branches
+                  </span>
+                )}
+              </button>
+            </div>
+
+            <div className="text-[11px] text-slate-500 flex items-center gap-1.5 px-1">
+              {historyScope === 'MY_CLAIMS' ? (
+                <span className="inline-flex items-center gap-1 text-slate-600 font-medium">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  Only your personal claims are visible
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-indigo-700 font-medium">
+                  <Building2 className="w-3.5 h-3.5" />
+                  {isSuperAdmin ? 'Browsing branch submissions' : `Browsing ${userProfile?.branch || 'Branch'}`}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Super Admin Searchable Branch Selector when in BRANCH_CLAIMS scope */}
+        {isAdmin && historyScope === 'BRANCH_CLAIMS' && isSuperAdmin && (
+          <div className="mt-3 p-3.5 bg-indigo-50/70 border border-indigo-200 rounded-2xl animate-fade-in space-y-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-xs font-bold text-slate-900">
+                <Building2 className="w-4 h-4 text-indigo-600" />
+                <span>Browse Branch Timesheets</span>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-800">
+                  {selectedBranchName === 'ALL' ? 'Showing All Branches' : `Filtered: ${selectedBranchName}`}
+                </span>
+              </div>
+              {selectedBranchName !== 'ALL' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedBranchName('ALL');
+                    setSelectedBranchCode('');
+                  }}
+                  className="text-xs font-semibold text-indigo-700 hover:text-indigo-900 underline self-start sm:self-auto cursor-pointer"
+                >
+                  Clear filter / Show All Branches
+                </button>
+              )}
+            </div>
+
+            <div className="max-w-md pt-1">
+              <SearchableBranchSelect
+                value={selectedBranchName === 'ALL' ? 'All Branches' : selectedBranchName}
+                branchCode={selectedBranchCode}
+                branches={branchOptions}
+                onChange={(name, code) => {
+                  setSelectedBranchName(name === 'All Branches' ? 'ALL' : name);
+                  setSelectedBranchCode(code === 'ALL' ? '' : code);
+                }}
+                placeholder="Search branch name, branch code, or city..."
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Branch Admin Information Banner when in BRANCH_CLAIMS scope */}
+        {isAdmin && historyScope === 'BRANCH_CLAIMS' && !isSuperAdmin && (
+          <div className="mt-3 p-3 bg-indigo-50/70 border border-indigo-200 rounded-2xl animate-fade-in flex items-center justify-between gap-3 text-xs text-indigo-900">
+            <div className="flex items-center gap-2">
+              <Building2 className="w-4 h-4 text-indigo-600 shrink-0" />
+              <span>
+                Browsing timesheets for assigned branch: <strong>{userProfile?.branch || 'General'}</strong> {userProfile?.branchCode ? `(${userProfile.branchCode})` : ''}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setHistoryScope('MY_CLAIMS')}
+              className="text-xs font-bold text-indigo-700 hover:text-indigo-900 underline shrink-0 cursor-pointer"
+            >
+              Back to My Claims
+            </button>
+          </div>
+        )}
 
         {/* Status Filter Tabs */}
         <div className="mt-4 flex items-center gap-2 border-b border-slate-100 pb-3 overflow-x-auto">
@@ -605,23 +780,24 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
             <div className="flex items-center justify-between text-[11px] text-slate-500 mt-2 px-1">
               <div className="flex items-center gap-1 min-w-0">
                 <Building2 className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                <span className="truncate">Branch: <strong className="text-slate-700">{userProfile?.branch || 'General'}</strong></span>
-                {isSearching && (
-                  <span className="text-[9px] bg-indigo-50 text-indigo-700 font-bold px-1.5 py-0.2 rounded border border-indigo-200 shrink-0">
-                    Branch Search
-                  </span>
-                )}
+                <span className="truncate">
+                  {historyScope === 'MY_CLAIMS'
+                    ? 'Scope: My Claims Only'
+                    : isSuperAdmin
+                    ? `Branch: ${selectedBranchName === 'ALL' ? 'All Branches' : selectedBranchName}`
+                    : `Branch: ${userProfile?.branch || 'General'}`}
+                </span>
               </div>
               <button
                 type="button"
-                onClick={() => setShowBranchTimesheets(!showBranchTimesheets)}
-                className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border transition shrink-0 cursor-pointer ${
-                  showBranchTimesheets
-                    ? 'bg-purple-600 text-white border-purple-600'
+                onClick={() => setHistoryScope(historyScope === 'MY_CLAIMS' ? 'BRANCH_CLAIMS' : 'MY_CLAIMS')}
+                className={`text-[10px] font-bold px-2.5 py-0.5 rounded-lg border transition shrink-0 cursor-pointer ${
+                  historyScope === 'BRANCH_CLAIMS'
+                    ? 'bg-indigo-600 text-white border-indigo-600'
                     : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
                 }`}
               >
-                {showBranchTimesheets ? 'Showing Branch' : 'Browse Branch'}
+                {historyScope === 'BRANCH_CLAIMS' ? 'Showing Branch' : 'Browse Branch'}
               </button>
             </div>
           )}
@@ -826,20 +1002,22 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
             <div className="flex items-center gap-2">
               <Building2 className="w-4 h-4 text-indigo-600" />
               <span>
-                {isSuperAdmin ? (
+                {historyScope === 'MY_CLAIMS' ? (
                   <>
-                    Scope: <strong className="text-slate-800 font-semibold">Super Admin (All Branches)</strong>
+                    Active Scope: <strong className="text-slate-800 font-semibold">Personal Claims & Drafts</strong>
+                    <span className="text-[11px] text-slate-400 ml-1.5">(Strict isolation active - others' entries hidden)</span>
+                  </>
+                ) : isSuperAdmin ? (
+                  <>
+                    Active Scope: <strong className="text-indigo-900 font-semibold">Super Admin &bull; {selectedBranchName === 'ALL' ? 'All Branches' : selectedBranchName}</strong>
+                    <span className="text-[11px] text-slate-400 ml-1.5">(Browsing organization timesheets)</span>
                   </>
                 ) : (
                   <>
-                    Assigned Branch: <strong className="text-slate-800 font-semibold">{userProfile?.branch || 'General'}</strong>
+                    Active Scope: <strong className="text-indigo-900 font-semibold">Branch &bull; {userProfile?.branch || 'General'}</strong>
+                    <span className="text-[11px] text-slate-400 ml-1.5">(Browsing branch timesheets)</span>
                   </>
                 )}
-              </span>
-              <span className="text-[11px] text-slate-400">
-                {isSuperAdmin
-                  ? '(Super Admin can view and filter all users across all branches)'
-                  : '(Admins can view timesheets within their same branch)'}
               </span>
               {isSearching && (
                 <span className="text-[10px] bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded border border-indigo-200">
@@ -847,19 +1025,17 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                 </span>
               )}
             </div>
-            {!isSuperAdmin && (
-              <button
-                type="button"
-                onClick={() => setShowBranchTimesheets(!showBranchTimesheets)}
-                className={`text-xs font-semibold px-3 py-1 rounded-xl border transition cursor-pointer ${
-                  showBranchTimesheets
-                    ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
-                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-                }`}
-              >
-                {showBranchTimesheets ? `Showing All ${userProfile?.branch || 'Branch'} Timesheets` : `Browse All ${userProfile?.branch || 'Branch'} Staff`}
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setHistoryScope(historyScope === 'MY_CLAIMS' ? 'BRANCH_CLAIMS' : 'MY_CLAIMS')}
+              className={`text-xs font-semibold px-3 py-1 rounded-xl border transition cursor-pointer ${
+                historyScope === 'BRANCH_CLAIMS'
+                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+              }`}
+            >
+              {historyScope === 'BRANCH_CLAIMS' ? 'Switch to My Claims' : 'Browse Branch Timesheets'}
+            </button>
           </div>
         )}
       </div>
@@ -935,76 +1111,93 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
             </p>
           </div>
         ) : (
-          filtered.map(claim => {
-            const isDraft = claim.status === 'draft';
-            const isOwn = isOwnClaim(claim);
-            return (
-              <div
-                key={claim.id}
-                onClick={() => setSelectedMobileClaim(claim)}
-                className={`rounded-2xl p-4 border shadow-xs hover:border-indigo-300 hover:shadow-md active:bg-slate-50 transition cursor-pointer flex items-center justify-between gap-3 ${
-                  isDraft
-                    ? 'bg-amber-50/20 border-amber-200/70 hover:border-amber-300'
-                    : 'bg-white border-slate-200'
-                }`}
-              >
-                {/* Month Period and (for other users) relevant Name & PF Number */}
-                <div className="flex items-center gap-3 min-w-0">
+          groupedSections.map(section => (
+            <React.Fragment key={section.periodKey}>
+              {/* Monthly Separation Grey Line with Period */}
+              <div className="flex items-center gap-3 pt-3 pb-1">
+                <div className="h-px bg-slate-300 flex-1" />
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 border border-slate-300 shadow-2xs text-xs font-bold text-slate-700">
+                  <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Period: {section.periodKey}</span>
+                  <span className="text-[10px] font-medium text-slate-500">
+                    ({section.items.length})
+                  </span>
+                </div>
+                <div className="h-px bg-slate-300 flex-1" />
+              </div>
+
+              {section.items.map(claim => {
+                const isDraft = claim.status === 'draft';
+                const isOwn = isOwnClaim(claim);
+                return (
                   <div
-                    className={`p-2.5 rounded-xl shrink-0 flex items-center justify-center font-bold text-xs ${
-                      !isOwn
-                        ? 'bg-indigo-100 text-indigo-700 w-10 h-10'
-                        : isDraft
-                        ? 'bg-amber-100/80 text-amber-800'
-                        : 'bg-indigo-50 text-indigo-700'
+                    key={claim.id}
+                    onClick={() => setSelectedMobileClaim(claim)}
+                    className={`rounded-2xl p-4 border shadow-xs hover:border-indigo-300 hover:shadow-md active:bg-slate-50 transition cursor-pointer flex items-center justify-between gap-3 ${
+                      isDraft
+                        ? 'bg-amber-50/20 border-amber-200/70 hover:border-amber-300'
+                        : 'bg-white border-slate-200'
                     }`}
                   >
-                    {!isOwn ? (
-                      <span className="uppercase text-xs font-black">
-                        {claim.employeeName ? claim.employeeName.charAt(0) : 'U'}
-                      </span>
-                    ) : (
-                      <Calendar className="w-5 h-5" />
-                    )}
-                  </div>
-                  <div className="truncate">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-900 text-sm tracking-tight truncate">
-                        {claim.month} {claim.year}
-                      </span>
-                      {!isOwn && (
-                        <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0">
-                          {claim.employeeNumber || (claim as any).pfNumber}
+                    {/* Month Period and (for other users) relevant Name & PF Number */}
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div
+                        className={`p-2.5 rounded-xl shrink-0 flex items-center justify-center font-bold text-xs ${
+                          !isOwn
+                            ? 'bg-indigo-100 text-indigo-700 w-10 h-10'
+                            : isDraft
+                            ? 'bg-amber-100/80 text-amber-800'
+                            : 'bg-indigo-50 text-indigo-700'
+                        }`}
+                      >
+                        {!isOwn ? (
+                          <span className="uppercase text-xs font-black">
+                            {claim.employeeName ? claim.employeeName.charAt(0) : 'U'}
+                          </span>
+                        ) : (
+                          <Calendar className="w-5 h-5" />
+                        )}
+                      </div>
+                      <div className="truncate">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-900 text-sm tracking-tight truncate">
+                            {claim.month} {claim.year}
+                          </span>
+                          {!isOwn && (
+                            <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0">
+                              {claim.employeeNumber || (claim as any).pfNumber}
+                            </span>
+                          )}
+                        </div>
+                        {!isOwn && (
+                          <div className="text-xs font-semibold text-slate-600 truncate mt-0.5 flex items-center gap-1">
+                            <User className="w-3 h-3 text-slate-400 shrink-0" />
+                            <span className="truncate">{claim.employeeName}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Status Only */}
+                    <div className="flex items-center gap-2 shrink-0">
+                      {isDraft ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold text-[11px] bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs">
+                          <Clock className="w-3 h-3 text-amber-700" />
+                          <span>Draft</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold text-[11px] bg-emerald-50 text-emerald-800 border border-emerald-300 shadow-2xs">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          <span>Submitted</span>
                         </span>
                       )}
+                      <ChevronRight className="w-4 h-4 text-slate-400" />
                     </div>
-                    {!isOwn && (
-                      <div className="text-xs font-semibold text-slate-600 truncate mt-0.5 flex items-center gap-1">
-                        <User className="w-3 h-3 text-slate-400 shrink-0" />
-                        <span className="truncate">{claim.employeeName}</span>
-                      </div>
-                    )}
                   </div>
-                </div>
-
-                {/* Status Only */}
-                <div className="flex items-center gap-2 shrink-0">
-                  {isDraft ? (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold text-[11px] bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs">
-                      <Clock className="w-3 h-3 text-amber-700" />
-                      <span>Draft</span>
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold text-[11px] bg-emerald-50 text-emerald-800 border border-emerald-300 shadow-2xs">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                      <span>Submitted</span>
-                    </span>
-                  )}
-                  <ChevronRight className="w-4 h-4 text-slate-400" />
-                </div>
-              </div>
-            );
-          })
+                );
+              })}
+            </React.Fragment>
+          ))
         )}
       </div>
 
@@ -1052,12 +1245,30 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
-                {filtered.map(claim => {
-                  const isSelected = selectedClaimIds.includes(claim.id);
-                  const isDraft = claim.status === 'draft';
-                  return (
-                  <tr
-                    key={claim.id}
+                {groupedSections.map(section => (
+                  <React.Fragment key={section.periodKey}>
+                    {/* Monthly Separation Grey Line with Period */}
+                    <tr className="bg-slate-100/90 border-y border-slate-300">
+                      <td colSpan={11} className="py-2.5 px-4">
+                        <div className="flex items-center gap-3">
+                          <div className="h-px bg-slate-300 flex-1" />
+                          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-white border border-slate-300 shadow-2xs text-xs font-bold text-slate-700">
+                            <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+                            <span>Period: {section.periodKey}</span>
+                            <span className="text-[11px] font-medium text-slate-500">
+                              ({section.items.length} {section.items.length === 1 ? 'claim' : 'claims'})
+                            </span>
+                          </div>
+                          <div className="h-px bg-slate-300 flex-1" />
+                        </div>
+                      </td>
+                    </tr>
+                    {section.items.map(claim => {
+                      const isSelected = selectedClaimIds.includes(claim.id);
+                      const isDraft = claim.status === 'draft';
+                      return (
+                      <tr
+                        key={claim.id}
                     className={`transition-colors ${
                       isSelected
                         ? 'bg-indigo-50/60'
@@ -1222,7 +1433,9 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                   </tr>
                 );
               })}
-              </tbody>
+            </React.Fragment>
+          ))}
+        </tbody>
             </table>
           </div>
         )}
