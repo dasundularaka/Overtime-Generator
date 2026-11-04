@@ -121,7 +121,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   }, []);
 
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
-  const [cardFilter, setCardFilter] = useState<'all' | 'claimed' | 'weekdays' | 'nonworking'>('all');
+  const [cardFilter, setCardFilter] = useState<'all' | 'claimed' | 'weekdays' | 'nonworking' | 'issues'>('all');
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
 
   // Monitor keyboard display on mobile devices so floating bars do not cover inputs
@@ -349,7 +349,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     if (applyScope) {
       setRows(prevRows =>
         prevRows.map(r => {
-          const isHol = !!r.isHoliday || holidayMap.has(r.date) || r.dayOfWeek === 'Sun';
+          const isHol = r.isHoliday === false ? false : (!!r.isHoliday || holidayMap.has(r.date) || r.dayOfWeek === 'Sun');
           const isSat = r.dayOfWeek === 'Sat';
 
           const computedReason = isHol
@@ -503,23 +503,89 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     return map;
   }, [calendarHolidays]);
 
+  // Helper: Detect if a row is a holiday (strictly respects user's explicit isHoliday flag)
+  const isRowHoliday = (r: OvertimeRow): boolean => {
+    if (r.isHoliday === false) return false; // Explicit user unmark!
+    if (r.isHoliday === true) return true;
+    const dow = r.dayOfWeek || getDayOfWeek(r.date);
+    if (dow === 'Sun') return true;
+    return holidayMap.has(r.date);
+  };
+
   // Helper: Detect other days (Saturdays, Sundays, and public/bank holidays)
   const isOtherDayRow = (r: OvertimeRow): boolean => {
     const dow = r.dayOfWeek || getDayOfWeek(r.date);
-    return dow === 'Sat' || dow === 'Sun' || !!r.isHoliday || holidayMap.has(r.date);
+    return dow === 'Sat' || isRowHoliday(r);
   };
 
   // Helper: Detect regular weekday working days (Mon-Fri, non-holiday)
   const isWeekdayWorkingDay = (r: OvertimeRow): boolean => {
     const dow = r.dayOfWeek || getDayOfWeek(r.date);
-    return dow !== 'Sat' && dow !== 'Sun' && !r.isHoliday && !holidayMap.has(r.date);
+    return dow !== 'Sat' && !isRowHoliday(r);
   };
+
+  // Pre-calculate date occurrence counts across the entire claim to flag duplicates
+  const dateOccurrences = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of rows) {
+      if (r.date && r.date.trim()) {
+        counts.set(r.date, (counts.get(r.date) || 0) + 1);
+      }
+    }
+    return counts;
+  }, [rows]);
+
+  // Comprehensive per-row validation and conflict detection for Day Cards
+  const getRowValidation = (r: OvertimeRow) => {
+    const isHol = isRowHoliday(r);
+    const hasStartTime = Boolean(r.startTime && r.startTime.trim());
+    const hasEndTime = Boolean(r.endTime && r.endTime.trim());
+    const hasTimes = hasStartTime || hasEndTime;
+
+    const isMissingTimeOut = hasStartTime && !hasEndTime;
+    const isMissingTimeIn = !hasStartTime && hasEndTime;
+    const isZeroDuration = Boolean(hasStartTime && hasEndTime && r.startTime === r.endTime);
+    const isMissingReason = Boolean(
+      hasStartTime && hasEndTime && (!r.reason || !r.reason.trim())
+    );
+    const isDuplicateDate = Boolean(r.date && (dateOccurrences.get(r.date) || 0) > 1);
+    const isHolidayNotOverridden = Boolean(isHol && !r.isHolidayOverride && hasTimes);
+
+    const issues: string[] = [];
+    if (isMissingTimeOut) issues.push('Missing Time Out');
+    if (isMissingTimeIn) issues.push('Missing Time In');
+    if (isZeroDuration) issues.push('Zero Duration');
+    if (isMissingReason) issues.push('Duties Required');
+    if (isDuplicateDate) issues.push('Duplicate Date');
+    if (isHolidayNotOverridden) issues.push('Holiday Override Needed');
+
+    return {
+      hasIssue: issues.length > 0,
+      isMissingTimeOut,
+      isMissingTimeIn,
+      isZeroDuration,
+      isMissingReason,
+      isDuplicateDate,
+      isHolidayNotOverridden,
+      issues,
+      primaryIssue: issues[0] || null,
+    };
+  };
+
+  const rowsWithIssues = useMemo(() => {
+    return rows.filter(r => getRowValidation(r).hasIssue);
+  }, [rows, holidayMap, dateOccurrences]);
+
+  const rowsWithIssuesCount = rowsWithIssues.length;
 
   // Visible rows for user-friendly Card View filtering
   const visibleCardRows = useMemo(() => {
     return rows
       .map((row, originalIndex) => ({ row, originalIndex }))
       .filter(({ row }) => {
+        if (cardFilter === 'issues') {
+          return getRowValidation(row).hasIssue;
+        }
         if (cardFilter === 'claimed') {
           return (row.totalMinutes || 0) > 0 || (row.totalWorkMinutes || 0) > 0;
         }
@@ -531,7 +597,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         }
         return true;
       });
-  }, [rows, cardFilter, holidayMap]);
+  }, [rows, cardFilter, holidayMap, dateOccurrences]);
 
   // Fetch users if admin (Admins only see users in their same branch; Super Admin sees all)
   useEffect(() => {
@@ -967,7 +1033,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
       const dow = target.dayOfWeek || getDayOfWeek(target.date);
       const isSun = dow === 'Sun';
-      const isHoliday = !!target.isHoliday || holidayMap.has(target.date) || isSun;
+      const isHoliday = isRowHoliday(target);
       const isOther = dow === 'Sat' || dow === 'Sun' || isHoliday;
 
       if (nextOverride) {
@@ -1014,9 +1080,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     setRows(prevRows => {
       const updated = [...prevRows];
       const current = updated[index];
-      const currentDow = current.dayOfWeek || getDayOfWeek(current.date);
-      const currentIsSun = currentDow === 'Sun';
-      const currentIsHoliday = !!current.isHoliday || holidayMap.has(current.date) || currentIsSun;
+      const currentIsHoliday = isRowHoliday(current);
 
       // Policy: Holidays, users can't enter times or reason without overriding
       if (currentIsHoliday && !current.isHolidayOverride && (field === 'startTime' || field === 'endTime' || field === 'reason')) {
@@ -1026,31 +1090,60 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       const target = { ...current, [field]: value };
 
       if (field === 'date') {
-        target.dayOfWeek = getDayOfWeek(value);
+        const newDow = getDayOfWeek(value);
+        target.dayOfWeek = newDow;
         target.isWeekend = isWeekendDay(value);
-        const checkHol = holidayMap.has(value) || target.dayOfWeek === 'Sun';
+        const checkHol = holidayMap.has(value) || newDow === 'Sun';
+
         if (checkHol) {
           target.isHoliday = true;
-          target.holidayName = holidayMap.get(value)?.name || (target.dayOfWeek === 'Sun' ? 'Sunday' : 'Holiday');
+          const holName = holidayMap.get(value)?.name || (newDow === 'Sun' ? 'Sunday' : 'Holiday');
+          target.holidayName = holName;
           if (!target.isHolidayOverride) {
             target.startTime = '';
             target.endTime = '';
-            target.reason = defaultHolidayReason.trim() ? defaultHolidayReason.trim() : (target.holidayName || 'Holiday');
+            target.reason = defaultHolidayReason.trim() ? defaultHolidayReason.trim() : holName;
+          }
+        } else {
+          // Changed to normal working day or Saturday (not holiday)
+          target.isHoliday = false;
+          target.holidayName = undefined;
+          if (newDow === 'Sat') {
+            target.reason = defaultSaturdayReason.trim() ? defaultSaturdayReason.trim() : 'Saturday Duty';
+          } else {
+            // Monday through Friday
+            target.reason = defaultWeekdayReason.trim() ? defaultWeekdayReason.trim() : '';
           }
         }
       }
 
-      if (field === 'isHoliday' && value) {
-        if (!target.isHolidayOverride) {
-          target.startTime = '';
-          target.endTime = '';
+      if (field === 'isHoliday') {
+        const isSettingHoliday = Boolean(value);
+        if (isSettingHoliday) {
+          target.isHoliday = true;
           const holName = holidayMap.get(target.date)?.name || (target.dayOfWeek === 'Sun' ? 'Sunday' : 'Holiday');
-          target.reason = defaultHolidayReason.trim() ? defaultHolidayReason.trim() : holName;
+          target.holidayName = holName;
+          if (!target.isHolidayOverride) {
+            target.startTime = '';
+            target.endTime = '';
+            target.reason = defaultHolidayReason.trim() ? defaultHolidayReason.trim() : holName;
+          }
+        } else {
+          // User explicitly unmarks holiday: revert to working day or Saturday
+          target.isHoliday = false;
+          target.holidayName = undefined;
+          target.isHolidayOverride = false;
+          const dow = target.dayOfWeek || getDayOfWeek(target.date);
+          if (dow === 'Sat') {
+            target.reason = defaultSaturdayReason.trim() ? defaultSaturdayReason.trim() : 'Saturday Duty';
+          } else {
+            target.reason = defaultWeekdayReason.trim() ? defaultWeekdayReason.trim() : '';
+          }
         }
       }
 
       const effectiveDow = target.dayOfWeek || getDayOfWeek(target.date);
-      const effectiveIsHoliday = !!target.isHoliday || holidayMap.has(target.date) || effectiveDow === 'Sun';
+      const effectiveIsHoliday = isRowHoliday(target);
       const isOther = effectiveDow === 'Sat' || effectiveDow === 'Sun' || effectiveIsHoliday;
       const isSpecial = isSpecialAssignedOt || !!target.isSpecialAssignment;
       const isHolOverride = !!target.isHolidayOverride;
@@ -1099,7 +1192,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       prevRows.map(row => {
         if (!row.startTime || !row.endTime) return row;
         const dow = row.dayOfWeek || getDayOfWeek(row.date);
-        const isHoliday = !!row.isHoliday || holidayMap.has(row.date) || dow === 'Sun';
+        const isHoliday = isRowHoliday(row);
         const isOther = dow === 'Sat' || dow === 'Sun' || isHoliday;
         const isSpecial = isSpecialAssignedOt || !!row.isSpecialAssignment;
         const isHolOverride = !!row.isHolidayOverride;
@@ -1402,15 +1495,33 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       return false;
     }
 
-    // Check pair completeness
+    // Check day cards completeness & shift conflicts
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
-      if (r.startTime && !r.endTime) {
-        setValidationError(`Row ${i + 1} (${r.date || 'entry'}): Ending time cannot be empty when starting time is provided.`);
+      const val = getRowValidation(r);
+      if (val.isMissingTimeOut) {
+        setValidationError(`Day #${i + 1} (${r.date || 'entry'}): Ending time cannot be empty when starting time is provided.`);
+        setCardFilter('issues');
         return false;
       }
-      if (!r.startTime && r.endTime) {
-        setValidationError(`Row ${i + 1} (${r.date || 'entry'}): Starting time cannot be empty when ending time is provided.`);
+      if (val.isMissingTimeIn) {
+        setValidationError(`Day #${i + 1} (${r.date || 'entry'}): Starting time cannot be empty when ending time is provided.`);
+        setCardFilter('issues');
+        return false;
+      }
+      if (val.isZeroDuration) {
+        setValidationError(`Day #${i + 1} (${r.date || 'entry'}): Starting time and ending time cannot be the same (${r.startTime}).`);
+        setCardFilter('issues');
+        return false;
+      }
+      if (val.isMissingReason) {
+        setValidationError(`Day #${i + 1} (${r.date || 'entry'}): Please provide duties or nature of work for the claimed shift.`);
+        setCardFilter('issues');
+        return false;
+      }
+      if (val.isDuplicateDate) {
+        setValidationError(`Duplicate date: Day #${i + 1} has date ${r.date} which is used in multiple cards.`);
+        setCardFilter('issues');
         return false;
       }
     }
@@ -1442,7 +1553,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     if (hasReviewedSunday) return true;
     const sundayOrHolidayRows = rows.filter(r => {
       const isSun = r.dayOfWeek === 'Sun' || getDayOfWeek(r.date) === 'Sun';
-      const isHol = !!r.isHoliday || holidayMap.has(r.date) || /holiday|poya|mercantile|off\s*day|leave/i.test(r.reason || '');
+      const isHol = isRowHoliday(r);
       return (isSun || isHol) && (r.startTime || r.endTime || r.totalWorkMinutes > 0);
     });
     if (sundayOrHolidayRows.length > 0) {
@@ -2768,6 +2879,25 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                 >
                   Saturdays &amp; Holidays ({rows.filter(r => isOtherDayRow(r)).length})
                 </button>
+                {rowsWithIssuesCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setCardFilter('issues')}
+                    className={`px-3 py-1 rounded-lg transition cursor-pointer select-none flex items-center gap-1.5 ${
+                      cardFilter === 'issues'
+                        ? 'bg-rose-600 text-white shadow-2xs font-bold'
+                        : 'bg-rose-50 text-rose-800 hover:bg-rose-100 border border-rose-300'
+                    }`}
+                  >
+                    <AlertCircle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                    <span>Attention Needed</span>
+                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                      cardFilter === 'issues' ? 'bg-white/30 text-white' : 'bg-rose-200 text-rose-900'
+                    }`}>
+                      {rowsWithIssuesCount}
+                    </span>
+                  </button>
+                )}
               </div>
 
               <div className="flex items-center gap-2 text-xs text-slate-500">
@@ -2775,13 +2905,49 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
               </div>
             </div>
 
+            {/* Visual Callout Banner if any day card has issues */}
+            {rowsWithIssuesCount > 0 && cardFilter !== 'issues' && (
+              <div className="p-3 bg-amber-50/90 border border-amber-200 rounded-xl flex items-center justify-between gap-3 text-xs text-amber-900 shadow-2xs">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>
+                    <strong>{rowsWithIssuesCount} {rowsWithIssuesCount === 1 ? 'day card has' : 'day cards have'} missing or conflicting entries</strong> (e.g. missing Time Out or missing duties). Fix them before saving.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCardFilter('issues')}
+                  className="text-xs font-bold text-amber-900 bg-amber-200/80 hover:bg-amber-300 px-2.5 py-1 rounded-lg transition shrink-0 cursor-pointer"
+                >
+                  Review {rowsWithIssuesCount} {rowsWithIssuesCount === 1 ? 'Card' : 'Cards'}
+                </button>
+              </div>
+            )}
+
+            {/* Empty state when filtering by issues and all are valid */}
+            {cardFilter === 'issues' && visibleCardRows.length === 0 && (
+              <div className="p-8 text-center text-emerald-800 bg-emerald-50 rounded-2xl border border-emerald-200">
+                <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-emerald-600" />
+                <p className="font-bold text-sm">All day cards are valid!</p>
+                <p className="text-xs text-emerald-600 mt-1">No missing fields or conflicting shift entries detected.</p>
+                <button
+                  type="button"
+                  onClick={() => setCardFilter('all')}
+                  className="mt-3 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold shadow-2xs hover:bg-emerald-700 transition cursor-pointer"
+                >
+                  View All Days
+                </button>
+              </div>
+            )}
+
             {/* Grid of Separated Day Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {visibleCardRows.map(({ row, originalIndex: index }) => {
+                const val = getRowValidation(row);
                 const hasOt = (row.totalMinutes || 0) > 0;
                 const isSat = row.dayOfWeek === 'Sat' || getDayOfWeek(row.date) === 'Sat';
                 const isSun = row.dayOfWeek === 'Sun' || getDayOfWeek(row.date) === 'Sun';
-                const isHol = !!row.isHoliday || holidayMap.has(row.date) || isSun || /holiday|poya|mercantile|off\s*day|leave/i.test(row.reason || '');
+                const isHol = isRowHoliday(row);
                 const isOther = isSat || isSun || isHol;
                 const isRowSpecial = row.isSpecialAssignment ?? isSpecialAssignedOt;
                 const holidayInfo = holidayMap.get(row.date);
@@ -2789,8 +2955,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                 return (
                   <div
                     key={row.id}
-                    className={`rounded-2xl border p-4 bg-white transition-all shadow-2xs hover:shadow-md flex flex-col justify-between space-y-3.5 ${
-                      hasOt
+                    className={`rounded-2xl border p-4 bg-white transition-all shadow-2xs hover:shadow-md flex flex-col justify-between space-y-3.5 relative ${
+                      val.hasIssue
+                        ? 'border-rose-400 ring-2 ring-rose-300/50 bg-linear-to-b from-rose-50/20 via-white to-white'
+                        : hasOt
                         ? 'border-indigo-300 ring-1 ring-indigo-200/60 bg-linear-to-b from-indigo-50/25 to-white'
                         : isSat
                         ? 'border-amber-200 bg-linear-to-b from-amber-50/20 to-white'
@@ -2812,7 +2980,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                           type="date"
                           value={row.date}
                           onChange={e => updateRowField(index, 'date', e.target.value)}
-                          className="font-mono text-xs font-semibold px-2 py-0.5 rounded-lg border border-slate-200 bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          className={`font-mono text-xs font-semibold px-2 py-0.5 rounded-lg border bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                            val.isDuplicateDate ? 'border-rose-400 bg-rose-50/40 text-rose-900 ring-1 ring-rose-300' : 'border-slate-200'
+                          }`}
                         />
 
                         <span
@@ -2834,6 +3004,13 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                             {row.holidayName || holidayInfo?.name || 'Holiday'}
                           </span>
                         )}
+
+                        {val.hasIssue && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1 shadow-2xs">
+                            <AlertCircle className="w-3 h-3 text-rose-600 shrink-0" />
+                            <span>{val.primaryIssue}</span>
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-1 shrink-0">
@@ -2847,21 +3024,19 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                           <Copy className="w-3.5 h-3.5" />
                         </button>
 
-                        {/* Holiday Toggle */}
-                        {!isSun && (
-                          <button
-                            type="button"
-                            onClick={() => updateRowField(index, 'isHoliday', !row.isHoliday)}
-                            className={`p-1.5 rounded-lg transition cursor-pointer ${
-                              row.isHoliday
-                                ? 'bg-rose-100 text-rose-700'
-                                : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
-                            }`}
-                            title={row.isHoliday ? "Unmark holiday" : "Mark as holiday"}
-                          >
-                            <Tag className="w-3.5 h-3.5" />
-                          </button>
-                        )}
+                        {/* Holiday Toggle (Click to mark or unmark as holiday) */}
+                        <button
+                          type="button"
+                          onClick={() => updateRowField(index, 'isHoliday', !isHol)}
+                          className={`p-1.5 rounded-lg transition cursor-pointer ${
+                            isHol
+                              ? 'bg-rose-100 text-rose-700 hover:bg-rose-200'
+                              : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                          }`}
+                          title={isHol ? "Unmark holiday (switch to normal working day)" : "Mark as holiday"}
+                        >
+                          <Tag className="w-3.5 h-3.5" />
+                        </button>
 
                         {/* Delete Row */}
                         <button
@@ -2874,6 +3049,14 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                         </button>
                       </div>
                     </div>
+
+                    {/* Duplicate Date Inline Alert */}
+                    {val.isDuplicateDate && (
+                      <div className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-1 rounded-lg border border-rose-200 flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3 text-rose-600 shrink-0" />
+                        <span>Duplicate date: {row.date} is entered on multiple day cards</span>
+                      </div>
+                    )}
 
                     {/* Holiday Alert & Override Banner */}
                     {isHol && (
@@ -2923,11 +3106,19 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                             : (isSat ? "Saturday Duty..." : "Duties performed...")
                         }
                         className={`w-full rounded-xl border px-3 py-1.5 text-xs transition ${
-                          isHol && !row.isHolidayOverride
+                          val.isMissingReason
+                            ? 'border-amber-400 ring-1 ring-amber-300 bg-amber-50/20 text-slate-800 focus:border-amber-500'
+                            : isHol && !row.isHolidayOverride
                             ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed select-none'
                             : 'border-slate-200 bg-white text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
                         }`}
                       />
+                      {val.isMissingReason && (
+                        <div className="text-[10px] font-bold text-amber-700 flex items-center gap-1 mt-1">
+                          <AlertCircle className="w-3 h-3 text-amber-600 shrink-0" />
+                          <span>Duties required: Please specify duties performed for claimed hours</span>
+                        </div>
+                      )}
                     </div>
 
                     {/* 3. Modern Time In & Time Out section */}
@@ -2945,7 +3136,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                           )}
                         </div>
                         <div className={`relative flex items-center rounded-xl border transition-all shadow-2xs ${
-                          (isHol && !row.isHolidayOverride)
+                          val.isMissingTimeIn
+                            ? 'border-rose-400 ring-1 ring-rose-300 bg-rose-50/30'
+                            : (isHol && !row.isHolidayOverride)
                             ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed opacity-75'
                             : row.startTime
                             ? 'border-emerald-300 bg-emerald-50/40 text-emerald-950 ring-1 ring-emerald-200/50'
@@ -2984,7 +3177,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                           )}
                         </div>
                         <div className={`relative flex items-center rounded-xl border transition-all shadow-2xs ${
-                          (isHol && !row.isHolidayOverride)
+                          val.isMissingTimeOut
+                            ? 'border-rose-400 ring-1 ring-rose-300 bg-rose-50/30'
+                            : (isHol && !row.isHolidayOverride)
                             ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed opacity-75'
                             : row.endTime
                             ? 'border-indigo-300 bg-indigo-50/40 text-indigo-950 ring-1 ring-indigo-200/50'
@@ -3009,6 +3204,32 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                           />
                         </div>
                       </div>
+
+                      {/* Conflict & Missing Field Warning Messages for Time Section */}
+                      {val.isMissingTimeOut && (
+                        <div className="col-span-2 text-[10px] font-bold text-rose-600 flex items-center gap-1 mt-0.5">
+                          <AlertCircle className="w-3 h-3 shrink-0" />
+                          <span>Missing Time Out: Starting time is entered, please provide Time Out</span>
+                        </div>
+                      )}
+                      {val.isMissingTimeIn && (
+                        <div className="col-span-2 text-[10px] font-bold text-rose-600 flex items-center gap-1 mt-0.5">
+                          <AlertCircle className="w-3 h-3 shrink-0" />
+                          <span>Missing Time In: Ending time is entered, please provide Time In</span>
+                        </div>
+                      )}
+                      {val.isZeroDuration && (
+                        <div className="col-span-2 text-[10px] font-bold text-rose-600 flex items-center gap-1 mt-0.5">
+                          <AlertCircle className="w-3 h-3 shrink-0" />
+                          <span>Time conflict: Time In and Time Out cannot be identical ({row.startTime})</span>
+                        </div>
+                      )}
+                      {val.isHolidayNotOverridden && (
+                        <div className="col-span-2 text-[10px] font-bold text-amber-700 flex items-center gap-1 mt-0.5">
+                          <AlertCircle className="w-3 h-3 shrink-0" />
+                          <span>Holiday: Click &apos;Override OT&apos; above to claim overtime on this holiday</span>
+                        </div>
+                      )}
                     </div>
 
                     {/* 4. Card Bottom Strip: Worked Time, Outcome OT Badge, and Special OT Checkbox */}
@@ -3097,23 +3318,35 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
               {rows.map((row, index) => {
+                const val = getRowValidation(row);
                 const hasOt = row.totalMinutes > 0;
                 const isSat = row.dayOfWeek === 'Sat' || getDayOfWeek(row.date) === 'Sat';
                 const isSun = row.dayOfWeek === 'Sun' || getDayOfWeek(row.date) === 'Sun';
-                const isHol = !!row.isHoliday || holidayMap.has(row.date) || isSun || /holiday|poya|mercantile|off\s*day|leave/i.test(row.reason || '');
+                const isHol = isRowHoliday(row);
                 const isOther = isSat || isSun || isHol;
                 const isRowSpecial = row.isSpecialAssignment ?? isSpecialAssignedOt;
 
                 return (
                   <tr
                     key={row.id}
-                    className={`hover:bg-slate-50/80 transition-colors ${
-                      hasOt ? 'bg-indigo-50/20' : ''
+                    className={`transition-colors ${
+                      val.hasIssue
+                        ? 'bg-rose-50/60 hover:bg-rose-100/60'
+                        : hasOt
+                        ? 'bg-indigo-50/20 hover:bg-slate-50/80'
+                        : 'hover:bg-slate-50/80'
                     }`}
                   >
                     {/* Index */}
                     <td className="py-2 px-1 text-center text-slate-400 font-mono text-[11px]">
-                      {index + 1}
+                      <div className="flex items-center justify-center gap-1">
+                        <span>{index + 1}</span>
+                        {val.hasIssue && (
+                          <span title={val.primaryIssue || 'Issue'} className="cursor-help">
+                            <AlertCircle className="w-3 h-3 text-rose-600 inline" />
+                          </span>
+                        )}
+                      </div>
                     </td>
 
                     {/* Date & Day */}
