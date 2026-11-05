@@ -11,6 +11,8 @@ interface SearchableBranchSelectProps {
   disabled?: boolean;
   required?: boolean;
   className?: string;
+  compact?: boolean;
+  dropdownAlign?: 'left' | 'right';
 }
 
 export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
@@ -22,6 +24,8 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
   disabled = false,
   required = false,
   className = '',
+  compact = false,
+  dropdownAlign = 'left',
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -140,13 +144,15 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
   const displayCode = branchCode || currentBranch?.branchCode || '';
 
   return (
-    <div ref={containerRef} className={`relative ${className}`} onKeyDown={handleKeyDown}>
+    <div ref={containerRef} className={`relative ${isOpen ? 'z-[100]' : 'z-20'} ${className}`} onKeyDown={handleKeyDown}>
       {/* Trigger Button */}
       <button
         type="button"
         disabled={disabled}
         onClick={() => setIsOpen(!isOpen)}
-        className={`w-full rounded-xl border text-left px-3 py-2 text-slate-800 bg-white font-medium flex items-center justify-between gap-2 transition cursor-pointer ${
+        className={`w-full rounded-xl border text-left text-slate-800 bg-white font-medium flex items-center justify-between gap-2 transition cursor-pointer ${
+          compact ? 'px-2.5 py-1 text-xs' : 'px-3 py-2 text-sm'
+        } ${
           isOpen
             ? 'border-indigo-500 ring-2 ring-indigo-500/20'
             : 'border-slate-300 hover:border-slate-400'
@@ -154,25 +160,28 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
         aria-haspopup="listbox"
         aria-expanded={isOpen}
       >
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <Building2 className="w-4 h-4 text-indigo-600 shrink-0" />
+        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+          <Building2 className={`${compact ? 'w-3.5 h-3.5' : 'w-4 h-4'} text-indigo-600 shrink-0`} />
           {value ? (
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <span className="truncate text-sm font-semibold text-slate-900">{value}</span>
+            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+              <span className={`truncate font-semibold text-slate-900 ${compact ? 'text-xs' : 'text-sm'}`}>
+                {value}
+              </span>
               {displayCode && (
-                <span className="font-mono text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded shrink-0">
+                <span className="font-mono text-[9px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1 py-0.2 rounded shrink-0">
                   #{displayCode}
                 </span>
               )}
             </div>
           ) : (
-            <span className="text-sm text-slate-400">{placeholder}</span>
+            <span className={`text-slate-400 font-sans font-normal truncate ${compact ? 'text-xs' : 'text-sm'}`}>
+              {placeholder}
+            </span>
           )}
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0 text-slate-400">
-          <Search className="w-3.5 h-3.5 hover:text-indigo-600 transition" />
-          <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isOpen ? 'rotate-180 text-indigo-600' : ''}`} />
+        <div className="flex items-center gap-1 shrink-0 text-slate-400">
+          <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isOpen ? 'rotate-180 text-indigo-600' : ''}`} />
         </div>
       </button>
 
@@ -190,7 +199,11 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
 
       {/* Searchable Dropdown Popover */}
       {isOpen && (
-        <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden ring-1 ring-slate-900/5 animate-scale-in">
+        <div className={`absolute ${
+          dropdownAlign === 'right'
+            ? 'right-0 sm:right-0 sm:left-auto min-w-[280px] sm:min-w-[320px]'
+            : 'left-0 right-0 sm:right-auto min-w-[280px] sm:min-w-[320px]'
+        } top-full mt-1.5 z-[100] bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden ring-1 ring-slate-900/10 animate-scale-in`}>
           {/* Search Header */}
           <div className="p-2.5 border-b border-slate-100 bg-slate-50/70">
             <div className="relative">

@@ -123,6 +123,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
   const [cardFilter, setCardFilter] = useState<'all' | 'claimed' | 'weekdays' | 'nonworking' | 'issues'>('all');
+  // Only reveal visual issue banners/rings if user triggers Preview, Download, or Submit
+  const [showValidationAttention, setShowValidationAttention] = useState(false);
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
 
   // Monitor keyboard display on mobile devices so floating bars do not cover inputs
@@ -1533,6 +1535,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
   const validateForm = (): boolean => {
     setValidationError(null);
+    setShowValidationAttention(true);
 
     if (!employeeName.trim()) {
       setValidationError('Please enter employee name.');
@@ -2928,7 +2931,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                 >
                   Saturdays &amp; Holidays ({rows.filter(r => isOtherDayRow(r)).length})
                 </button>
-                {rowsWithIssuesCount > 0 && (
+                {showValidationAttention && rowsWithIssuesCount > 0 && (
                   <button
                     type="button"
                     onClick={() => setCardFilter('issues')}
@@ -2954,8 +2957,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
               </div>
             </div>
 
-            {/* Visual Callout Banner if any day card has issues */}
-            {rowsWithIssuesCount > 0 && cardFilter !== 'issues' && (
+            {/* Visual Callout Banner if any day card has issues (only shown after action attempt) */}
+            {showValidationAttention && rowsWithIssuesCount > 0 && cardFilter !== 'issues' && (
               <div className="p-3 bg-amber-50/90 border border-amber-200 rounded-xl flex items-center justify-between gap-3 text-xs text-amber-900 shadow-2xs">
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
@@ -2993,6 +2996,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {visibleCardRows.map(({ row, originalIndex: index }) => {
                 const val = getRowValidation(row);
+                const hasVisualIssue = showValidationAttention && val.hasIssue;
                 const hasOt = (row.totalMinutes || 0) > 0;
                 const isSat = row.dayOfWeek === 'Sat' || getDayOfWeek(row.date) === 'Sat';
                 const isSun = row.dayOfWeek === 'Sun' || getDayOfWeek(row.date) === 'Sun';
@@ -3005,7 +3009,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                   <div
                     key={row.id}
                     className={`rounded-2xl border p-4 bg-white transition-all shadow-2xs hover:shadow-md flex flex-col justify-between space-y-3.5 relative ${
-                      val.hasIssue
+                      hasVisualIssue
                         ? 'border-rose-400 ring-2 ring-rose-300/50 bg-linear-to-b from-rose-50/20 via-white to-white'
                         : hasOt
                         ? 'border-indigo-300 ring-1 ring-indigo-200/60 bg-linear-to-b from-indigo-50/25 to-white'
@@ -3030,7 +3034,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                           value={row.date}
                           onChange={e => updateRowField(index, 'date', e.target.value)}
                           className={`font-mono text-xs font-semibold px-2 py-0.5 rounded-lg border bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                            val.isDuplicateDate ? 'border-rose-400 bg-rose-50/40 text-rose-900 ring-1 ring-rose-300' : 'border-slate-200'
+                            hasVisualIssue && val.isDuplicateDate ? 'border-rose-400 bg-rose-50/40 text-rose-900 ring-1 ring-rose-300' : 'border-slate-200'
                           }`}
                         />
 
@@ -3054,7 +3058,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                           </span>
                         )}
 
-                        {val.hasIssue && (
+                        {hasVisualIssue && (
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1 shadow-2xs">
                             <AlertCircle className="w-3 h-3 text-rose-600 shrink-0" />
                             <span>{val.primaryIssue}</span>
@@ -3328,6 +3332,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             <tbody className="divide-y divide-slate-100 text-xs">
               {rows.map((row, index) => {
                 const val = getRowValidation(row);
+                const hasVisualIssue = showValidationAttention && val.hasIssue;
                 const hasOt = row.totalMinutes > 0;
                 const isSat = row.dayOfWeek === 'Sat' || getDayOfWeek(row.date) === 'Sat';
                 const isSun = row.dayOfWeek === 'Sun' || getDayOfWeek(row.date) === 'Sun';
@@ -3339,7 +3344,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                   <tr
                     key={row.id}
                     className={`transition-colors ${
-                      val.hasIssue
+                      hasVisualIssue
                         ? 'bg-rose-50/60 hover:bg-rose-100/60'
                         : hasOt
                         ? 'bg-indigo-50/20 hover:bg-slate-50/80'
@@ -3350,7 +3355,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                     <td className="py-2 px-1 text-center text-slate-400 font-mono text-[11px]">
                       <div className="flex items-center justify-center gap-1">
                         <span>{index + 1}</span>
-                        {val.hasIssue && (
+                        {hasVisualIssue && (
                           <span title={val.primaryIssue || 'Issue'} className="cursor-help">
                             <AlertCircle className="w-3 h-3 text-rose-600 inline" />
                           </span>
@@ -3570,7 +3575,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       {/* Sentinel for detecting bottom scroll */}
       <div ref={bottomSentinelRef} className="h-6 w-full pointer-events-none -mt-3 mb-1" />
 
-      {/* Floating prompt button when not yet scrolled to bottom */}
+      {/* Modern floating scroll-to-bottom arrow button (label removed, sleek circular styling) */}
       {!isScrolledToBottom && (
         <button
           type="button"
@@ -3578,11 +3583,11 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             bottomSentinelRef.current?.scrollIntoView({ behavior: 'smooth' });
             setIsScrolledToBottom(true);
           }}
-          className="fixed bottom-20 md:bottom-6 right-6 z-30 inline-flex items-center gap-2 px-3.5 py-2 rounded-full bg-slate-900/90 hover:bg-slate-900 text-white text-xs font-bold shadow-xl backdrop-blur-md transition-all duration-200 hover:scale-105 cursor-pointer border border-slate-700/60"
-          title="Scroll down to Preview, Submit & Download"
+          className="fixed bottom-24 md:bottom-8 right-6 z-30 w-11 h-11 rounded-full bg-slate-900/90 hover:bg-indigo-600 text-white shadow-2xl backdrop-blur-md transition-all duration-300 hover:scale-110 active:scale-95 cursor-pointer border border-slate-700/60 flex items-center justify-center ring-4 ring-indigo-500/20 group"
+          title="Scroll down"
+          aria-label="Scroll down"
         >
-          <span>Scroll down for Submit &amp; Download</span>
-          <ChevronDown className="w-4 h-4 animate-bounce text-indigo-400" />
+          <ChevronDown className="w-5 h-5 text-indigo-400 group-hover:text-white transition-colors animate-bounce" />
         </button>
       )}
 

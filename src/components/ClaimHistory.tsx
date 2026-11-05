@@ -555,125 +555,6 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
             <span>Create New Claim</span>
           </button>
         </div>
-
-        {/* Admin Scope Switcher: Strict Isolation by Default */}
-        {isAdmin && (
-          <div className="mt-4 p-2 bg-slate-50 border border-slate-200/80 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-            <div className="flex items-center gap-1.5 overflow-x-auto">
-              <button
-                type="button"
-                onClick={() => setHistoryScope('MY_CLAIMS')}
-                className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 ${
-                  historyScope === 'MY_CLAIMS'
-                    ? 'bg-slate-900 text-white shadow-2xs'
-                    : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
-                }`}
-              >
-                <User className="w-3.5 h-3.5" />
-                <span>My Claims & Drafts</span>
-                <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                    historyScope === 'MY_CLAIMS' ? 'bg-slate-700 text-white' : 'bg-slate-200 text-slate-700'
-                  }`}
-                >
-                  {claims.filter(c => isOwnClaim(c)).length}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setHistoryScope('BRANCH_CLAIMS')}
-                className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 ${
-                  historyScope === 'BRANCH_CLAIMS'
-                    ? 'bg-indigo-600 text-white shadow-2xs'
-                    : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
-                }`}
-              >
-                <Building2 className="w-3.5 h-3.5" />
-                <span>Browse Branch Timesheets</span>
-                {isSuperAdmin && (
-                  <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-indigo-500/30 text-indigo-100">
-                    All Branches
-                  </span>
-                )}
-              </button>
-            </div>
-
-            <div className="text-[11px] text-slate-500 flex items-center gap-1.5 px-1">
-              {historyScope === 'MY_CLAIMS' ? (
-                <span className="inline-flex items-center gap-1 text-slate-600 font-medium">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                  Only your personal claims are visible
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 text-indigo-700 font-medium">
-                  <Building2 className="w-3.5 h-3.5" />
-                  {isSuperAdmin ? 'Browsing branch submissions' : `Browsing ${userProfile?.branch || 'Branch'}`}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Super Admin Searchable Branch Selector when in BRANCH_CLAIMS scope */}
-        {isAdmin && historyScope === 'BRANCH_CLAIMS' && isSuperAdmin && (
-          <div className="mt-3 p-3.5 bg-indigo-50/70 border border-indigo-200 rounded-2xl animate-fade-in space-y-2">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-900">
-                <Building2 className="w-4 h-4 text-indigo-600" />
-                <span>Browse Branch Timesheets</span>
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-800">
-                  {selectedBranchName === 'ALL' ? 'Showing All Branches' : `Filtered: ${selectedBranchName}`}
-                </span>
-              </div>
-              {selectedBranchName !== 'ALL' && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedBranchName('ALL');
-                    setSelectedBranchCode('');
-                  }}
-                  className="text-xs font-semibold text-indigo-700 hover:text-indigo-900 underline self-start sm:self-auto cursor-pointer"
-                >
-                  Clear filter / Show All Branches
-                </button>
-              )}
-            </div>
-
-            <div className="max-w-md pt-1">
-              <SearchableBranchSelect
-                value={selectedBranchName === 'ALL' ? 'All Branches' : selectedBranchName}
-                branchCode={selectedBranchCode}
-                branches={branchOptions}
-                onChange={(name, code) => {
-                  setSelectedBranchName(name === 'All Branches' ? 'ALL' : name);
-                  setSelectedBranchCode(code === 'ALL' ? '' : code);
-                }}
-                placeholder="Search branch name, branch code, or city..."
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Branch Admin Information Banner when in BRANCH_CLAIMS scope */}
-        {isAdmin && historyScope === 'BRANCH_CLAIMS' && !isSuperAdmin && (
-          <div className="mt-3 p-3 bg-indigo-50/70 border border-indigo-200 rounded-2xl animate-fade-in flex items-center justify-between gap-3 text-xs text-indigo-900">
-            <div className="flex items-center gap-2">
-              <Building2 className="w-4 h-4 text-indigo-600 shrink-0" />
-              <span>
-                Browsing timesheets for assigned branch: <strong>{userProfile?.branch || 'General'}</strong> {userProfile?.branchCode ? `(${userProfile.branchCode})` : ''}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setHistoryScope('MY_CLAIMS')}
-              className="text-xs font-bold text-indigo-700 hover:text-indigo-900 underline shrink-0 cursor-pointer"
-            >
-              Back to My Claims
-            </button>
-          </div>
-        )}
-
         {/* Status Filter Tabs */}
         <div className="mt-4 flex items-center gap-2 border-b border-slate-100 pb-3 overflow-x-auto">
           <button
@@ -777,28 +658,47 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
           </div>
 
           {isAdmin && (
-            <div className="flex items-center justify-between text-[11px] text-slate-500 mt-2 px-1">
+            <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500 mt-2 px-1">
               <div className="flex items-center gap-1 min-w-0">
                 <Building2 className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
                 <span className="truncate">
                   {historyScope === 'MY_CLAIMS'
-                    ? 'Scope: My Claims Only'
+                    ? 'My Claims'
                     : isSuperAdmin
-                    ? `Branch: ${selectedBranchName === 'ALL' ? 'All Branches' : selectedBranchName}`
-                    : `Branch: ${userProfile?.branch || 'General'}`}
+                    ? (selectedBranchName === 'ALL' ? 'All Branches' : selectedBranchName)
+                    : (userProfile?.branch || 'Branch')}
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={() => setHistoryScope(historyScope === 'MY_CLAIMS' ? 'BRANCH_CLAIMS' : 'MY_CLAIMS')}
-                className={`text-[10px] font-bold px-2.5 py-0.5 rounded-lg border transition shrink-0 cursor-pointer ${
-                  historyScope === 'BRANCH_CLAIMS'
-                    ? 'bg-indigo-600 text-white border-indigo-600'
-                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-                }`}
-              >
-                {historyScope === 'BRANCH_CLAIMS' ? 'Showing Branch' : 'Browse Branch'}
-              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {isSuperAdmin && (
+                  <div className="w-36">
+                    <SearchableBranchSelect
+                      compact
+                      dropdownAlign="right"
+                      value={selectedBranchName === 'ALL' ? 'All Branches' : selectedBranchName}
+                      branchCode={selectedBranchCode}
+                      branches={branchOptions}
+                      onChange={(name, code) => {
+                        setSelectedBranchName(name === 'All Branches' ? 'ALL' : name);
+                        setSelectedBranchCode(code === 'ALL' ? '' : code);
+                        setHistoryScope('BRANCH_CLAIMS');
+                      }}
+                      placeholder="Branch..."
+                    />
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setHistoryScope(historyScope === 'MY_CLAIMS' ? 'BRANCH_CLAIMS' : 'MY_CLAIMS')}
+                  className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border transition shrink-0 cursor-pointer ${
+                    historyScope === 'BRANCH_CLAIMS'
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                  }`}
+                >
+                  {historyScope === 'BRANCH_CLAIMS' ? 'Showing Branch' : 'Browse Branch'}
+                </button>
+              </div>
             </div>
           )}
 
@@ -1000,22 +900,22 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
         {isAdmin && (
           <div className="hidden md:flex items-center justify-between mt-3 pt-3 border-t border-slate-100 text-xs text-slate-500">
             <div className="flex items-center gap-2">
-              <Building2 className="w-4 h-4 text-indigo-600" />
+              <Building2 className="w-4 h-4 text-indigo-600 shrink-0" />
               <span>
                 {historyScope === 'MY_CLAIMS' ? (
                   <>
-                    Active Scope: <strong className="text-slate-800 font-semibold">Personal Claims & Drafts</strong>
-                    <span className="text-[11px] text-slate-400 ml-1.5">(Strict isolation active - others' entries hidden)</span>
+                    Scope: <strong className="text-slate-800 font-semibold">My Claims &amp; Drafts</strong>
+                    <span className="text-[11px] text-slate-400 ml-1.5">(Own records only)</span>
                   </>
                 ) : isSuperAdmin ? (
                   <>
-                    Active Scope: <strong className="text-indigo-900 font-semibold">Super Admin &bull; {selectedBranchName === 'ALL' ? 'All Branches' : selectedBranchName}</strong>
-                    <span className="text-[11px] text-slate-400 ml-1.5">(Browsing organization timesheets)</span>
+                    Scope: <strong className="text-indigo-900 font-semibold">{selectedBranchName === 'ALL' ? 'All Branches' : selectedBranchName}</strong>
+                    <span className="text-[11px] text-slate-400 ml-1.5">(Branch timesheets)</span>
                   </>
                 ) : (
                   <>
-                    Active Scope: <strong className="text-indigo-900 font-semibold">Branch &bull; {userProfile?.branch || 'General'}</strong>
-                    <span className="text-[11px] text-slate-400 ml-1.5">(Browsing branch timesheets)</span>
+                    Scope: <strong className="text-indigo-900 font-semibold">{userProfile?.branch || 'General'}</strong>
+                    <span className="text-[11px] text-slate-400 ml-1.5">(Branch timesheets)</span>
                   </>
                 )}
               </span>
@@ -1025,17 +925,39 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                 </span>
               )}
             </div>
-            <button
-              type="button"
-              onClick={() => setHistoryScope(historyScope === 'MY_CLAIMS' ? 'BRANCH_CLAIMS' : 'MY_CLAIMS')}
-              className={`text-xs font-semibold px-3 py-1 rounded-xl border transition cursor-pointer ${
-                historyScope === 'BRANCH_CLAIMS'
-                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
-                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-              }`}
-            >
-              {historyScope === 'BRANCH_CLAIMS' ? 'Switch to My Claims' : 'Browse Branch Timesheets'}
-            </button>
+
+            <div className="flex items-center gap-2 relative z-30">
+              {/* Small branch selector before the browse branch button below search bar */}
+              {isSuperAdmin && (
+                <div className="w-56">
+                  <SearchableBranchSelect
+                    compact
+                    dropdownAlign="right"
+                    value={selectedBranchName === 'ALL' ? 'All Branches' : selectedBranchName}
+                    branchCode={selectedBranchCode}
+                    branches={branchOptions}
+                    onChange={(name, code) => {
+                      setSelectedBranchName(name === 'All Branches' ? 'ALL' : name);
+                      setSelectedBranchCode(code === 'ALL' ? '' : code);
+                      setHistoryScope('BRANCH_CLAIMS');
+                    }}
+                    placeholder="Select Branch..."
+                  />
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setHistoryScope(historyScope === 'MY_CLAIMS' ? 'BRANCH_CLAIMS' : 'MY_CLAIMS')}
+                className={`text-xs font-semibold px-3 py-1.5 rounded-xl border transition cursor-pointer shrink-0 ${
+                  historyScope === 'BRANCH_CLAIMS'
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                }`}
+              >
+                {historyScope === 'BRANCH_CLAIMS' ? 'Showing Branch' : 'Browse Branch'}
+              </button>
+            </div>
           </div>
         )}
       </div>

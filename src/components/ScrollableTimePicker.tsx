@@ -227,37 +227,54 @@ export const ScrollableTimePicker: React.FC<ScrollableTimePickerProps> = ({
         )}
       </button>
 
-      {/* Modern Scrollable Time Picker Popover */}
+      {/* Modern Scrollable Time Picker Centered Modal Dialog (Pops up in the middle) */}
       {isOpen && (
-        <div className="absolute z-50 mt-1.5 left-0 sm:left-auto right-auto min-w-[280px] sm:min-w-[300px] bg-white rounded-2xl border border-slate-200 shadow-2xl p-3.5 space-y-3 animate-scale-in text-slate-800">
-          {/* Header Preview & Info */}
-          <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
-            <div>
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                {label || (isTimeIn ? 'Time In (Start)' : 'Time Out (End)')}
-              </span>
-              <div className="flex items-baseline gap-1 mt-0.5">
-                <span className="font-mono text-lg font-black text-slate-900">
-                  {String(selectedHour).padStart(2, '0')}:{String(selectedMinute).padStart(2, '0')}
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fade-in"
+          onClick={() => setIsOpen(false)}
+        >
+          <div
+            className="relative w-full max-w-[320px] bg-white rounded-3xl border border-slate-200 shadow-2xl p-4 space-y-3.5 animate-scale-in text-slate-800"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header Preview & Info */}
+            <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                  {label || (isTimeIn ? 'Time In (Start)' : 'Time Out (End)')}
                 </span>
-                <span
-                  className={`text-xs font-black px-1.5 py-0.5 rounded-md ${
-                    selectedPeriod === 'AM'
-                      ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                      : 'bg-indigo-100 text-indigo-900 border border-indigo-300'
-                  }`}
+                <div className="flex items-baseline gap-1.5 mt-0.5">
+                  <span className="font-mono text-xl font-black text-slate-900">
+                    {String(selectedHour).padStart(2, '0')}:{String(selectedMinute).padStart(2, '0')}
+                  </span>
+                  <span
+                    className={`text-xs font-black px-1.5 py-0.5 rounded-md ${
+                      selectedPeriod === 'AM'
+                        ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                        : 'bg-indigo-100 text-indigo-900 border border-indigo-300'
+                    }`}
+                  >
+                    {selectedPeriod}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {disableSession && (
+                  <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-lg text-right max-w-[120px] leading-tight">
+                    {disableSession === 'AM' ? 'Auto PM' : 'Auto AM'}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsOpen(false)}
+                  className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+                  title="Close"
                 >
-                  {selectedPeriod}
-                </span>
+                  <X className="w-4 h-4" />
+                </button>
               </div>
             </div>
-
-            {disableSession && (
-              <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-lg text-right max-w-[130px] leading-tight">
-                {disableSession === 'AM' ? 'Auto PM (Cannot be same session AM)' : 'Auto AM (Cannot be same session PM)'}
-              </span>
-            )}
-          </div>
 
           {/* Quick Presets for fast standard shift entry */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px] font-semibold">
@@ -430,6 +447,7 @@ export const ScrollableTimePicker: React.FC<ScrollableTimePickerProps> = ({
               <Check className="w-3.5 h-3.5" />
               <span>Done</span>
             </button>
+            </div>
           </div>
         </div>
       )}
