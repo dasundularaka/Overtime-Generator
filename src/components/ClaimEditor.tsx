@@ -3103,8 +3103,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       </div>
                     </div>
 
-                    {/* Duplicate Date Inline Alert */}
-                    {val.isDuplicateDate && (
+                    {/* Duplicate Date Inline Alert (Only shown after action attempt) */}
+                    {hasVisualIssue && val.isDuplicateDate && (
                       <div className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-1 rounded-lg border border-rose-200 flex items-center gap-1">
                         <AlertCircle className="w-3 h-3 text-rose-600 shrink-0" />
                         <span>Duplicate date: {row.date} is entered on multiple day cards</span>
@@ -3159,14 +3159,14 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                             : (isSat ? "Saturday Duty..." : "Duties performed...")
                         }
                         className={`w-full rounded-xl border px-3 py-1.5 text-xs transition ${
-                          val.isMissingReason
+                          showValidationAttention && val.isMissingReason
                             ? 'border-amber-400 ring-1 ring-amber-300 bg-amber-50/20 text-slate-800 focus:border-amber-500'
                             : isHol && !row.isHolidayOverride
                             ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed select-none'
                             : 'border-slate-200 bg-white text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
                         }`}
                       />
-                      {val.isMissingReason && (
+                      {showValidationAttention && val.isMissingReason && (
                         <div className="text-[10px] font-bold text-amber-700 flex items-center gap-1 mt-1">
                           <AlertCircle className="w-3 h-3 text-amber-600 shrink-0" />
                           <span>Duties required: Please specify duties performed for claimed hours</span>
@@ -3212,32 +3212,32 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                         />
                       </div>
 
-                      {/* Conflict & Missing Field Warning Messages for Time Section */}
-                      {val.hasSameSession && (
+                      {/* Conflict & Missing Field Warning Messages for Time Section (Only shown after action attempt) */}
+                      {showValidationAttention && val.hasSameSession && (
                         <div className="col-span-2 text-[10px] font-bold text-rose-600 flex items-center gap-1 mt-0.5">
                           <AlertCircle className="w-3 h-3 shrink-0" />
                           <span>Same session conflict: Time In and Time Out cannot both be {row.startTime ? parse24To12(row.startTime).period : 'AM/PM'}. If In is AM, Out must be PM.</span>
                         </div>
                       )}
-                      {val.isMissingTimeOut && (
+                      {showValidationAttention && val.isMissingTimeOut && (
                         <div className="col-span-2 text-[10px] font-bold text-rose-600 flex items-center gap-1 mt-0.5">
                           <AlertCircle className="w-3 h-3 shrink-0" />
                           <span>Missing Time Out: Starting time is entered, please provide Time Out</span>
                         </div>
                       )}
-                      {val.isMissingTimeIn && (
+                      {showValidationAttention && val.isMissingTimeIn && (
                         <div className="col-span-2 text-[10px] font-bold text-rose-600 flex items-center gap-1 mt-0.5">
                           <AlertCircle className="w-3 h-3 shrink-0" />
                           <span>Missing Time In: Ending time is entered, please provide Time In</span>
                         </div>
                       )}
-                      {val.isZeroDuration && (
+                      {showValidationAttention && val.isZeroDuration && (
                         <div className="col-span-2 text-[10px] font-bold text-rose-600 flex items-center gap-1 mt-0.5">
                           <AlertCircle className="w-3 h-3 shrink-0" />
                           <span>Time conflict: Time In and Time Out cannot be identical ({row.startTime})</span>
                         </div>
                       )}
-                      {val.isHolidayNotOverridden && (
+                      {showValidationAttention && val.isHolidayNotOverridden && (
                         <div className="col-span-2 text-[10px] font-bold text-amber-700 flex items-center gap-1 mt-0.5">
                           <AlertCircle className="w-3 h-3 shrink-0" />
                           <span>Holiday: Click &apos;Override OT&apos; above to claim overtime on this holiday</span>

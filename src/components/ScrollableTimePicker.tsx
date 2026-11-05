@@ -42,8 +42,8 @@ export function format24To12Display(time24: string): string {
 }
 
 const HOURS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-// 15-minute standard increments plus 5-minute intervals
-const MINUTES = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
+// All minutes 1 to 1 (0 to 59)
+const MINUTES = Array.from({ length: 60 }, (_, i) => i);
 
 export const ScrollableTimePicker: React.FC<ScrollableTimePickerProps> = ({
   value,

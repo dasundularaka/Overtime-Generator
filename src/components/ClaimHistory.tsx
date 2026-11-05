@@ -1040,7 +1040,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                 <div className="h-px bg-slate-300 flex-1" />
                 <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 border border-slate-300 shadow-2xs text-xs font-bold text-slate-700">
                   <Calendar className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>Period: {section.periodKey}</span>
+                  <span>{section.periodKey}</span>
                   <span className="text-[10px] font-medium text-slate-500">
                     ({section.items.length})
                   </span>
@@ -1176,7 +1176,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                           <div className="h-px bg-slate-300 flex-1" />
                           <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-white border border-slate-300 shadow-2xs text-xs font-bold text-slate-700">
                             <Calendar className="w-3.5 h-3.5 text-indigo-600" />
-                            <span>Period: {section.periodKey}</span>
+                            <span>{section.periodKey}</span>
                             <span className="text-[11px] font-medium text-slate-500">
                               ({section.items.length} {section.items.length === 1 ? 'claim' : 'claims'})
                             </span>

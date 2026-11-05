@@ -197,46 +197,65 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
         />
       )}
 
-      {/* Searchable Dropdown Popover */}
+      {/* Searchable Dropdown Popover (Centered modal auto-adjusted for all screen sizes) */}
       {isOpen && (
-        <div className={`absolute ${
-          dropdownAlign === 'right'
-            ? 'right-0 sm:right-0 sm:left-auto min-w-[280px] sm:min-w-[320px]'
-            : 'left-0 right-0 sm:right-auto min-w-[280px] sm:min-w-[320px]'
-        } top-full mt-1.5 z-[100] bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden ring-1 ring-slate-900/10 animate-scale-in`}>
-          {/* Search Header */}
-          <div className="p-2.5 border-b border-slate-100 bg-slate-50/70">
-            <div className="relative">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                ref={inputRef}
-                type="text"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Search branch name, code, or city..."
-                className="w-full pl-9 pr-8 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-slate-800 placeholder:text-slate-400"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fade-in"
+          onClick={() => setIsOpen(false)}
+        >
+          <div
+            className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden ring-1 ring-slate-900/10 animate-scale-in"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="p-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
+              <div className="flex items-center gap-2">
+                <Building2 className="w-4 h-4 text-indigo-600" />
+                <span className="text-xs font-bold text-slate-800">Select Branch</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 transition cursor-pointer"
+                title="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
-            {/* Match Counter Badge */}
-            <div className="flex items-center justify-between mt-1.5 px-1 text-[10px] text-slate-500">
-              <span>
-                {filteredBranches.length} {filteredBranches.length === 1 ? 'branch' : 'branches'} available
-              </span>
-              {searchQuery && (
-                <span className="text-indigo-600 font-medium">Filtering by &quot;{searchQuery}&quot;</span>
-              )}
+            {/* Search Header */}
+            <div className="p-3 border-b border-slate-100 bg-white">
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="Search branch name, code, or city..."
+                  className="w-full pl-9 pr-8 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-slate-800 placeholder:text-slate-400"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Match Counter Badge */}
+              <div className="flex items-center justify-between mt-2 px-1 text-[11px] text-slate-500">
+                <span>
+                  {filteredBranches.length} {filteredBranches.length === 1 ? 'branch' : 'branches'} available
+                </span>
+                {searchQuery && (
+                  <span className="text-indigo-600 font-medium truncate max-w-[180px]">Filtering &quot;{searchQuery}&quot;</span>
+                )}
+              </div>
             </div>
-          </div>
 
           {/* Branch Options List */}
           <div ref={listRef} className="max-h-56 overflow-y-auto divide-y divide-slate-100 py-1" role="listbox">
@@ -306,7 +325,8 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
             )}
           </div>
         </div>
-      )}
-    </div>
+      </div>
+    )}
+  </div>
   );
 };
