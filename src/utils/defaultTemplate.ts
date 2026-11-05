@@ -504,3 +504,421 @@ export const DEFAULT_TEMPLATE: TemplateConfig = {
     },
   },
 };
+
+/**
+ * Generates an SVG representation of the official Bank of Ceylon (BOC)
+ * Monthly Out of Pocket Allowance Form (Form No : 10610)
+ * based directly on the attached physical Out of Pocket sheet.
+ */
+export function generateOutOfPocketTemplateSvg(): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 210 297" width="210mm" height="297mm">
+  <defs>
+    <style>
+      .boc-red { fill: #c01823; }
+      .boc-red-stroke { stroke: #c01823; }
+      .boc-light-stroke { stroke: #fca5a5; }
+      .boc-line-dash { stroke: #f87171; stroke-width: 0.2mm; stroke-dasharray: 1 1; }
+      .tbl-head-text { font-family: 'Helvetica', Arial, sans-serif; font-size: 2.1mm; font-weight: bold; fill: #ffffff; text-anchor: middle; }
+      .tbl-sub-text { font-family: 'Helvetica', Arial, sans-serif; font-size: 1.8mm; fill: #ffffff; text-anchor: middle; }
+    </style>
+  </defs>
+
+  <!-- Clean A4 White Background -->
+  <rect x="0" y="0" width="210" height="297" fill="#ffffff" />
+
+  <!-- Form Outer Boundary Margin -->
+  <rect x="11" y="9" width="188" height="279" fill="none" stroke="#c01823" stroke-width="0.35mm" />
+
+  <!-- Left & Right Margin References -->
+  <text x="8.5" y="160" transform="rotate(-90 8.5 160)" font-family="Helvetica, Arial" font-size="1.6mm" font-weight="bold" fill="#c01823">BOC/SUPP/S242705</text>
+  <text x="9" y="248" transform="rotate(-90 9 248)" font-family="Helvetica, Arial" font-size="1.9mm" font-weight="bold" fill="#c01823">Form No : 10610</text>
+  <text x="202" y="200" transform="rotate(-90 202 200)" font-family="Helvetica, Arial" font-size="1.3mm" fill="#991b1b">Printed By: Naran Computer Forms 09/12/04</text>
+
+  <!-- ================= TOP HEADER ================= -->
+  <!-- Top Left: Bank of Ceylon Logo & Stylized BOC Emblem -->
+  <g transform="translate(14, 11)">
+    <text x="0" y="3" font-family="Helvetica, Arial" font-size="2.6mm" font-weight="bold" fill="#c01823">BANK OF CEYLON</text>
+    
+    <!-- Stylized BOC emblem -->
+    <g transform="translate(0, 4)">
+      <!-- Letter B -->
+      <text x="0" y="8" font-family="Helvetica, Arial" font-size="8mm" font-weight="900" fill="#c01823">B</text>
+      <!-- Letter O with central circular emblem -->
+      <g transform="translate(8.5, 0)">
+        <circle cx="5" cy="4.5" r="4.8" fill="none" stroke="#c01823" stroke-width="1.2mm" />
+        <circle cx="5" cy="4.5" r="3.2" fill="none" stroke="#c01823" stroke-width="0.3mm" />
+        <circle cx="5" cy="4.5" r="1.5" fill="#c01823" />
+        <line x1="5" y1="1.3" x2="5" y2="7.7" stroke="#c01823" stroke-width="0.25mm" />
+        <line x1="1.8" y1="4.5" x2="8.2" y2="4.5" stroke="#c01823" stroke-width="0.25mm" />
+      </g>
+      <!-- Letter C -->
+      <text x="20.5" y="8" font-family="Helvetica, Arial" font-size="8mm" font-weight="900" fill="#c01823">C</text>
+    </g>
+
+    <text x="0" y="15.8" font-family="Helvetica, Arial" font-size="2.0mm" font-weight="600" fill="#c01823">Bankers to the Nation</text>
+  </g>
+
+  <!-- Header Title: MONTHLY OUT OF POCKET ALLOWANCE -->
+  <text x="53" y="16.5" font-family="Helvetica, Arial" font-size="4.4mm" font-weight="bold" fill="#c01823" letter-spacing="0.2mm">MONTHLY OUT OF POCKET ALLOWANCE</text>
+
+  <!-- Top Right Year Box -->
+  <text x="142" y="21" font-family="Helvetica, Arial" font-size="3.4mm" font-weight="bold" fill="#c01823">20</text>
+  <rect x="148" y="15" width="48" height="8.5" fill="#ffffff" stroke="#c01823" stroke-width="0.3mm" />
+  <text x="172" y="28" font-family="Helvetica, Arial" font-size="1.9mm" fill="#475569" text-anchor="middle">Year &amp; Month</text>
+
+  <!-- Branch / Dept -->
+  <line x1="53" y1="26" x2="140" y2="26" class="boc-line-dash" />
+  <text x="96" y="28" font-family="Helvetica, Arial" font-size="2.0mm" fill="#475569" text-anchor="middle">Branch / Dept</text>
+
+  <!-- Particulars: Name & Grade on Left, P.F. No with 7 Boxes on Right -->
+  <!-- Name -->
+  <text x="14" y="36" font-family="Helvetica, Arial" font-size="2.4mm" font-weight="bold" fill="#c01823">Name :</text>
+  <line x1="28" y1="36" x2="142" y2="36" class="boc-line-dash" />
+
+  <!-- P.F. No. Label -->
+  <text x="147" y="36" font-family="Helvetica, Arial" font-size="2.3mm" font-weight="bold" fill="#c01823">P.F. No:</text>
+
+  <!-- 7 P.F. Digit Boxes -->
+  <g transform="translate(162, 30.5)">
+    <rect x="0" y="0" width="4.8" height="7" fill="#ffffff" stroke="#c01823" stroke-width="0.25mm" />
+    <rect x="4.8" y="0" width="4.8" height="7" fill="#ffffff" stroke="#c01823" stroke-width="0.25mm" />
+    <rect x="9.6" y="0" width="4.8" height="7" fill="#ffffff" stroke="#c01823" stroke-width="0.25mm" />
+    <rect x="14.4" y="0" width="4.8" height="7" fill="#ffffff" stroke="#c01823" stroke-width="0.25mm" />
+    <rect x="19.2" y="0" width="4.8" height="7" fill="#ffffff" stroke="#c01823" stroke-width="0.25mm" />
+    <rect x="24.0" y="0" width="4.8" height="7" fill="#ffffff" stroke="#c01823" stroke-width="0.25mm" />
+    <rect x="28.8" y="0" width="4.8" height="7" fill="#ffffff" stroke="#c01823" stroke-width="0.25mm" />
+  </g>
+
+  <!-- Grade -->
+  <text x="14" y="44" font-family="Helvetica, Arial" font-size="2.4mm" font-weight="bold" fill="#c01823">Grade :</text>
+  <line x1="28" y1="44" x2="142" y2="44" class="boc-line-dash" />
+
+  <!-- ================= SECTION 2: 31-ROW OUT OF POCKET TABLE ================= -->
+  <!-- Outer Table Border (13 to 196, 48 to 258) -->
+  <rect x="13" y="48" width="183" height="210" fill="none" stroke="#c01823" stroke-width="0.35mm" />
+
+  <!-- Header Red Background Bar -->
+  <rect x="13" y="48" width="183" height="11.5" fill="#c01823" stroke="#c01823" stroke-width="0.25mm" />
+
+  <!-- Column 1: Date : (13 to 25 = 12mm) -->
+  <text x="19" y="55" class="tbl-head-text">Date :</text>
+  <line x1="25" y1="48" x2="25" y2="250.7" stroke="#fca5a5" stroke-width="0.2mm" />
+
+  <!-- Column 2: Day (25 to 39 = 14mm) -->
+  <text x="32" y="55" class="tbl-head-text">Day</text>
+  <line x1="39" y1="48" x2="39" y2="250.7" stroke="#fca5a5" stroke-width="0.2mm" />
+
+  <!-- Column 3: Nature of Work (39 to 101 = 62mm) -->
+  <text x="70" y="55" class="tbl-head-text">Nature of Work</text>
+  <line x1="101" y1="48" x2="101" y2="250.7" stroke="#fca5a5" stroke-width="0.2mm" />
+
+  <!-- Column 4: Time (101 to 125 = 24mm) -> Subdivided into Start & Finish -->
+  <text x="113" y="52" class="tbl-head-text">Time</text>
+  <line x1="101" y1="53.5" x2="125" y2="53.5" stroke="#ffffff" stroke-width="0.2mm" />
+  <text x="107" y="57.5" class="tbl-sub-text">Start</text>
+  <line x1="113" y1="53.5" x2="113" y2="250.7" stroke="#fca5a5" stroke-width="0.2mm" />
+  <text x="119" y="57.5" class="tbl-sub-text">Finish</text>
+  <line x1="125" y1="48" x2="125" y2="250.7" stroke="#fca5a5" stroke-width="0.2mm" />
+
+  <!-- Column 5: Hours Claimed (125 to 139 = 14mm) -->
+  <text x="132" y="52.2" class="tbl-head-text">Hours</text>
+  <text x="132" y="57.5" class="tbl-head-text">Claimed</text>
+  <line x1="139" y1="48" x2="139" y2="250.7" stroke="#fca5a5" stroke-width="0.2mm" />
+
+  <!-- Column 6: Amount (139 to 168 = 29mm) -> Subdivided into Rs. & Cts. -->
+  <text x="153.5" y="52" class="tbl-head-text">Amount</text>
+  <line x1="139" y1="53.5" x2="168" y2="53.5" stroke="#ffffff" stroke-width="0.2mm" />
+  <text x="149" y="57.5" class="tbl-sub-text">Rs.</text>
+  <line x1="159" y1="53.5" x2="159" y2="250.7" stroke="#fca5a5" stroke-width="0.2mm" />
+  <text x="163.5" y="57.5" class="tbl-sub-text">Cts.</text>
+  <line x1="168" y1="48" x2="168" y2="250.7" stroke="#fca5a5" stroke-width="0.2mm" />
+
+  <!-- Column 7: Approved (168 to 196 = 28mm) -> Subdivided into Unit Head / Manager & AGM -->
+  <text x="182" y="52" class="tbl-head-text">Approved</text>
+  <line x1="168" y1="53.5" x2="196" y2="53.5" stroke="#ffffff" stroke-width="0.2mm" />
+  <text x="175" y="56" font-family="Helvetica, Arial" font-size="1.4mm" fill="#ffffff" text-anchor="middle">Unit Head /</text>
+  <text x="175" y="58.3" font-family="Helvetica, Arial" font-size="1.4mm" fill="#ffffff" text-anchor="middle">Manager</text>
+  <line x1="182" y1="53.5" x2="182" y2="250.7" stroke="#fca5a5" stroke-width="0.2mm" />
+  <text x="189" y="57.5" class="tbl-sub-text">AGM</text>
+
+  <!-- 31 Daily Data Rows (from y=59.5 to 250.7, rowHeight=6.168mm) -->
+  ${Array.from({ length: 31 }).map((_, i) => {
+    const y = 59.5 + (i + 1) * 6.168;
+    return `<line x1="13" y1="${y.toFixed(2)}" x2="196" y2="${y.toFixed(2)}" stroke="#fca5a5" stroke-width="0.15mm" />`;
+  }).join('\n  ')}
+
+  <!-- ================= TOTAL ROW (y=250.7 to 258) ================= -->
+  <line x1="13" y1="250.7" x2="196" y2="250.7" stroke="#c01823" stroke-width="0.3mm" />
+  <text x="16" y="255.5" font-family="Helvetica, Arial" font-size="2.3mm" font-weight="bold" fill="#c01823">I certify that I have worked during the time specified above</text>
+
+  <!-- TOTAL Label -->
+  <text x="132" y="255.5" font-family="Helvetica, Arial" font-size="2.4mm" font-weight="bold" fill="#c01823" text-anchor="middle">TOTAL</text>
+  <line x1="139" y1="250.7" x2="139" y2="258" stroke="#c01823" stroke-width="0.25mm" />
+  <line x1="159" y1="250.7" x2="159" y2="258" stroke="#c01823" stroke-width="0.25mm" />
+  <line x1="168" y1="250.7" x2="168" y2="258" stroke="#c01823" stroke-width="0.25mm" />
+
+  <!-- ================= FOOTER / SIGNATURES ================= -->
+  <!-- Date -->
+  <text x="16" y="278" font-family="Helvetica, Arial" font-size="2.4mm" fill="#c01823">Date :</text>
+  <line x1="26" y1="278" x2="68" y2="278" class="boc-line-dash" />
+
+  <!-- Claimant Signature -->
+  <line x1="76" y1="274" x2="124" y2="274" class="boc-line-dash" />
+  <text x="100" y="278" font-family="Helvetica, Arial" font-size="2.4mm" fill="#c01823" text-anchor="middle">Signature</text>
+
+  <!-- Payment Authorised By -->
+  <text x="135" y="278" font-family="Helvetica, Arial" font-size="2.4mm" fill="#c01823">Payment Authorised by :</text>
+  <line x1="174" y1="278" x2="196" y2="278" class="boc-line-dash" />
+</svg>`;
+}
+
+export function getOutOfPocketTemplateSvgDataUrl(): string {
+  const svg = generateOutOfPocketTemplateSvg();
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+export const OUT_OF_POCKET_TEMPLATE: TemplateConfig = {
+  id: 'boc-monthly-out-of-pocket-allowance-v1',
+  name: 'Monthly Out of Pocket Allowance (Form 10610)',
+  description: 'Official Bank of Ceylon (BOC) Form No : 10610 for Monthly Out of Pocket Allowance (OP)',
+  isDefault: false,
+  pageSize: 'A4',
+  widthMm: 210,
+  heightMm: 297,
+  backgroundImageUrl: getOutOfPocketTemplateSvgDataUrl(),
+  backgroundType: 'image',
+  printerOffsetX: 0,
+  printerOffsetY: 0,
+  updatedAt: new Date().toISOString(),
+  fields: [
+    {
+      id: 'f_op_emp_name',
+      name: 'Employee Name',
+      key: 'employeeName',
+      type: 'text',
+      x: 28,
+      y: 34.5,
+      width: 112,
+      height: 4.5,
+      fontSize: 9.5,
+      fontFamily: 'Helvetica',
+      isBold: true,
+      alignment: 'left',
+      rotation: 0,
+      isVisible: true,
+      sampleValue: 'Dasun Dularaka Ramasingha',
+    },
+    {
+      id: 'f_op_pf_no',
+      name: 'P. F. Number',
+      key: 'employeeNumber',
+      type: 'text',
+      x: 162.5,
+      y: 33.5,
+      width: 33,
+      height: 5.5,
+      fontSize: 10,
+      fontFamily: 'Courier',
+      isBold: true,
+      alignment: 'left',
+      rotation: 0,
+      charSpacing: 2.1,
+      isVisible: true,
+      sampleValue: '0845217',
+    },
+    {
+      id: 'f_op_grade',
+      name: 'Grade / Designation',
+      key: 'designation',
+      type: 'text',
+      x: 28,
+      y: 42.5,
+      width: 112,
+      height: 4.5,
+      fontSize: 9,
+      fontFamily: 'Helvetica',
+      isBold: false,
+      alignment: 'left',
+      rotation: 0,
+      isVisible: true,
+      sampleValue: 'Senior Banking Assistant - Grade II',
+    },
+    {
+      id: 'f_op_branch',
+      name: 'Branch / Dept',
+      key: 'branch',
+      type: 'text',
+      x: 55,
+      y: 24.5,
+      width: 82,
+      height: 4.5,
+      fontSize: 9,
+      fontFamily: 'Helvetica',
+      isBold: true,
+      alignment: 'left',
+      rotation: 0,
+      isVisible: true,
+      sampleValue: 'Colombo Main Branch (001)',
+    },
+    {
+      id: 'f_op_year_box',
+      name: 'Year (20xx)',
+      key: 'year2Digit',
+      type: 'text',
+      x: 150,
+      y: 17,
+      width: 44,
+      height: 5.5,
+      fontSize: 11,
+      fontFamily: 'Helvetica',
+      isBold: true,
+      alignment: 'center',
+      rotation: 0,
+      isVisible: true,
+      sampleValue: '26',
+    },
+    {
+      id: 'f_op_month_year',
+      name: 'Year & Month',
+      key: 'monthYear',
+      type: 'text',
+      x: 145,
+      y: 24.5,
+      width: 50,
+      height: 4.5,
+      fontSize: 8.5,
+      fontFamily: 'Helvetica',
+      isBold: true,
+      alignment: 'center',
+      rotation: 0,
+      isVisible: true,
+      sampleValue: 'October 2026',
+    },
+    {
+      id: 'f_op_claim_date',
+      name: 'Claim Date',
+      key: 'claimDate',
+      type: 'date',
+      x: 27,
+      y: 276.5,
+      width: 40,
+      height: 4.5,
+      fontSize: 8.5,
+      fontFamily: 'Helvetica',
+      isBold: false,
+      alignment: 'left',
+      rotation: 0,
+      isVisible: true,
+      sampleValue: '2026-10-31',
+    },
+    {
+      id: 'f_op_signature',
+      name: 'Claimant Signature',
+      key: 'claimantSign',
+      type: 'signature',
+      x: 77,
+      y: 271,
+      width: 46,
+      height: 4.5,
+      fontSize: 9,
+      fontFamily: 'Helvetica',
+      isBold: true,
+      alignment: 'center',
+      rotation: 0,
+      isVisible: true,
+      sampleValue: 'D. D. Ramasingha',
+    },
+    {
+      id: 'f_op_total_hours',
+      name: 'TOTAL Hours Claimed',
+      key: 'totalHoursOnly',
+      type: 'calculated',
+      x: 125,
+      y: 252.5,
+      width: 14,
+      height: 5.5,
+      fontSize: 8.5,
+      fontFamily: 'Helvetica',
+      isBold: true,
+      alignment: 'center',
+      rotation: 0,
+      isVisible: true,
+      sampleValue: '38:00',
+    },
+    {
+      id: 'f_op_total_amount_rs',
+      name: 'TOTAL Amount (Rs.)',
+      key: 'totalAmountRs',
+      type: 'calculated',
+      x: 139.5,
+      y: 252.5,
+      width: 19,
+      height: 5.5,
+      fontSize: 8.5,
+      fontFamily: 'Helvetica',
+      isBold: true,
+      alignment: 'right',
+      rotation: 0,
+      isVisible: true,
+      sampleValue: '18,350',
+    },
+    {
+      id: 'f_op_total_amount_cts',
+      name: 'TOTAL Amount (Cts.)',
+      key: 'totalAmountCts',
+      type: 'calculated',
+      x: 159.5,
+      y: 252.5,
+      width: 8,
+      height: 5.5,
+      fontSize: 8.5,
+      fontFamily: 'Helvetica',
+      isBold: true,
+      alignment: 'center',
+      rotation: 0,
+      isVisible: true,
+      sampleValue: '00',
+    },
+    {
+      id: 'f_op_auth_by',
+      name: 'Payment Authorised by',
+      key: 'paymentAuthorisedBy',
+      type: 'text',
+      x: 172,
+      y: 276.5,
+      width: 24,
+      height: 4.5,
+      fontSize: 8.5,
+      fontFamily: 'Helvetica',
+      isBold: false,
+      alignment: 'left',
+      rotation: 0,
+      isVisible: true,
+      sampleValue: '',
+    },
+  ],
+  tableConfig: {
+    enabled: true,
+    startY: 60.0,
+    rowHeight: 6.15,
+    maxRows: 31,
+    fontSize: 8,
+    fontFamily: 'Helvetica',
+    isBold: false,
+    columns: {
+      date: { x: 13, width: 12, align: 'center' },
+      day: { x: 25, width: 14, align: 'center' },
+      reason: { x: 39, width: 62, align: 'left' },
+      startTime: { x: 101, width: 12, align: 'center' },
+      endTime: { x: 113, width: 12, align: 'center' },
+      totalHours: { x: 125, width: 14, align: 'center' },
+      amountRs: { x: 139, width: 20, align: 'right' },
+      amountCts: { x: 159, width: 9, align: 'center' },
+      approvedBy: { x: 168, width: 14, align: 'center' },
+      approvedByAgm: { x: 182, width: 14, align: 'center' },
+    },
+  },
+};
+
+export const BUILTIN_TEMPLATES: TemplateConfig[] = [DEFAULT_TEMPLATE, OUT_OF_POCKET_TEMPLATE];
+

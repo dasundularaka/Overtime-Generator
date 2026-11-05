@@ -31,7 +31,7 @@ import { handleFirestoreError, OperationType } from '../firebase/errors';
 import { UserProfile, UserRole, ClaimType, TemplateConfig } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { fetchTemplatesFromFirestore, subscribeToTemplates } from '../services/templateService';
-import { DEFAULT_TEMPLATE } from '../utils/defaultTemplate';
+import { DEFAULT_TEMPLATE, BUILTIN_TEMPLATES } from '../utils/defaultTemplate';
 import { ConfirmationModal } from './ConfirmationModal';
 import { SearchableBranchSelect } from './SearchableBranchSelect';
 import { sanitizeFirestoreData } from '../utils/firestoreUtils';
@@ -71,7 +71,7 @@ export const UserManagement: React.FC = () => {
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
 
   // Templates list
-  const [availableTemplates, setAvailableTemplates] = useState<TemplateConfig[]>([DEFAULT_TEMPLATE]);
+  const [availableTemplates, setAvailableTemplates] = useState<TemplateConfig[]>([...BUILTIN_TEMPLATES]);
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);

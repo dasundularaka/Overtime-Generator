@@ -187,6 +187,9 @@ export interface TableConfig {
     otHoursClaimed?: { x: number; width: number; align: TextAlignment };
     specialHoursClaimed?: { x: number; width: number; align: TextAlignment };
     approvedBy?: { x: number; width: number; align: TextAlignment };
+    amountRs?: { x: number; width: number; align: TextAlignment };
+    amountCts?: { x: number; width: number; align: TextAlignment };
+    approvedByAgm?: { x: number; width: number; align: TextAlignment };
   };
 }
 

@@ -11,7 +11,7 @@ import {
 import { db } from '../firebase/config';
 import { handleFirestoreError, OperationType } from '../firebase/errors';
 import { TemplateConfig } from '../types';
-import { DEFAULT_TEMPLATE } from '../utils/defaultTemplate';
+import { DEFAULT_TEMPLATE, OUT_OF_POCKET_TEMPLATE, BUILTIN_TEMPLATES } from '../utils/defaultTemplate';
 import { saveTemplate as saveTemplateToLocal, getTemplates as getLocalTemplates, deleteTemplate as deleteTemplateFromLocal, saveSettings, getSettings } from '../utils/storage';
 
 const TEMPLATES_COLLECTION = 'templates';
@@ -71,6 +71,9 @@ export function sanitizeTemplate(template: TemplateConfig): TemplateConfig {
         ...(template.tableConfig?.columns?.breakMinutes ? { breakMinutes: template.tableConfig.columns.breakMinutes } : {}),
         ...(template.tableConfig?.columns?.otHoursClaimed ? { otHoursClaimed: template.tableConfig.columns.otHoursClaimed } : {}),
         ...(template.tableConfig?.columns?.specialHoursClaimed ? { specialHoursClaimed: template.tableConfig.columns.specialHoursClaimed } : {}),
+        ...(template.tableConfig?.columns?.amountRs ? { amountRs: template.tableConfig.columns.amountRs } : {}),
+        ...(template.tableConfig?.columns?.amountCts ? { amountCts: template.tableConfig.columns.amountCts } : {}),
+        ...(template.tableConfig?.columns?.approvedByAgm ? { approvedByAgm: template.tableConfig.columns.approvedByAgm } : {}),
       },
     },
   };
@@ -83,25 +86,25 @@ export function sanitizeTemplate(template: TemplateConfig): TemplateConfig {
 
 /**
  * Fetch all templates from Cloud Firestore.
- * If empty in Firestore, initializes the standard default template so it's ready.
+ * If empty in Firestore, initializes the standard default templates (OT & OP) so they are ready.
  */
 export async function fetchTemplatesFromFirestore(isAdmin = false): Promise<TemplateConfig[]> {
   try {
     const snap = await getDocs(collection(db, TEMPLATES_COLLECTION));
     if (snap.empty) {
-      // If Firestore has no templates yet and user is admin, seed the official default template
+      // If Firestore has no templates yet and user is admin, seed the official built-in templates
       if (isAdmin) {
-        const seed = sanitizeTemplate({
-          ...DEFAULT_TEMPLATE,
-          isDefault: true,
-          description: 'Official standard A4 Overtime Claim Form',
-        });
-        await setDoc(doc(db, TEMPLATES_COLLECTION, seed.id), seed);
-        saveTemplateToLocal(seed);
-        return [seed];
+        const seeded: TemplateConfig[] = [];
+        for (const builtin of BUILTIN_TEMPLATES) {
+          const seed = sanitizeTemplate(builtin);
+          await setDoc(doc(db, TEMPLATES_COLLECTION, seed.id), seed);
+          saveTemplateToLocal(seed);
+          seeded.push(seed);
+        }
+        return seeded;
       }
-      // For standard users, return the local default
-      return [DEFAULT_TEMPLATE];
+      // For standard users, return local built-ins
+      return [...BUILTIN_TEMPLATES];
     }
 
     const templates: TemplateConfig[] = [];
@@ -110,6 +113,18 @@ export async function fetchTemplatesFromFirestore(isAdmin = false): Promise<Temp
       templates.push(data);
       saveTemplateToLocal(data); // Sync to local storage cache
     });
+
+    // If admin and Out of Pocket template isn't in Firestore yet, automatically seed it
+    if (isAdmin) {
+      for (const builtin of BUILTIN_TEMPLATES) {
+        if (!templates.some(t => t.id === builtin.id)) {
+          const seed = sanitizeTemplate(builtin);
+          await setDoc(doc(db, TEMPLATES_COLLECTION, seed.id), seed);
+          templates.push(seed);
+          saveTemplateToLocal(seed);
+        }
+      }
+    }
 
     // Sort: Default first, then by name
     templates.sort((a, b) => {
@@ -239,6 +254,12 @@ export function subscribeToTemplates(
       });
 
       if (list.length > 0) {
+        // Merge missing built-in templates into client list if not yet synced
+        for (const builtin of BUILTIN_TEMPLATES) {
+          if (!list.some(t => t.id === builtin.id)) {
+            list.push(builtin);
+          }
+        }
         list.sort((a, b) => {
           if (a.isDefault && !b.isDefault) return -1;
           if (!a.isDefault && b.isDefault) return 1;
@@ -246,7 +267,7 @@ export function subscribeToTemplates(
         });
         onUpdate(list);
       } else {
-        onUpdate([DEFAULT_TEMPLATE]);
+        onUpdate([...BUILTIN_TEMPLATES]);
       }
     },
     error => {

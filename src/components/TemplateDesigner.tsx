@@ -53,7 +53,13 @@ import {
   getSettings,
   saveSettings,
 } from '../utils/storage';
-import { DEFAULT_TEMPLATE, getDefaultTemplateSvgDataUrl } from '../utils/defaultTemplate';
+import {
+  DEFAULT_TEMPLATE,
+  OUT_OF_POCKET_TEMPLATE,
+  BUILTIN_TEMPLATES,
+  getDefaultTemplateSvgDataUrl,
+  getOutOfPocketTemplateSvgDataUrl,
+} from '../utils/defaultTemplate';
 import { generateOvertimePdf } from '../utils/pdfGenerator';
 import { recordAuditLog } from '../utils/auditLogger';
 import { PDFPreviewModal } from './PDFPreviewModal';
@@ -73,17 +79,17 @@ const MM_TO_PX_BASE = 3.779527559; // at 100% zoom (96 DPI standard: 1mm = ~3.78
 
 // Realistic sample overtime rows to display inside the table area on white paper
 const SAMPLE_TABLE_ROWS = [
-  { date: '10/01', day: 'Thu', reason: 'Core Banking Migration & Reconciliation', approvedBy: 'KMS', startTime: '17:00', endTime: '21:30', totalHours: '04:30', otHoursClaimed: '04:30', specialHoursClaimed: '' },
-  { date: '10/02', day: 'Fri', reason: 'Quarterly Audit Inspection & Ledger Balancing', approvedBy: 'WMP', startTime: '17:00', endTime: '20:00', totalHours: '03:00', otHoursClaimed: '03:00', specialHoursClaimed: '' },
-  { date: '10/05', day: 'Mon', reason: 'Treasury Settlement Processing & Swift Monitoring', approvedBy: 'KMS', startTime: '17:00', endTime: '21:00', totalHours: '04:00', otHoursClaimed: '04:00', specialHoursClaimed: '' },
-  { date: '10/06', day: 'Tue', reason: 'Disaster Recovery Live Server Drill (Gov Branch)', approvedBy: 'AGN', startTime: '08:30', endTime: '16:30', totalHours: '08:00', otHoursClaimed: '', specialHoursClaimed: '08:00' },
-  { date: '10/07', day: 'Wed', reason: 'Loan Documentation Verification & Physical Archiving', approvedBy: 'WMP', startTime: '17:00', endTime: '19:30', totalHours: '02:30', otHoursClaimed: '02:30', specialHoursClaimed: '' },
-  { date: '10/08', day: 'Thu', reason: 'ATM Cash Replenishment & Central Vault Balancing', approvedBy: 'KMS', startTime: '17:00', endTime: '20:30', totalHours: '03:30', otHoursClaimed: '03:30', specialHoursClaimed: '' },
-  { date: '10/09', day: 'Fri', reason: 'System Maintenance & Security Vulnerability Patching', approvedBy: 'AGN', startTime: '17:00', endTime: '21:00', totalHours: '04:00', otHoursClaimed: '04:00', specialHoursClaimed: '' },
-  { date: '10/12', day: 'Mon', reason: 'IT Helpdesk Support & Network Routing Optimization', approvedBy: 'KMS', startTime: '17:00', endTime: '20:00', totalHours: '03:00', otHoursClaimed: '03:00', specialHoursClaimed: '' },
+  { date: '10/01', day: 'Thu', reason: 'Core Banking Migration & Reconciliation', approvedBy: 'KMS', startTime: '17:00', endTime: '21:30', totalHours: '04:30', otHoursClaimed: '04:30', specialHoursClaimed: '', amountRs: '2,173', amountCts: '28' },
+  { date: '10/02', day: 'Fri', reason: 'Quarterly Audit Inspection & Ledger Balancing', approvedBy: 'WMP', startTime: '17:00', endTime: '20:00', totalHours: '03:00', otHoursClaimed: '03:00', specialHoursClaimed: '', amountRs: '1,448', amountCts: '85' },
+  { date: '10/05', day: 'Mon', reason: 'Treasury Settlement Processing & Swift Monitoring', approvedBy: 'KMS', startTime: '17:00', endTime: '21:00', totalHours: '04:00', otHoursClaimed: '04:00', specialHoursClaimed: '', amountRs: '1,931', amountCts: '80' },
+  { date: '10/06', day: 'Tue', reason: 'Disaster Recovery Live Server Drill (Gov Branch)', approvedBy: 'AGN', startTime: '08:30', endTime: '16:30', totalHours: '08:00', otHoursClaimed: '', specialHoursClaimed: '08:00', amountRs: '3,863', amountCts: '64' },
+  { date: '10/07', day: 'Wed', reason: 'Loan Documentation Verification & Physical Archiving', approvedBy: 'WMP', startTime: '17:00', endTime: '19:30', totalHours: '02:30', otHoursClaimed: '02:30', specialHoursClaimed: '', amountRs: '1,207', amountCts: '38' },
+  { date: '10/08', day: 'Thu', reason: 'ATM Cash Replenishment & Central Vault Balancing', approvedBy: 'KMS', startTime: '17:00', endTime: '20:30', totalHours: '03:30', otHoursClaimed: '03:30', specialHoursClaimed: '', amountRs: '1,690', amountCts: '33' },
+  { date: '10/09', day: 'Fri', reason: 'System Maintenance & Security Vulnerability Patching', approvedBy: 'AGN', startTime: '17:00', endTime: '21:00', totalHours: '04:00', otHoursClaimed: '04:00', specialHoursClaimed: '', amountRs: '1,931', amountCts: '80' },
+  { date: '10/12', day: 'Mon', reason: 'IT Helpdesk Support & Network Routing Optimization', approvedBy: 'KMS', startTime: '17:00', endTime: '20:00', totalHours: '03:00', otHoursClaimed: '03:00', specialHoursClaimed: '', amountRs: '1,448', amountCts: '85' },
 ];
 
-// Metadata for all 9 Table Columns in the official Overtime Sheet
+// Metadata for all Table Columns (Overtime Form 10756 and Out of Pocket Form 10610)
 export const TABLE_COLUMN_INFO: Array<{
   key: keyof TemplateConfig['tableConfig']['columns'];
   nameEn: string;
@@ -94,32 +100,39 @@ export const TABLE_COLUMN_INFO: Array<{
 }> = [
   { key: 'date', nameEn: '1. Date', nameSi: 'දිනය', defaultX: 13, defaultWidth: 14, defaultAlign: 'center' },
   { key: 'day', nameEn: '2. Day of Week', nameSi: 'සතියේ දවස', defaultX: 28, defaultWidth: 16, defaultAlign: 'center' },
-  { key: 'reason', nameEn: '3. Reason / Nature of Duties', nameSi: 'හේතුව', defaultX: 45, defaultWidth: 53, defaultAlign: 'left' },
-  { key: 'approvedBy', nameEn: '4. Approved by Mgr', nameSi: 'අනුමත කළ කළමනාකරු', defaultX: 100, defaultWidth: 12, defaultAlign: 'center' },
+  { key: 'reason', nameEn: '3. Reason / Nature of Work', nameSi: 'හේතුව / වැඩ රාජකාරිය', defaultX: 45, defaultWidth: 53, defaultAlign: 'left' },
+  { key: 'approvedBy', nameEn: '4. Approved by Mgr / Unit Head', nameSi: 'අනුමත කළ කළමනාකරු', defaultX: 100, defaultWidth: 12, defaultAlign: 'center' },
   { key: 'startTime', nameEn: '5. Time Started', nameSi: 'ඇරඹූ වේලාව', defaultX: 126, defaultWidth: 12, defaultAlign: 'center' },
-  { key: 'endTime', nameEn: '6. Time Left', nameSi: 'අවසන් වේලාව', defaultX: 139, defaultWidth: 12, defaultAlign: 'center' },
-  { key: 'totalHours', nameEn: '7. Total Hrs. Worked', nameSi: 'වැඩ කළ පැය ගණන', defaultX: 152, defaultWidth: 14, defaultAlign: 'center' },
+  { key: 'endTime', nameEn: '6. Time Left / Finish', nameSi: 'අවසන් වේලාව', defaultX: 139, defaultWidth: 12, defaultAlign: 'center' },
+  { key: 'totalHours', nameEn: '7. Total Hrs. Worked / Claimed', nameSi: 'වැඩ කළ / හිමිකම් පැය', defaultX: 152, defaultWidth: 14, defaultAlign: 'center' },
   { key: 'otHoursClaimed', nameEn: '8. Overtime Claimed (A)', nameSi: 'හිමිකම්පාන අතිකාල A', defaultX: 167, defaultWidth: 16, defaultAlign: 'center' },
   { key: 'specialHoursClaimed', nameEn: '9. Special Assignment (B)', nameSi: 'විශේෂ වැඩ අතිකාල B', defaultX: 184, defaultWidth: 14, defaultAlign: 'center' },
+  { key: 'amountRs', nameEn: '10. Amount (Rs.)', nameSi: 'මුදල (රු.)', defaultX: 139, defaultWidth: 20, defaultAlign: 'right' },
+  { key: 'amountCts', nameEn: '11. Amount (Cts.)', nameSi: 'ශත', defaultX: 159, defaultWidth: 9, defaultAlign: 'center' },
+  { key: 'approvedByAgm', nameEn: '12. Approved by AGM', nameSi: 'සහකාර සාමාන්‍යාධිකාරී', defaultX: 182, defaultWidth: 14, defaultAlign: 'center' },
 ];
 
-// Standard Overtime Form Dynamic Presets for quick addition
+// Standard Form Dynamic Presets for quick addition
 const FIELD_PRESETS = [
   { name: 'Employee Name', key: 'employeeName', sample: 'Dasun Dularaka Ramasingha', type: 'text' as const, w: 60, h: 5 },
-  { name: 'Employee Number', key: 'employeeNumber', sample: '084521', type: 'text' as const, w: 35, h: 5 },
-  { name: 'Designation', key: 'designation', sample: 'Senior Banking Assistant', type: 'text' as const, w: 50, h: 5 },
+  { name: 'Employee Number (PF)', key: 'employeeNumber', sample: '0845217', type: 'text' as const, w: 35, h: 5 },
+  { name: 'Designation / Grade', key: 'designation', sample: 'Senior Banking Assistant - Grade II', type: 'text' as const, w: 50, h: 5 },
   { name: 'Department', key: 'department', sample: 'IT Operations & Infrastructure', type: 'text' as const, w: 55, h: 5 },
-  { name: 'Branch', key: 'branch', sample: 'BOC Colombo Main Branch', type: 'text' as const, w: 45, h: 5 },
+  { name: 'Branch / Dept', key: 'branch', sample: 'BOC Colombo Main Branch (001)', type: 'text' as const, w: 45, h: 5 },
   { name: 'Claim Month & Year', key: 'monthYear', sample: 'October 2026', type: 'text' as const, w: 40, h: 5 },
+  { name: 'Year (2-digit 20xx)', key: 'year2Digit', sample: '26', type: 'text' as const, w: 15, h: 5 },
   { name: 'Claim Date', key: 'claimDate', sample: '2026-10-05', type: 'date' as const, w: 35, h: 5 },
-  { name: 'Total OT Hours', key: 'totalHours', sample: '18:30', type: 'calculated' as const, w: 40, h: 5 },
+  { name: 'Total Hours Claimed', key: 'totalHoursOnly', sample: '18:30', type: 'calculated' as const, w: 40, h: 5 },
+  { name: 'TOTAL Amount (Rs.)', key: 'totalAmountRs', sample: '18,350', type: 'calculated' as const, w: 25, h: 4.5 },
+  { name: 'TOTAL Amount (Cts.)', key: 'totalAmountCts', sample: '00', type: 'calculated' as const, w: 12, h: 4.5 },
   { name: 'Hourly OT Rate', key: 'hourlyRate', sample: '482.95', type: 'number' as const, w: 36, h: 4.5 },
   { name: 'Days Payment of OT', key: 'daysPay', sample: '3,863.64', type: 'number' as const, w: 27, h: 4.5 },
   { name: 'Total Remuneration', key: 'totalRemuneration', sample: '85,000.00', type: 'number' as const, w: 25, h: 4.5 },
   { name: "Overtime Payment Due 'A'", key: 'otPaymentDueA', sample: '8,934.58', type: 'calculated' as const, w: 40, h: 4.5 },
   { name: "Special Assignment Payment 'B'", key: 'otPaymentDueB', sample: '0.00', type: 'calculated' as const, w: 44, h: 4.5 },
-  { name: 'Claim Type', key: 'claimType', sample: 'OT Claim', type: 'text' as const, w: 30, h: 5 },
-  { name: 'Officer Signature', key: 'signature', sample: 'D. D. Ramasingha', type: 'signature' as const, w: 50, h: 8 },
+  { name: 'Claim Type', key: 'claimType', sample: 'OP Allowance', type: 'text' as const, w: 30, h: 5 },
+  { name: 'Claimant Signature', key: 'claimantSign', sample: 'D. D. Ramasingha', type: 'signature' as const, w: 50, h: 8 },
+  { name: 'Payment Authorised by', key: 'paymentAuthorisedBy', sample: '', type: 'text' as const, w: 40, h: 5 },
   { name: 'Custom Dynamic Label', key: 'customField', sample: 'Custom Sample Text', type: 'text' as const, w: 40, h: 5 },
 ];
 
@@ -127,7 +140,7 @@ export const TemplateDesigner: React.FC = () => {
   const { currentUser, userProfile, isAdmin } = useAuth();
 
   // Template list & current working template
-  const [templateList, setTemplateList] = useState<TemplateConfig[]>([DEFAULT_TEMPLATE]);
+  const [templateList, setTemplateList] = useState<TemplateConfig[]>([...BUILTIN_TEMPLATES]);
   const [currentTemplateId, setCurrentTemplateId] = useState<string>(DEFAULT_TEMPLATE.id);
   const [template, setTemplate] = useState<TemplateConfig>(getActiveTemplate());
 
@@ -460,8 +473,10 @@ export const TemplateDesigner: React.FC = () => {
 
   const confirmResetToStandard = () => {
     setIsResetModalOpen(false);
+    const isOp = template.id.includes('pocket') || template.id.includes('op') || template.name.toLowerCase().includes('pocket');
+    const baseTpl = isOp ? OUT_OF_POCKET_TEMPLATE : DEFAULT_TEMPLATE;
     setTemplate(prev => ({
-      ...DEFAULT_TEMPLATE,
+      ...baseTpl,
       id: prev.id,
       name: prev.name,
       isDefault: prev.isDefault,
@@ -470,8 +485,8 @@ export const TemplateDesigner: React.FC = () => {
       heightMm: 297,
       updatedAt: new Date().toISOString(),
     }));
-    setSelectedFieldId(DEFAULT_TEMPLATE.fields[0]?.id || null);
-    setSaveSuccessMsg('Template reset to standard official form.');
+    setSelectedFieldId(baseTpl.fields[0]?.id || null);
+    setSaveSuccessMsg(`Template reset to official ${isOp ? 'Out of Pocket Allowance' : 'Overtime Claim'} form layout.`);
     setTimeout(() => setSaveSuccessMsg(null), 3000);
   };
 
@@ -1623,6 +1638,7 @@ service cloud.firestore {
                       fontWeight: field.isBold ? 'bold' : 'normal',
                       textAlign: field.alignment || 'left',
                       color: field.color || '#000000',
+                      letterSpacing: field.charSpacing ? `${field.charSpacing * MM_TO_PX_BASE * zoom}px` : undefined,
                       transform: field.rotation ? `rotate(${field.rotation}deg)` : undefined,
                       transformOrigin: 'top left',
                     }}

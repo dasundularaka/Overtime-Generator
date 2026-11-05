@@ -1,5 +1,5 @@
 import { AppSettings, ClaimRecord, Employee, TemplateConfig, UserProfile } from '../types';
-import { DEFAULT_TEMPLATE } from './defaultTemplate';
+import { DEFAULT_TEMPLATE, OUT_OF_POCKET_TEMPLATE, BUILTIN_TEMPLATES } from './defaultTemplate';
 import { getActiveSession } from './localAuthManager';
 
 /**
@@ -95,14 +95,25 @@ export function getTemplates(activeProfile?: UserProfile | null): TemplateConfig
   try {
     // 1. Read global template pool
     const globalRaw = localStorage.getItem('ot_manager_templates_global_v2');
-    let allTemplates: TemplateConfig[] = [DEFAULT_TEMPLATE];
+    let allTemplates: TemplateConfig[] = [...BUILTIN_TEMPLATES];
     if (globalRaw) {
       const parsed = JSON.parse(globalRaw);
       if (Array.isArray(parsed) && parsed.length > 0) {
         allTemplates = parsed;
+        // Ensure all built-in templates (Overtime Form 10756 and Out of Pocket Form 10610) exist
+        let hasNew = false;
+        for (const builtin of BUILTIN_TEMPLATES) {
+          if (!allTemplates.some(t => t.id === builtin.id)) {
+            allTemplates.push(builtin);
+            hasNew = true;
+          }
+        }
+        if (hasNew) {
+          localStorage.setItem('ot_manager_templates_global_v2', JSON.stringify(allTemplates));
+        }
       }
     } else {
-      localStorage.setItem('ot_manager_templates_global_v2', JSON.stringify([DEFAULT_TEMPLATE]));
+      localStorage.setItem('ot_manager_templates_global_v2', JSON.stringify(BUILTIN_TEMPLATES));
     }
 
     const session = activeProfile || getActiveSession();

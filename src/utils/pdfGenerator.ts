@@ -260,6 +260,16 @@ export async function generateOvertimePdf(
     otPaymentDueA: formatRate(claim.otPaymentDueA),
     otPaymentDueB: formatRate(claim.otPaymentDueB),
     totalOtPayment: formatRate(claim.totalOtPayment),
+    // Out of Pocket Form 10610 Particulars
+    year2Digit: String(claim.year || '').slice(-2),
+    grade: claim.designation || '',
+    totalAmountRs: (claim.totalOtPayment || claim.daysPayTotal || 0) > 0
+      ? Math.floor(claim.totalOtPayment || claim.daysPayTotal || 0).toLocaleString('en-US')
+      : '',
+    totalAmountCts: (claim.totalOtPayment || claim.daysPayTotal || 0) > 0
+      ? String(Math.round(((claim.totalOtPayment || claim.daysPayTotal || 0) % 1) * 100)).padStart(2, '0')
+      : '',
+    paymentAuthorisedBy: '',
   };
 
   // Resilient field value lookup supporting keys, IDs, aliases, and lowercase variations
@@ -319,6 +329,20 @@ export async function generateOvertimePdf(
       return claimDataMap.totalOtPayment || '';
     }
 
+    // Out of Pocket aliases
+    if (normKey.includes('amountrs') || normId.includes('amountrs') || rawName.includes('amount (rs)')) {
+      return claimDataMap.totalAmountRs || '';
+    }
+    if (normKey.includes('amountcts') || normId.includes('amountcts') || rawName.includes('amount (cts)')) {
+      return claimDataMap.totalAmountCts || '';
+    }
+    if (normKey === 'grade' || normId === 'grade' || rawName.includes('grade')) {
+      return claimDataMap.grade || claimDataMap.designation || '';
+    }
+    if (normKey.includes('year2') || normId.includes('year2') || normKey === 'yearbox') {
+      return claimDataMap.year2Digit || '';
+    }
+
     // 5. Fallback: only use template sampleValue if the field is not a rate/payment field, or if nothing was ever entered
     return field.sampleValue ?? '';
   }
@@ -345,13 +369,30 @@ export async function generateOvertimePdf(
       x += maxWidthPt - textWidth;
     }
 
-    page.drawText(text, {
-      x,
-      y,
-      size: fontSize,
-      font,
-      color: rgb(0.05, 0.05, 0.05),
-    });
+    // Support character-by-character spacing (for P.F. boxes)
+    if (field.charSpacing && field.charSpacing > 0 && text.length > 1) {
+      let curX = x;
+      const spacingPt = field.charSpacing * MM_TO_PT;
+      for (let ci = 0; ci < text.length; ci++) {
+        const char = text[ci];
+        page.drawText(char, {
+          x: curX,
+          y,
+          size: fontSize,
+          font,
+          color: rgb(0.05, 0.05, 0.05),
+        });
+        curX += font.widthOfTextAtSize(char, fontSize) + spacingPt;
+      }
+    } else {
+      page.drawText(text, {
+        x,
+        y,
+        size: fontSize,
+        font,
+        color: rgb(0.05, 0.05, 0.05),
+      });
+    }
   }
 
   // 2. Overlay dynamic Overtime Table rows
@@ -399,6 +440,21 @@ export async function generateOvertimePdf(
       // Show non-working days OT period (in, out, worked, and OT claimed) like other working days for rates-unlocked users or holiday override
       const showPeriod = !isOtherDay || isRatesUnlocked || !!row.isHolidayOverride || (row.totalMinutes || 0) > 0;
 
+      // Compute row amount if template has amountRs/amountCts columns (e.g. Out of Pocket Form 10610)
+      let rowAmountRs = '';
+      let rowAmountCts = '';
+      const dayAmt = (row.daysPaymentAmount || 0) > 0
+        ? row.daysPaymentAmount!
+        : ((row.totalMinutes || 0) > 0 && (claim.hourlyRate || 0) > 0)
+        ? ((row.totalMinutes || 0) / 60) * (claim.hourlyRate || 0)
+        : 0;
+      if (dayAmt > 0) {
+        const rInt = Math.floor(dayAmt);
+        const rCts = Math.round((dayAmt - rInt) * 100);
+        rowAmountRs = rInt.toLocaleString('en-US');
+        rowAmountCts = String(rCts).padStart(2, '0');
+      }
+
       const rowValues = [
         { col: cols.date, val: row.date ? row.date.split('-').slice(1).join('/') : '' },
         { col: cols.day, val: row.dayOfWeek || '' },
@@ -406,7 +462,12 @@ export async function generateOvertimePdf(
         { col: cols.approvedBy, val: row.approvedBy || '' },
         { col: cols.startTime, val: showPeriod ? (row.startTime || '') : '' },
         { col: cols.endTime, val: showPeriod ? (row.endTime ? `${row.endTime}${row.isOvernight ? '*' : ''}` : '') : '' },
-        { col: cols.totalHours, val: (showPeriod && row.totalWorkMinutes > 0) ? formatMinutesToTime(row.totalWorkMinutes, 'hhmm') : '' },
+        {
+          col: cols.totalHours,
+          val: cols.amountRs
+            ? (row.totalFormatted || (row.totalMinutes > 0 ? formatMinutesToTime(row.totalMinutes, 'hhmm') : (showPeriod && row.totalWorkMinutes > 0 ? formatMinutesToTime(row.totalWorkMinutes, 'hhmm') : '')))
+            : ((showPeriod && row.totalWorkMinutes > 0) ? formatMinutesToTime(row.totalWorkMinutes, 'hhmm') : ''),
+        },
         // Column A: Regular overtime (Working days and Saturdays / non-working days; NOT special OT, NOT holiday override)
         {
           col: cols.otHoursClaimed || (cols.breakMinutes ? undefined : cols.totalHours),
@@ -421,6 +482,10 @@ export async function generateOvertimePdf(
             ? (row.totalFormatted || '')
             : (row.specialAssignmentHours || ''),
         },
+        // Out of Pocket Amount Columns
+        { col: cols.amountRs, val: rowAmountRs },
+        { col: cols.amountCts, val: rowAmountCts },
+        { col: cols.approvedByAgm, val: '' },
       ];
 
       for (const { col, val } of rowValues) {

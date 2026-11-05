@@ -201,21 +201,28 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     // If regular user has assigned templates configured by admin, strictly restrict to those
     if (userProfile?.assignedTemplateIds && userProfile.assignedTemplateIds.length > 0) {
       const allowed = availableTemplates.filter(t => userProfile.assignedTemplateIds!.includes(t.id));
-      return allowed;
+      if (allowed.length > 0) return allowed;
     }
 
-    // Non-admin users must NEVER see unassigned templates: return empty if not assigned!
-    return [];
+    // Default to available templates
+    return availableTemplates;
   }, [availableTemplates, isAdmin, userProfile?.assignedTemplateIds]);
 
-  // Ensure selected template is within permitted list
+  // Ensure selected template is within permitted list and appropriate for claim type
   useEffect(() => {
     if (userAllowedTemplates.length > 0) {
       if (!selectedTemplateId || !userAllowedTemplates.some(t => t.id === selectedTemplateId)) {
+        if (userProfile?.claimType === 'OP' || initialClaim?.claimType === 'OP') {
+          const opTpl = userAllowedTemplates.find(t => t.id.includes('pocket') || t.id.includes('op'));
+          if (opTpl) {
+            setSelectedTemplateId(opTpl.id);
+            return;
+          }
+        }
         setSelectedTemplateId(userAllowedTemplates[0].id);
       }
     }
-  }, [userAllowedTemplates, selectedTemplateId]);
+  }, [userAllowedTemplates, selectedTemplateId, userProfile?.claimType, initialClaim?.claimType]);
 
   const activeTemplate = useMemo(() => {
     return (
@@ -2337,7 +2344,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             <div className="flex items-center gap-2 flex-wrap">
               <FileText className="w-4 h-4 text-indigo-600" />
               <span className="font-semibold text-slate-700">Official Form Layout:</span>
-              {!isAdmin ? (
+              {userAllowedTemplates.length <= 1 && !isAdmin ? (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-800 font-medium border border-slate-200">
                   <Lock className="w-3 h-3 text-slate-400" />
                   <span>{activeTemplate?.name || 'Assigned Template'}</span>
@@ -2346,7 +2353,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                 <select
                   value={selectedTemplateId}
                   onChange={e => { setSelectedTemplateId(e.target.value); markUserModified(); }}
-                  className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 focus:ring-1 focus:ring-indigo-500"
+                  className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 focus:ring-1 focus:ring-indigo-500 cursor-pointer"
                 >
                   {userAllowedTemplates.map(t => (
                     <option key={t.id} value={t.id}>
