@@ -113,38 +113,6 @@ export const UserManagement: React.FC = () => {
 
   const [formError, setFormError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
-  const [isTogglingRatesLock, setIsTogglingRatesLock] = useState<string | null>(null);
-
-  const handleToggleUserRatesLock = async (targetUser: UserProfile) => {
-    setIsTogglingRatesLock(targetUser.id);
-    const nextLock = !targetUser.isRatesLocked;
-    try {
-      await updateDoc(doc(db, 'users', targetUser.id), {
-        isRatesLocked: nextLock,
-        updatedAt: new Date().toISOString(),
-      });
-      setUsers(prev => prev.map(u => (u.id === targetUser.id ? { ...u, isRatesLocked: nextLock } : u)));
-
-      await recordAuditLog({
-        action: 'USER_UPDATE',
-        actionLabel: nextLock ? 'Locked User Overtime Rates' : 'Unlocked User Overtime Rates',
-        targetType: 'user',
-        targetId: targetUser.id,
-        targetDescription: `${targetUser.name} (${nextLock ? 'Locked' : 'Unlocked'})`,
-        beforeState: { isRatesLocked: targetUser.isRatesLocked },
-        afterState: { isRatesLocked: nextLock },
-        details: { isRatesLocked: nextLock },
-      });
-
-      setActionSuccess(`Rates for "${targetUser.name}" are now ${nextLock ? 'LOCKED (User cannot edit)' : 'UNLOCKED (User can edit)'}.`);
-      setTimeout(() => setActionSuccess(null), 3500);
-    } catch (err: any) {
-      console.error('Failed to toggle user rates lock:', err);
-      setFormError(err.message || 'Failed to update rates lock state.');
-    } finally {
-      setIsTogglingRatesLock(null);
-    }
-  };
 
   // Password Management State
   const [passwordModalUser, setPasswordModalUser] = useState<UserProfile | null>(null);
@@ -1286,38 +1254,18 @@ export const UserManagement: React.FC = () => {
                         <div className="text-[11px] text-slate-400">{u.branch}</div>
                       </td>
 
-                      {/* Hourly Rate & Day's Pay + 1-Click Rates Lock Tool */}
+                      {/* Hourly Rate & Day's Pay */}
                       <td className="py-3.5 px-4">
                         <div className="flex items-center gap-1.5 font-bold text-slate-900 font-mono">
                           <span>{u.hourlyRate ? `Rs. ${u.hourlyRate.toFixed(2)}/h` : <span className="text-slate-400 font-normal italic">Default rate</span>}</span>
+                          {u.isRatesLocked && (
+                            <span className="p-0.5 rounded bg-amber-100 text-amber-800" title="Overtime rates are locked for this user">
+                              <Lock className="w-3 h-3" />
+                            </span>
+                          )}
                         </div>
                         <div className="text-[11px] text-slate-500 font-mono">
                           {u.daysPay ? `Day: Rs. ${u.daysPay.toFixed(2)}` : ''}
-                        </div>
-                        <div className="mt-1">
-                          <button
-                            type="button"
-                            onClick={() => handleToggleUserRatesLock(u)}
-                            disabled={isTogglingRatesLock === u.id}
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold border transition cursor-pointer shadow-2xs ${
-                              u.isRatesLocked
-                                ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300'
-                                : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300'
-                            }`}
-                            title={u.isRatesLocked ? 'Rates Locked: Click to unlock rates for this user' : 'Rates Unlocked: Click to lock rates for this user'}
-                          >
-                            {u.isRatesLocked ? (
-                              <>
-                                <Lock className="w-2.5 h-2.5 text-amber-600 shrink-0" />
-                                <span>Locked</span>
-                              </>
-                            ) : (
-                              <>
-                                <Unlock className="w-2.5 h-2.5 text-emerald-600 shrink-0" />
-                                <span>Unlocked</span>
-                              </>
-                            )}
-                          </button>
                         </div>
                       </td>
 

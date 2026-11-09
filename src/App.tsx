@@ -284,14 +284,7 @@ function AppContent() {
           />
         )}
 
-        {activeTab === 'calendar' && (
-          <CalendarManager
-            onNavigateToNewClaim={(dateStr) => {
-              handleStartFreshClaim();
-              transitionToTab('new-claim');
-            }}
-          />
-        )}
+        {activeTab === 'calendar' && <CalendarManager />}
 
         {activeTab === 'users' && isAdmin && <UserManagement />}
         {activeTab === 'branches' && <BranchManagement />}

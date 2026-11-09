@@ -23,7 +23,6 @@ import {
   query,
   where,
   getDocs,
-  onSnapshot,
 } from 'firebase/firestore';
 import { auth, db, googleProvider } from '../firebase/config';
 import { UserProfile, UserRole, ClaimType } from '../types';
@@ -219,15 +218,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(false);
     }
 
-    let userDocUnsub: (() => void) | null = null;
-
     // 2. Listen to Firebase auth state
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (userDocUnsub) {
-        userDocUnsub();
-        userDocUnsub = null;
-      }
-
       if (user) {
         try {
           const profile = await fetchProfile(user);
@@ -244,29 +236,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUserProfile(profile);
           setActiveSession(profile);
           setAuthError(null);
-
-          // Real-time synchronization for active user profile
-          // Immediately syncs admin changes to isRatesLocked, rates, limit, or branch
-          try {
-            userDocUnsub = onSnapshot(
-              doc(db, 'users', user.uid),
-              (docSnap) => {
-                if (docSnap.exists()) {
-                  const liveData = { ...docSnap.data(), id: docSnap.id } as UserProfile;
-                  setUserProfile((prev) => {
-                    if (!prev) return liveData;
-                    return { ...prev, ...liveData };
-                  });
-                  setActiveSession(liveData);
-                }
-              },
-              (err) => {
-                console.warn('Real-time profile listener notice:', err);
-              }
-            );
-          } catch (listenerErr) {
-            console.warn('Could not attach profile listener:', listenerErr);
-          }
         } catch (e: any) {
           console.warn('Authentication rejected:', e.message);
           clearActiveSession();
@@ -283,12 +252,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(false);
     });
 
-    return () => {
-      unsubscribe();
-      if (userDocUnsub) {
-        userDocUnsub();
-      }
-    };
+    return () => unsubscribe();
   }, []);
 
   const refreshUserProfile = async () => {
