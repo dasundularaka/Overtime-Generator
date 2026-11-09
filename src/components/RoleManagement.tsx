@@ -120,6 +120,8 @@ export const RoleManagement: React.FC = () => {
     setIsTogglingLock(r.id);
     const nextLockState = !r.isRatesLocked;
     try {
+      // Optimistically update roles list so UI responds instantly
+      setRoles(prev => prev.map(item => (item.id === r.id ? { ...item, isRatesLocked: nextLockState } : item)));
       await toggleRoleRateLock(r.id, nextLockState);
       await recordAuditLog({
         action: 'ROLE_RATE_LOCK_TOGGLE',
@@ -139,6 +141,9 @@ export const RoleManagement: React.FC = () => {
       setTimeout(() => setActionSuccess(null), 4000);
     } catch (err: any) {
       console.error('Toggle role lock error', err);
+      // Revert optimistic update
+      setRoles(prev => prev.map(item => (item.id === r.id ? { ...item, isRatesLocked: r.isRatesLocked } : item)));
+      setFormError('Failed to toggle role lock: ' + err.message);
     } finally {
       setIsTogglingLock(null);
     }

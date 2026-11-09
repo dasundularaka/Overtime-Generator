@@ -110,6 +110,43 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [isBulkPrinting, setIsBulkPrinting] = useState(false);
 
+  // Chronological period calculation helper: latest month & year first (e.g. 202611 > 202610 > 202512)
+  const getClaimPeriodSortValue = (c: ClaimRecord): number => {
+    const year = typeof c.year === 'number' && !isNaN(c.year)
+      ? c.year
+      : (parseInt(String(c.year || 0), 10) || 0);
+    let monthIdx = -1;
+    if (typeof c.month === 'string') {
+      const cleanMonth = c.month.trim().toLowerCase();
+      monthIdx = MONTH_NAMES.findIndex(m => m.toLowerCase() === cleanMonth);
+      if (monthIdx === -1) {
+        const num = parseInt(cleanMonth, 10);
+        if (!isNaN(num) && num >= 1 && num <= 12) {
+          monthIdx = num - 1;
+        }
+      }
+    } else if (typeof c.month === 'number') {
+      monthIdx = c.month - 1;
+    }
+    if (monthIdx < 0) monthIdx = 0;
+    return year * 100 + (monthIdx + 1);
+  };
+
+  const compareClaimsByPeriodDesc = (a: ClaimRecord, b: ClaimRecord): number => {
+    // 1. Primary sort: Period (Year & Month) descending — latest month first
+    const periodDiff = getClaimPeriodSortValue(b) - getClaimPeriodSortValue(a);
+    if (periodDiff !== 0) return periodDiff;
+
+    // 2. Secondary sort: within the same month, sort by latest update/creation/claim date descending
+    const bDate = b.updatedAt || b.createdAt || b.claimDate || '';
+    const aDate = a.updatedAt || a.createdAt || a.claimDate || '';
+    const dateDiff = bDate.localeCompare(aDate);
+    if (dateDiff !== 0) return dateDiff;
+
+    // 3. Fallback: claim number
+    return (b.claimNumber || '').localeCompare(a.claimNumber || '');
+  };
+
   // Fetch claims from Firestore (Admins see all; Users see only their own)
   const fetchClaims = async () => {
     if (!currentUser) return;
@@ -126,7 +163,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
         const branchFiltered = isSuperAdmin
           ? list
           : list.filter(c => isOwnClaim(c) || isSameBranch(c));
-        branchFiltered.sort((a, b) => (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || ''));
+        branchFiltered.sort(compareClaimsByPeriodDesc);
         setClaims(branchFiltered);
       } else {
         const myUid = currentUser.uid;
@@ -169,7 +206,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
           return matchUid || matchPf;
         });
 
-        list.sort((a, b) => (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || ''));
+        list.sort(compareClaimsByPeriodDesc);
         setClaims(list);
       }
     } catch (err) {
@@ -403,39 +440,60 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
   const draftsCount = accessibleClaims.filter(c => c.status === 'draft').length;
   const submittedCount = accessibleClaims.filter(c => c.status !== 'draft').length;
 
-  const filtered = accessibleClaims.filter(c => {
-    const matchesSearch =
-      !isSearching ||
-      c.employeeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (c.employeeNumber || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (c.department || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (c.branch || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.claimNumber.toLowerCase().includes(searchQuery.toLowerCase());
+  const filtered = useMemo(() => {
+    const list = accessibleClaims.filter(c => {
+      const matchesSearch =
+        !isSearching ||
+        c.employeeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (c.employeeNumber || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (c.department || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (c.branch || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        c.claimNumber.toLowerCase().includes(searchQuery.toLowerCase());
 
-    const matchesMonth = selectedMonth === 'ALL' || c.month === selectedMonth;
-    const matchesYear = selectedYear === 'ALL' || String(c.year) === selectedYear;
+      const matchesMonth = selectedMonth === 'ALL' || c.month === selectedMonth;
+      const matchesYear = selectedYear === 'ALL' || String(c.year) === selectedYear;
 
-    const matchesStatus =
-      statusFilter === 'ALL' ||
-      (statusFilter === 'DRAFTS' ? c.status === 'draft' : c.status !== 'draft');
+      const matchesStatus =
+        statusFilter === 'ALL' ||
+        (statusFilter === 'DRAFTS' ? c.status === 'draft' : c.status !== 'draft');
 
-    return matchesSearch && matchesMonth && matchesYear && matchesStatus;
-  });
+      return matchesSearch && matchesMonth && matchesYear && matchesStatus;
+    });
 
-  // Group filtered claims by monthly period for clear visual separation
+    // Ensure latest month is first across all filtered claims
+    return list.sort(compareClaimsByPeriodDesc);
+  }, [accessibleClaims, isSearching, searchQuery, selectedMonth, selectedYear, statusFilter]);
+
+  // Group filtered claims by monthly period for clear visual separation (latest month period first)
   const groupedSections = useMemo(() => {
-    const map = new Map<string, ClaimRecord[]>();
+    const map = new Map<string, { periodKey: string; sortValue: number; items: ClaimRecord[] }>();
     for (const c of filtered) {
       const key = `${c.month} ${c.year}`;
       if (!map.has(key)) {
-        map.set(key, []);
+        map.set(key, {
+          periodKey: key,
+          sortValue: getClaimPeriodSortValue(c),
+          items: [],
+        });
       }
-      map.get(key)!.push(c);
+      map.get(key)!.items.push(c);
     }
-    return Array.from(map.entries()).map(([periodKey, items]) => ({
-      periodKey,
-      items,
-    }));
+
+    // Sort sections descending so latest month/year is first (e.g. November 2026 before October 2026)
+    const sections = Array.from(map.values()).sort((a, b) => b.sortValue - a.sortValue);
+
+    // Within each monthly period, sort claims by latest update/creation/claim date descending
+    for (const s of sections) {
+      s.items.sort((a, b) => {
+        const bDate = b.updatedAt || b.createdAt || b.claimDate || '';
+        const aDate = a.updatedAt || a.createdAt || a.claimDate || '';
+        const dateDiff = bDate.localeCompare(aDate);
+        if (dateDiff !== 0) return dateDiff;
+        return (b.claimNumber || '').localeCompare(a.claimNumber || '');
+      });
+    }
+
+    return sections;
   }, [filtered]);
 
   const isAllSelected = filtered.length > 0 && filtered.every(c => selectedClaimIds.includes(c.id));

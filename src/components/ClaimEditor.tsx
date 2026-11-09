@@ -689,49 +689,64 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       const drn = dr.name.toLowerCase().trim();
       return dr.id === targetProfile?.roleId || (title && (drn === title || title.includes(drn) || drn.includes(title)));
     });
-    if (fallbackDef) return fallbackDef;
+    if (fallbackDef) {
+      // Find matching live role from Firestore roleRates to ensure updated isRatesLocked is honored
+      const liveRole = roleRates.find(r => r.id === fallbackDef.id || (r.name && r.name.toLowerCase().trim() === fallbackDef.name.toLowerCase().trim()));
+      return liveRole || fallbackDef;
+    }
 
     return null;
   }, [targetProfile, designation, roleRates]);
 
-  // Lock status: if user profile explicitly defines isRatesLocked, that takes precedence (false = unlocked, true = locked)
-  // If not set on profile, fall back to corporate role rate lock status.
-  const isTargetUserRatesLocked = Boolean(
-    targetProfile?.isRatesLocked !== undefined
-      ? targetProfile.isRatesLocked
-      : (
-          userRelevantRole?.isRatesLocked ||
-          (targetProfile?.roleId && roleRates.some(r => r.id === targetProfile.roleId && r.isRatesLocked)) ||
-          (targetProfile?.designation && roleRates.some(r => (r.name || '').toLowerCase().trim() === targetProfile.designation.toLowerCase().trim() && r.isRatesLocked))
-        )
+  // Lock status calculation:
+  // 1. Check if individual user account is locked by admin (via User Profile)
+  const isUserExplicitlyLocked = Boolean(targetProfile?.isRatesLocked || userProfile?.isRatesLocked);
+
+  // 2. Check if assigned corporate role or designation is locked by admin (via Role Management tool)
+  const isRoleLocked = Boolean(
+    userRelevantRole?.isRatesLocked ||
+    (targetProfile?.roleId && roleRates.some(r => r.id === targetProfile.roleId && r.isRatesLocked)) ||
+    (targetProfile?.roleName && roleRates.some(r => (r.name || '').toLowerCase().trim() === targetProfile.roleName.toLowerCase().trim() && r.isRatesLocked)) ||
+    (targetProfile?.designation && roleRates.some(r => (r.name || '').toLowerCase().trim() === targetProfile.designation.toLowerCase().trim() && r.isRatesLocked)) ||
+    (designation && roleRates.some(r => (r.name || '').toLowerCase().trim() === designation.toLowerCase().trim() && r.isRatesLocked))
   );
 
-  // For the current UI session: admins are never locked, standard users locked according to target user lock status
+  // If EITHER the user's profile is locked OR their assigned role is locked by admin, rates are LOCKED!
+  const isTargetUserRatesLocked = isUserExplicitlyLocked || isRoleLocked;
+
+  // For the current UI session: admins can always edit (admin override); standard non-admin users are strictly locked
   const isRoleRatesLocked = !isAdmin && isTargetUserRatesLocked;
 
-  // Standard users cannot edit if locked; Admins can always edit
+  // Standard non-admin users CANNOT edit if locked
   const canEditRates = isAdmin || !isRoleRatesLocked;
 
-  // Enforce locked rates in form: if locked by admin, standard users cannot change rates
-  // Respect user's own assigned rates first! Never overwrite a user's assigned rate with generic role rate.
+  // Enforce locked rates in form: if locked by admin, standard non-admin users cannot change rates
+  // Respect user's own assigned rates first; fall back to corporate role rates if user rates are empty.
   useEffect(() => {
     if (!isAdmin && isRoleRatesLocked) {
-      if (targetProfile?.hourlyRate !== undefined && targetProfile.hourlyRate !== '') {
-        setHourlyRate(targetProfile.hourlyRate);
-      } else if (userRelevantRole?.hourlyRateWorkingDays !== undefined) {
-        setHourlyRate(userRelevantRole.hourlyRateWorkingDays);
+      const lockedHourly = (targetProfile?.hourlyRate !== undefined && targetProfile.hourlyRate !== '')
+        ? targetProfile.hourlyRate
+        : userRelevantRole?.hourlyRateWorkingDays;
+      if (lockedHourly !== undefined && lockedHourly !== '') {
+        setHourlyRate(lockedHourly);
       }
 
-      if (targetProfile?.daysPay !== undefined && targetProfile.daysPay !== '') {
-        setDaysPay(targetProfile.daysPay);
-      } else if (userRelevantRole?.daysPaymentNonWorkingDays !== undefined) {
-        setDaysPay(userRelevantRole.daysPaymentNonWorkingDays);
+      const lockedDaysPay = (targetProfile?.daysPay !== undefined && targetProfile.daysPay !== '')
+        ? targetProfile.daysPay
+        : userRelevantRole?.daysPaymentNonWorkingDays;
+      if (lockedDaysPay !== undefined && lockedDaysPay !== '') {
+        setDaysPay(lockedDaysPay);
       }
 
-      if (targetProfile?.hourlyRateNonWorkingDays !== undefined && targetProfile.hourlyRateNonWorkingDays !== '') {
-        setHourlyRateNonWorkingDays(targetProfile.hourlyRateNonWorkingDays);
-      } else if (userRelevantRole?.hourlyRateNonWorkingDays !== undefined) {
-        setHourlyRateNonWorkingDays(userRelevantRole.hourlyRateNonWorkingDays);
+      const lockedNonWorkingHourly = (targetProfile?.hourlyRateNonWorkingDays !== undefined && targetProfile.hourlyRateNonWorkingDays !== '')
+        ? targetProfile.hourlyRateNonWorkingDays
+        : userRelevantRole?.hourlyRateNonWorkingDays;
+      if (lockedNonWorkingHourly !== undefined && lockedNonWorkingHourly !== '') {
+        setHourlyRateNonWorkingDays(lockedNonWorkingHourly);
+      }
+
+      if (targetProfile?.totalRemuneration !== undefined && targetProfile.totalRemuneration !== '') {
+        setTotalRemuneration(targetProfile.totalRemuneration);
       }
     }
   }, [isAdmin, isRoleRatesLocked, userRelevantRole, targetProfile]);
@@ -926,10 +941,14 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       if (primaryDraft.branch) setBranch(primaryDraft.branch);
       if (primaryDraft.department) setDepartment(primaryDraft.department);
       if (primaryDraft.claimType) setClaimType(primaryDraft.claimType);
-      if (primaryDraft.hourlyRate !== undefined) setHourlyRate(primaryDraft.hourlyRate);
-      if (primaryDraft.daysPay !== undefined) setDaysPay(primaryDraft.daysPay);
       if (primaryDraft.otPaymentDueB !== undefined) setOtPaymentDueB(primaryDraft.otPaymentDueB);
-      if (primaryDraft.totalRemuneration !== undefined) setTotalRemuneration(primaryDraft.totalRemuneration);
+      // Only restore draft's custom rates if user is an admin or if rates are unlocked
+      if (canEditRates) {
+        if (primaryDraft.hourlyRate !== undefined) setHourlyRate(primaryDraft.hourlyRate);
+        if (primaryDraft.daysPay !== undefined) setDaysPay(primaryDraft.daysPay);
+        if (primaryDraft.hourlyRateNonWorkingDays !== undefined) setHourlyRateNonWorkingDays(primaryDraft.hourlyRateNonWorkingDays);
+        if (primaryDraft.totalRemuneration !== undefined) setTotalRemuneration(primaryDraft.totalRemuneration);
+      }
 
       const timeFormatted = new Date(primaryDraft.updatedAt || Date.now()).toLocaleTimeString([], {
         hour: '2-digit',
@@ -1727,10 +1746,18 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       totalHoursFormatted,
       totalDecimalHours,
       otDaysCount,
-      totalRemuneration: (totalRemuneration !== '' && !isNaN(Number(totalRemuneration))) ? Number(totalRemuneration) : (targetProfile?.totalRemuneration !== undefined && targetProfile.totalRemuneration !== '' ? Number(targetProfile.totalRemuneration) : undefined),
-      hourlyRate: (hourlyRate !== '' && !isNaN(Number(hourlyRate))) ? Number(hourlyRate) : (targetProfile?.hourlyRate !== undefined && targetProfile.hourlyRate !== '' ? Number(targetProfile.hourlyRate) : undefined),
-      daysPay: (daysPay !== '' && !isNaN(Number(daysPay))) ? Number(daysPay) : (targetProfile?.daysPay !== undefined && targetProfile.daysPay !== '' ? Number(targetProfile.daysPay) : undefined),
-      hourlyRateNonWorkingDays: (hourlyRateNonWorkingDays !== '' && !isNaN(Number(hourlyRateNonWorkingDays))) ? Number(hourlyRateNonWorkingDays) : (targetProfile?.hourlyRateNonWorkingDays !== undefined && targetProfile.hourlyRateNonWorkingDays !== '' ? Number(targetProfile.hourlyRateNonWorkingDays) : undefined),
+      totalRemuneration: !canEditRates && targetProfile?.totalRemuneration !== undefined && targetProfile.totalRemuneration !== ''
+        ? Number(targetProfile.totalRemuneration)
+        : ((totalRemuneration !== '' && !isNaN(Number(totalRemuneration))) ? Number(totalRemuneration) : undefined),
+      hourlyRate: !canEditRates
+        ? ((targetProfile?.hourlyRate !== undefined && targetProfile.hourlyRate !== '') ? Number(targetProfile.hourlyRate) : (userRelevantRole?.hourlyRateWorkingDays !== undefined ? Number(userRelevantRole.hourlyRateWorkingDays) : (hourlyRate !== '' ? Number(hourlyRate) : undefined)))
+        : ((hourlyRate !== '' && !isNaN(Number(hourlyRate))) ? Number(hourlyRate) : undefined),
+      daysPay: !canEditRates
+        ? ((targetProfile?.daysPay !== undefined && targetProfile.daysPay !== '') ? Number(targetProfile.daysPay) : (userRelevantRole?.daysPaymentNonWorkingDays !== undefined ? Number(userRelevantRole.daysPaymentNonWorkingDays) : (daysPay !== '' ? Number(daysPay) : undefined)))
+        : ((daysPay !== '' && !isNaN(Number(daysPay))) ? Number(daysPay) : undefined),
+      hourlyRateNonWorkingDays: !canEditRates
+        ? ((targetProfile?.hourlyRateNonWorkingDays !== undefined && targetProfile.hourlyRateNonWorkingDays !== '') ? Number(targetProfile.hourlyRateNonWorkingDays) : (userRelevantRole?.hourlyRateNonWorkingDays !== undefined ? Number(userRelevantRole.hourlyRateNonWorkingDays) : (hourlyRateNonWorkingDays !== '' ? Number(hourlyRateNonWorkingDays) : undefined)))
+        : ((hourlyRateNonWorkingDays !== '' && !isNaN(Number(hourlyRateNonWorkingDays))) ? Number(hourlyRateNonWorkingDays) : undefined),
       isRatesUnlocked: !isTargetUserRatesLocked,
       isRatesLocked: isTargetUserRatesLocked,
       daysPayCount: currentDaysPayCount,

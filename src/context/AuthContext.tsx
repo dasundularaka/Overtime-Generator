@@ -23,6 +23,7 @@ import {
   query,
   where,
   getDocs,
+  onSnapshot,
 } from 'firebase/firestore';
 import { auth, db, googleProvider } from '../firebase/config';
 import { UserProfile, UserRole, ClaimType } from '../types';
@@ -219,7 +220,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     // 2. Listen to Firebase auth state
+    let profileUnsub: (() => void) | null = null;
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (profileUnsub) {
+        profileUnsub();
+        profileUnsub = null;
+      }
+
       if (user) {
         try {
           const profile = await fetchProfile(user);
@@ -236,6 +244,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUserProfile(profile);
           setActiveSession(profile);
           setAuthError(null);
+
+          // Subscribe in real-time to the user's Firestore document
+          const docIdToListen = profile.id || user.uid;
+          try {
+            profileUnsub = onSnapshot(doc(db, 'users', docIdToListen), (snap) => {
+              if (snap.exists()) {
+                const freshData = snap.data() as UserProfile;
+                setUserProfile(prev => {
+                  const merged = { ...(prev || profile), ...freshData };
+                  setActiveSession(merged);
+                  return merged;
+                });
+              }
+            }, (snapErr) => {
+              console.warn('Realtime profile listener error:', snapErr);
+            });
+          } catch (listenErr) {
+            console.warn('Could not establish profile snapshot listener:', listenErr);
+          }
         } catch (e: any) {
           console.warn('Authentication rejected:', e.message);
           clearActiveSession();
@@ -252,7 +279,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      if (profileUnsub) profileUnsub();
+      unsubscribe();
+    };
   }, []);
 
   const refreshUserProfile = async () => {
