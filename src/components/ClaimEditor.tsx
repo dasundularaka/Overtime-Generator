@@ -694,17 +694,31 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     return null;
   }, [targetProfile, designation, roleRates]);
 
-  // Lock status: if user profile explicitly defines isRatesLocked, that takes precedence (false = unlocked, true = locked)
-  // If not set on profile, fall back to corporate role rate lock status.
-  const isTargetUserRatesLocked = Boolean(
-    targetProfile?.isRatesLocked !== undefined
-      ? targetProfile.isRatesLocked
-      : (
-          userRelevantRole?.isRatesLocked ||
-          (targetProfile?.roleId && roleRates.some(r => r.id === targetProfile.roleId && r.isRatesLocked)) ||
-          (targetProfile?.designation && roleRates.some(r => (r.name || '').toLowerCase().trim() === targetProfile.designation.toLowerCase().trim() && r.isRatesLocked))
-        )
-  );
+  // Lock status determination:
+  // Rates are locked if:
+  // 1. The specific target user has isRatesLocked === true on their profile
+  // 2. OR the corporate role has isRatesLocked === true (corporate policy lock applies to all users with this role)
+  // 3. OR the matched role in roleRates by roleId or designation has isRatesLocked === true
+  const isTargetUserRatesLocked = useMemo(() => {
+    // 1. Explicit user profile lock
+    if (targetProfile?.isRatesLocked === true) return true;
+
+    // 2. Corporate role policy lock
+    if (userRelevantRole?.isRatesLocked === true) return true;
+
+    // 3. Matched role in roleRates by roleId
+    if (targetProfile?.roleId && roleRates.some(r => r.id === targetProfile.roleId && r.isRatesLocked)) {
+      return true;
+    }
+
+    // 4. Matched role in roleRates by designation
+    const userDesig = (targetProfile?.designation || designation || '').toLowerCase().trim();
+    if (userDesig && roleRates.some(r => (r.name || '').toLowerCase().trim() === userDesig && r.isRatesLocked)) {
+      return true;
+    }
+
+    return false;
+  }, [targetProfile, userRelevantRole, roleRates, designation]);
 
   // For the current UI session: admins are never locked, standard users locked according to target user lock status
   const isRoleRatesLocked = !isAdmin && isTargetUserRatesLocked;
@@ -732,6 +746,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         setHourlyRateNonWorkingDays(targetProfile.hourlyRateNonWorkingDays);
       } else if (userRelevantRole?.hourlyRateNonWorkingDays !== undefined) {
         setHourlyRateNonWorkingDays(userRelevantRole.hourlyRateNonWorkingDays);
+      }
+
+      if (targetProfile?.totalRemuneration !== undefined && targetProfile.totalRemuneration !== '') {
+        setTotalRemuneration(targetProfile.totalRemuneration);
       }
     }
   }, [isAdmin, isRoleRatesLocked, userRelevantRole, targetProfile]);
