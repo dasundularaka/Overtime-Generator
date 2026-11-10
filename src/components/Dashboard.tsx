@@ -35,6 +35,8 @@ import { ConfirmationModal } from './ConfirmationModal';
 import { NavigationTab } from './Navbar';
 import { useAuth } from '../context/AuthContext';
 import { subscribeToTemplates } from '../services/templateService';
+import { KpiGridSkeleton, TableSkeleton } from './Skeleton';
+import { Loader2 } from 'lucide-react';
 
 interface DashboardProps {
   onNavigate: (tab: NavigationTab) => void;
@@ -86,6 +88,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [claimToDeleteRecord, setClaimToDeleteRecord] = useState<ClaimRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [generatingPdfId, setGeneratingPdfId] = useState<string | null>(null);
 
   // Fetch claims from Firestore: strictly fetch relevant user's own claims for the Dashboard (for all users, including Admins)
   const fetchClaims = async () => {
@@ -248,6 +251,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   }, [submittedClaims]);
 
   const handleDownloadPdf = async (claim: ClaimRecord) => {
+    if (generatingPdfId) return;
+    setGeneratingPdfId(claim.id);
     try {
       const templateToUse = resolveTemplate(claim);
       const { url, filename } = await generateOvertimePdf(claim, templateToUse);
@@ -259,10 +264,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
       document.body.removeChild(a);
     } catch {
       // PDF download failed silently or retry
+    } finally {
+      setGeneratingPdfId(null);
     }
   };
 
   const handlePreview = async (claim: ClaimRecord) => {
+    if (generatingPdfId) return;
+    setGeneratingPdfId(claim.id);
     try {
       const templateToUse = resolveTemplate(claim);
       const { blob, url, filename } = await generateOvertimePdf(claim, templateToUse);
@@ -272,21 +281,27 @@ export const Dashboard: React.FC<DashboardProps> = ({
       setIsPreviewOpen(true);
     } catch {
       // preview error
+    } finally {
+      setGeneratingPdfId(null);
     }
   };
 
   const handlePrint = async (claim: ClaimRecord) => {
+    if (generatingPdfId) return;
+    setGeneratingPdfId(claim.id);
     try {
       const templateToUse = resolveTemplate(claim);
       const { url } = await generateOvertimePdf(claim, templateToUse);
       printPdfDocument(url);
     } catch {
       // print error
+    } finally {
+      setGeneratingPdfId(null);
     }
   };
 
   const confirmDeleteClaim = async () => {
-    if (!claimToDeleteRecord) return;
+    if (!claimToDeleteRecord || isDeleting) return;
     setIsDeleting(true);
     try {
       await deleteDoc(doc(db, 'claims', claimToDeleteRecord.id));
@@ -511,7 +526,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
       )}
 
       {/* Metric KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+      {loading ? (
+        <KpiGridSkeleton count={5} />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         {/* Total Overtime Hours */}
         <div className="rounded-2xl bg-white p-5 shadow-xs border border-slate-200">
           <div className="flex items-center justify-between">
@@ -621,6 +639,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
       </div>
+      )}
 
       {/* Recent Claims Section */}
       <div className="rounded-2xl bg-white shadow-xs border border-slate-200 overflow-hidden">
@@ -659,7 +678,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
 
         {loading ? (
-          <div className="p-12 text-center text-xs text-slate-400">Loading claims...</div>
+          <div className="p-4">
+            <TableSkeleton
+              rows={5}
+              cols={7}
+              colWidths={['w-24', 'w-24', 'w-20', 'w-16', 'w-20', 'w-20', 'w-24']}
+            />
+          </div>
         ) : submittedClaims.length === 0 ? (
           <div className="p-12 text-center">
             <FileText className="w-12 h-12 text-slate-300 mx-auto mb-3" />
@@ -766,35 +791,44 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       <div className="flex items-center justify-end gap-1">
                         <button
                           onClick={() => handlePreview(claim)}
-                          className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition"
+                          disabled={generatingPdfId !== null || isDeleting}
+                          className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
                           title="Preview A4 PDF"
                         >
-                          <FileText className="w-4 h-4" />
+                          {generatingPdfId === claim.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                          ) : (
+                            <FileText className="w-4 h-4" />
+                          )}
                         </button>
                         <button
                           onClick={() => handlePrint(claim)}
-                          className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition"
+                          disabled={generatingPdfId !== null || isDeleting}
+                          className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
                           title="Print Document"
                         >
                           <Printer className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handleDownloadPdf(claim)}
-                          className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition"
+                          disabled={generatingPdfId !== null || isDeleting}
+                          className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
                           title="Download PDF"
                         >
                           <Download className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => onEditClaim(claim)}
-                          className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"
+                          disabled={isDeleting}
+                          className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
                           title="Open & Edit Claim"
                         >
                           <ExternalLink className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => setClaimToDeleteRecord(claim)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                          disabled={isDeleting}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
                           title="Delete Claim"
                         >
                           <Trash2 className="w-4 h-4" />

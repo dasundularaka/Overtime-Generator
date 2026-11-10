@@ -30,6 +30,7 @@ import {
 } from '../utils/branchRoleManager';
 import { recordAuditLog } from '../utils/auditLogger';
 import { ConfirmationModal } from './ConfirmationModal';
+import { CardGridSkeleton } from './Skeleton';
 
 export const RoleManagement: React.FC = () => {
   const [roles, setRoles] = useState<RoleRate[]>([]);
@@ -117,6 +118,7 @@ export const RoleManagement: React.FC = () => {
 
   // 1-Click Fast Lock/Unlock from Role Card
   const handleToggleRoleLock = async (r: RoleRate) => {
+    if (isTogglingLock === r.id) return;
     setIsTogglingLock(r.id);
     const nextLockState = !r.isRatesLocked;
     try {
@@ -151,11 +153,20 @@ export const RoleManagement: React.FC = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSaving) return;
     setFormError(null);
 
     const cleanName = name.trim();
     if (!cleanName) {
       setFormError('Please enter a role title / designation.');
+      return;
+    }
+
+    const isDuplicate = roles.some(
+      r => r.id !== editingRole?.id && r.name.trim().toLowerCase() === cleanName.toLowerCase()
+    );
+    if (isDuplicate) {
+      setFormError(`A role named "${cleanName}" already exists.`);
       return;
     }
 
@@ -221,7 +232,7 @@ export const RoleManagement: React.FC = () => {
   };
 
   const confirmDeleteRole = async () => {
-    if (!roleToDelete) return;
+    if (!roleToDelete || isDeleting) return;
     setIsDeleting(true);
     try {
       await deleteRoleRate(roleToDelete.id);
@@ -308,7 +319,10 @@ export const RoleManagement: React.FC = () => {
       )}
 
       {/* Role Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {loading ? (
+        <CardGridSkeleton count={6} />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredRoles.map(role => (
           <div
             key={role.id}
@@ -454,6 +468,7 @@ export const RoleManagement: React.FC = () => {
           </div>
         ))}
       </div>
+      )}
 
       {filteredRoles.length === 0 && !loading && (
         <div className="p-12 text-center bg-white rounded-2xl border border-slate-200 shadow-xs">
@@ -702,8 +717,9 @@ export const RoleManagement: React.FC = () => {
         onConfirm={confirmDeleteRole}
         title="Delete Corporate Role"
         message={`Are you sure you want to remove role "${roleToDelete?.name}"? Employees assigned to this role will retain their current custom rates.`}
-        confirmText={isDeleting ? 'Deleting...' : 'Delete Role'}
+        confirmText="Delete Role"
         variant="danger"
+        isLoading={isDeleting}
       />
 
     </div>

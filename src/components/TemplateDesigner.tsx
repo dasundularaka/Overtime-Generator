@@ -281,6 +281,7 @@ export const TemplateDesigner: React.FC = () => {
 
   // Save current template to Cloud Firestore (with automatic local storage cache)
   const handleSaveToCloud = async (setAsDefaultOverride?: boolean) => {
+    if (isSaving) return;
     setIsSaving(true);
     setSaveErrorMsg(null);
     setSaveSuccessMsg(null);

@@ -40,6 +40,7 @@ import {
 } from '../utils/branchRoleManager';
 import { recordAuditLog } from '../utils/auditLogger';
 import { ConfirmationModal } from './ConfirmationModal';
+import { CardGridSkeleton } from './Skeleton';
 import { SearchableBranchSelect } from './SearchableBranchSelect';
 import { sanitizeFirestoreData } from '../utils/firestoreUtils';
 
@@ -79,7 +80,9 @@ export const EmployeeManager: React.FC = () => {
 
   // Delete Confirmation State
   const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
+  const [isDeletingEmployee, setIsDeletingEmployee] = useState(false);
   const [isConfirmSaveModalOpen, setIsConfirmSaveModalOpen] = useState(false);
+  const [isSavingEmployee, setIsSavingEmployee] = useState(false);
 
   // Fetch employees and users - strictly real Firestore database data
   const loadEmployeesAndUsers = async () => {
@@ -214,10 +217,22 @@ export const EmployeeManager: React.FC = () => {
     if (!name.trim()) {
       return;
     }
+    const cleanPf = formatPfNumber(employeeNumber.trim());
+    if (cleanPf) {
+      const isDuplicate = employees.some(
+        emp => emp.id !== editingEmployee?.id && (emp.employeeNumber || emp.pfNumber || '').toUpperCase() === cleanPf.toUpperCase()
+      );
+      if (isDuplicate) {
+        alert(`Employee / PF Number "${cleanPf}" is already assigned to another profile.`);
+        return;
+      }
+    }
     setIsConfirmSaveModalOpen(true);
   };
 
   const confirmCommitSaveEmployee = async () => {
+    if (isSavingEmployee) return;
+    setIsSavingEmployee(true);
     const cleanPf = formatPfNumber(employeeNumber.trim()) || ('PF' + String(Math.floor(100000 + Math.random() * 900000)));
     const isNew = !editingEmployee;
 
@@ -248,7 +263,7 @@ export const EmployeeManager: React.FC = () => {
       } : {}),
     };
 
-    const updated = saveEmployee(payload);
+    saveEmployee(payload);
     // Also update in list
     setEmployees(prev => {
       const idx = prev.findIndex(p => p.id === payload.id);
@@ -287,12 +302,14 @@ export const EmployeeManager: React.FC = () => {
       },
     });
 
+    setIsSavingEmployee(false);
     setIsConfirmSaveModalOpen(false);
     setIsModalOpen(false);
   };
 
   const confirmDeleteEmployee = async () => {
-    if (!employeeToDelete) return;
+    if (!employeeToDelete || isDeletingEmployee) return;
+    setIsDeletingEmployee(true);
     try {
       const cleanPf = formatPfNumber(employeeToDelete.employeeNumber || employeeToDelete.pfNumber || '');
 
@@ -335,6 +352,7 @@ export const EmployeeManager: React.FC = () => {
     } catch (err) {
       console.error('Failed to permanently delete employee', err);
     } finally {
+      setIsDeletingEmployee(false);
       setEmployeeToDelete(null);
     }
   };
@@ -503,7 +521,10 @@ export const EmployeeManager: React.FC = () => {
       </div>
 
       {/* Employees Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {loading ? (
+        <CardGridSkeleton count={6} />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filtered.map(emp => {
           const isDefault = settings.defaultEmployeeId === emp.id;
           const isUserAdmin = emp.role === 'admin';
@@ -650,6 +671,7 @@ export const EmployeeManager: React.FC = () => {
           );
         })}
       </div>
+      )}
 
       {filtered.length === 0 && !loading && (
         <div className="p-12 text-center bg-white rounded-2xl border border-slate-200">
@@ -929,6 +951,7 @@ export const EmployeeManager: React.FC = () => {
         title={editingEmployee ? 'Confirm Profile Update' : 'Confirm New Employee'}
         message={`Save particulars for "${name}"?`}
         confirmText="Confirm Save"
+        isLoading={isSavingEmployee}
       />
 
       {/* Delete Confirmation Modal */}
@@ -940,6 +963,7 @@ export const EmployeeManager: React.FC = () => {
         message={`Are you sure you want to delete profile for "${employeeToDelete?.name}"?`}
         confirmText="Delete"
         variant="danger"
+        isLoading={isDeletingEmployee}
       />
     </div>
   );

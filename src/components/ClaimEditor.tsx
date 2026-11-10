@@ -1948,6 +1948,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
   // Trigger confirmation dialog for Save / Submit Claim
   const handleSaveClaim = () => {
+    if (isSavingClaim) return;
     if (!validateForm()) return;
     if (!checkSundayOrHolidayReview('save')) return;
     setIsConfirmSaveClaimOpen(true);
@@ -1955,6 +1956,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
   // Commit Save Claim to Firestore after user confirmation
   const confirmCommitSaveClaim = async () => {
+    if (isSavingClaim) return;
     setIsSavingClaim(true);
     isSubmittedRef.current = true;
     const claim = buildClaimRecord('submitted');
@@ -3654,8 +3656,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           <button
             type="button"
             onClick={handlePreviewPdf}
-            disabled={isGeneratingPdf}
-            className="flex-1 sm:flex-none min-w-[100px] inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50"
+            disabled={isGeneratingPdf || isSavingClaim}
+            className="flex-1 sm:flex-none min-w-[100px] inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             title="Preview print-ready A4 Overtime Sheet"
           >
             <Eye className="w-4 h-4" />
@@ -3666,20 +3668,30 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           <button
             type="button"
             onClick={handleSaveClaim}
-            disabled={isGeneratingPdf}
-            className="flex-1 sm:flex-none min-w-[110px] inline-flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl border border-emerald-600 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50"
+            disabled={isGeneratingPdf || isSavingClaim}
+            className="flex-1 sm:flex-none min-w-[110px] inline-flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl border border-emerald-600 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             title="Finalize and submit overtime claim"
           >
-            <CheckCircle2 className="w-4 h-4 text-white" />
-            <span>{initialClaim && initialClaim.status !== 'draft' ? 'Update Claim' : 'Submit Claim'}</span>
+            {isSavingClaim ? (
+              <Loader2 className="w-4 h-4 text-white animate-spin" />
+            ) : (
+              <CheckCircle2 className="w-4 h-4 text-white" />
+            )}
+            <span>
+              {isSavingClaim
+                ? 'Submitting...'
+                : initialClaim && initialClaim.status !== 'draft'
+                ? 'Update Claim'
+                : 'Submit Claim'}
+            </span>
           </button>
 
           {/* 3. Download PDF Button */}
           <button
             type="button"
             onClick={handleInitiateDownload}
-            disabled={isGeneratingPdf}
-            className="flex-1 sm:flex-none min-w-[110px] inline-flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white text-xs font-bold shadow-md hover:shadow-lg transition cursor-pointer disabled:opacity-50"
+            disabled={isGeneratingPdf || isSavingClaim}
+            className="flex-1 sm:flex-none min-w-[110px] inline-flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white text-xs font-bold shadow-md hover:shadow-lg transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             title="Download official PDF sheet & save claim"
           >
             <Download className="w-4 h-4" />

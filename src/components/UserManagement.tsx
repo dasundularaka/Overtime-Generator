@@ -33,6 +33,7 @@ import { useAuth } from '../context/AuthContext';
 import { fetchTemplatesFromFirestore, subscribeToTemplates } from '../services/templateService';
 import { DEFAULT_TEMPLATE, BUILTIN_TEMPLATES } from '../utils/defaultTemplate';
 import { ConfirmationModal } from './ConfirmationModal';
+import { TableSkeleton, MobileCardListSkeleton } from './Skeleton';
 import { SearchableBranchSelect } from './SearchableBranchSelect';
 import { sanitizeFirestoreData } from '../utils/firestoreUtils';
 import { adminChangeUserPassword, adminSendUserPasswordResetEmail, adminCreateUserInAuth } from '../utils/adminAuthHelper';
@@ -307,6 +308,7 @@ export const UserManagement: React.FC = () => {
 
   // 1-Click Fast Lock/Unlock from Employee Table Row
   const handleToggleUserLock = async (u: UserProfile) => {
+    if (isTogglingUserLock === u.id) return;
     setIsTogglingUserLock(u.id);
     const nextState = !u.isRatesLocked;
     try {
@@ -372,6 +374,27 @@ export const UserManagement: React.FC = () => {
       return;
     }
 
+    // Check for duplicate PF Number among other staff
+    const isDuplicatePf = users.some(
+      u => u.id !== editingUser?.id && formatPfNumber(u.employeeNumber || u.pfNumber || '').toUpperCase() === cleanPf.toUpperCase()
+    );
+    if (isDuplicatePf) {
+      setFormError(`PF Number "${cleanPf}" is already assigned to another staff member.`);
+      return;
+    }
+
+    // Check for duplicate email among other staff
+    if (email && email.trim()) {
+      const cleanEmail = email.trim().toLowerCase();
+      const isDuplicateEmail = users.some(
+        u => u.id !== editingUser?.id && (u.email || '').trim().toLowerCase() === cleanEmail
+      );
+      if (isDuplicateEmail) {
+        setFormError(`Email address "${cleanEmail}" is already registered to another staff member.`);
+        return;
+      }
+    }
+
     if (!isSuperAdmin && (editingUser?.role === 'super_admin' || editingUser?.email?.toLowerCase() === 'dasundularaka@gmail.com')) {
       setFormError('Admins cannot edit Super Admin accounts.');
       return;
@@ -387,6 +410,7 @@ export const UserManagement: React.FC = () => {
   };
 
   const confirmCommitSaveUser = async () => {
+    if (isSavingUser) return;
     setIsSavingUser(true);
     setFormError(null);
 
@@ -1043,7 +1067,18 @@ export const UserManagement: React.FC = () => {
       {/* Users Table */}
       <div className="rounded-2xl bg-white shadow-xs border border-slate-200 overflow-hidden">
         {loading ? (
-          <div className="p-12 text-center text-xs text-slate-400">Loading user profiles...</div>
+          <div className="p-4 space-y-4">
+            <div className="hidden md:block">
+              <TableSkeleton
+                rows={6}
+                cols={7}
+                colWidths={['w-36', 'w-24', 'w-28', 'w-20', 'w-16', 'w-24', 'w-28']}
+              />
+            </div>
+            <div className="md:hidden">
+              <MobileCardListSkeleton count={4} />
+            </div>
+          </div>
         ) : filteredUsers.length === 0 ? (
           <div className="p-12 text-center">
             <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />

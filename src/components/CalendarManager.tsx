@@ -27,7 +27,9 @@ import {
   Check,
   Share2,
   BookOpen,
+  Loader2,
 } from 'lucide-react';
+import { CalendarGridSkeleton } from './Skeleton';
 import {
   subscribeToHolidays,
   saveHoliday,
@@ -130,12 +132,23 @@ export const CalendarManager: React.FC<CalendarManagerProps> = ({ onNavigateToNe
 
   const handleSaveHoliday = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (!canEditCalendar) {
       setActionError('Only Super Admin can modify the calendar.');
       return;
     }
     if (!formDate || !formName.trim()) {
       setActionError('Please provide both holiday date and name.');
+      return;
+    }
+
+    // Duplicate holiday validation: prevent identical holiday on the same date
+    const cleanName = formName.trim().toLowerCase();
+    const isDuplicate = holidays.some(
+      h => h.id !== editingHoliday?.id && h.date === formDate && h.name.trim().toLowerCase() === cleanName
+    );
+    if (isDuplicate) {
+      setActionError(`A holiday named "${formName.trim()}" on ${formDate} already exists.`);
       return;
     }
 
@@ -175,7 +188,7 @@ export const CalendarManager: React.FC<CalendarManagerProps> = ({ onNavigateToNe
   };
 
   const handleConfirmDelete = async () => {
-    if (!canEditCalendar || !holidayToDelete) return;
+    if (!canEditCalendar || !holidayToDelete || isDeleting) return;
     setIsDeleting(true);
     try {
       await deleteHoliday(holidayToDelete.id);
@@ -201,7 +214,7 @@ export const CalendarManager: React.FC<CalendarManagerProps> = ({ onNavigateToNe
   };
 
   const handleConfirmSeed = async () => {
-    if (!canEditCalendar) return;
+    if (!canEditCalendar || isSeeding) return;
     setIsSeeding(true);
     try {
       const count = await seedStandardHolidays();
@@ -610,17 +623,21 @@ export const CalendarManager: React.FC<CalendarManagerProps> = ({ onNavigateToNe
 
       {/* Spacious, Full-Width Monthly Calendar Grid */}
       <div className="rounded-2xl bg-white p-5 sm:p-6 shadow-xs border border-slate-200">
-        <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
-          <div className="flex items-center gap-2">
-            <CalendarCheck className="w-4 h-4 text-indigo-600" />
-            <h2 className="text-sm font-bold text-slate-900">
-              {MONTH_NAMES[selectedMonth]} {selectedYear} &bull; Monthly Schedule
-            </h2>
-          </div>
-          <span className="text-xs text-slate-400 font-medium">
-            Click any day to inspect details or claim overtime
-          </span>
-        </div>
+        {loading ? (
+          <CalendarGridSkeleton />
+        ) : (
+          <>
+            <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <CalendarCheck className="w-4 h-4 text-indigo-600" />
+                <h2 className="text-sm font-bold text-slate-900">
+                  {MONTH_NAMES[selectedMonth]} {selectedYear} &bull; Monthly Schedule
+                </h2>
+              </div>
+              <span className="text-xs text-slate-400 font-medium">
+                Click any day to inspect details or claim overtime
+              </span>
+            </div>
 
         {/* Day of Week Headers */}
         <div className="grid grid-cols-7 gap-1.5 sm:gap-2 text-center font-bold text-xs mb-2">
@@ -726,6 +743,8 @@ export const CalendarManager: React.FC<CalendarManagerProps> = ({ onNavigateToNe
             );
           })}
         </div>
+          </>
+        )}
       </div>
 
       {/* Clean Monthly Holidays Overview Section */}

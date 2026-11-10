@@ -36,7 +36,8 @@ import { useAuth } from '../context/AuthContext';
 import { subscribeToTemplates } from '../services/templateService';
 import { subscribeToBranches } from '../utils/branchRoleManager';
 import { SearchableBranchSelect } from './SearchableBranchSelect';
-import { Banknote, CheckCircle2, ChevronRight, ChevronDown, X, ExternalLink, User, Building2, Hash, Layers } from 'lucide-react';
+import { Banknote, CheckCircle2, ChevronRight, ChevronDown, X, ExternalLink, User, Building2, Hash, Layers, Loader2 } from 'lucide-react';
+import { TableSkeleton, MobileCardListSkeleton } from './Skeleton';
 
 interface ClaimHistoryProps {
   onEditClaim: (claim: ClaimRecord) => void;
@@ -102,6 +103,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
   const [isDeleting, setIsDeleting] = useState(false);
   const [claimToDuplicate, setClaimToDuplicate] = useState<ClaimRecord | null>(null);
   const [isDuplicating, setIsDuplicating] = useState(false);
+  const [generatingPdfId, setGeneratingPdfId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Bulk Selection State
@@ -221,6 +223,8 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
   }, [currentUser, userProfile, isAdmin, isSuperAdmin]);
 
   const handlePreviewPdf = async (claim: ClaimRecord) => {
+    if (generatingPdfId) return;
+    setGeneratingPdfId(claim.id);
     try {
       const templateToUse = resolveTemplate(claim);
       const { blob, url, filename } = await generateOvertimePdf(claim, templateToUse);
@@ -231,10 +235,14 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
     } catch (err: any) {
       setToastMessage('Failed to generate preview PDF: ' + err.message);
       setTimeout(() => setToastMessage(null), 4000);
+    } finally {
+      setGeneratingPdfId(null);
     }
   };
 
   const handleDownloadPdf = async (claim: ClaimRecord) => {
+    if (generatingPdfId) return;
+    setGeneratingPdfId(claim.id);
     try {
       const templateToUse = resolveTemplate(claim);
       const { url, filename } = await generateOvertimePdf(claim, templateToUse);
@@ -247,10 +255,14 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
     } catch (err: any) {
       setToastMessage('Failed to download PDF: ' + err.message);
       setTimeout(() => setToastMessage(null), 4000);
+    } finally {
+      setGeneratingPdfId(null);
     }
   };
 
   const handlePrint = async (claim: ClaimRecord) => {
+    if (generatingPdfId) return;
+    setGeneratingPdfId(claim.id);
     try {
       const templateToUse = resolveTemplate(claim);
       const { url } = await generateOvertimePdf(claim, templateToUse);
@@ -258,15 +270,18 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
     } catch (err: any) {
       setToastMessage('Failed to print document: ' + err.message);
       setTimeout(() => setToastMessage(null), 4000);
+    } finally {
+      setGeneratingPdfId(null);
     }
   };
 
   const handleDuplicate = (claim: ClaimRecord) => {
+    if (isDuplicating) return;
     setClaimToDuplicate(claim);
   };
 
   const confirmCommitDuplicate = async () => {
-    if (!claimToDuplicate) return;
+    if (!claimToDuplicate || isDuplicating) return;
     setIsDuplicating(true);
     const newId = 'clm_' + Date.now();
     const duplicated: ClaimRecord = {
@@ -1079,9 +1094,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
         </div>
 
         {loading ? (
-          <div className="p-8 text-center text-xs text-slate-400 bg-white rounded-2xl border border-slate-200 shadow-2xs">
-            Loading claims...
-          </div>
+          <MobileCardListSkeleton count={5} />
         ) : filtered.length === 0 ? (
           <div className="p-8 text-center bg-white rounded-2xl border border-slate-200 shadow-2xs">
             <History className="w-10 h-10 text-slate-300 mx-auto mb-2" />
@@ -1186,7 +1199,14 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
       {/* ======================================================== */}
       <div className="hidden md:block rounded-2xl bg-white shadow-xs border border-slate-200 overflow-hidden">
         {loading ? (
-          <div className="p-12 text-center text-xs text-slate-400">Loading claims...</div>
+          <div className="p-4">
+            <TableSkeleton
+              rows={7}
+              cols={10}
+              showCheckbox={true}
+              colWidths={['w-24', 'w-32', 'w-20', 'w-16', 'w-14', 'w-12', 'w-20', 'w-24', 'w-20', 'w-28']}
+            />
+          </div>
         ) : filtered.length === 0 ? (
           <div className="p-12 text-center">
             <History className="w-12 h-12 text-slate-300 mx-auto mb-3" />
@@ -1359,28 +1379,36 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
 
                         <button
                           onClick={() => setViewingClaim(claim)}
-                          className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition"
+                          disabled={isDuplicating || isDeleting}
+                          className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
                           title="View Timesheet"
                         >
                           <Eye className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handlePreviewPdf(claim)}
-                          className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition"
+                          disabled={generatingPdfId !== null || isDuplicating || isDeleting}
+                          className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
                           title="Preview Official A4 PDF"
                         >
-                          <FileText className="w-4 h-4" />
+                          {generatingPdfId === claim.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                          ) : (
+                            <FileText className="w-4 h-4" />
+                          )}
                         </button>
                         <button
                           onClick={() => handlePrint(claim)}
-                          className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition"
+                          disabled={generatingPdfId !== null || isDuplicating || isDeleting}
+                          className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
                           title="Print Document"
                         >
                           <Printer className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handleDownloadPdf(claim)}
-                          className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition"
+                          disabled={generatingPdfId !== null || isDuplicating || isDeleting}
+                          className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
                           title="Download PDF"
                         >
                           <Download className="w-4 h-4" />
@@ -1388,7 +1416,8 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                         {!isDraft && (
                           <button
                             onClick={() => onEditClaim(claim)}
-                            className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"
+                            disabled={isDuplicating || isDeleting}
+                            className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
                             title="Edit Claim"
                           >
                             <Edit className="w-4 h-4" />
@@ -1396,14 +1425,16 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                         )}
                         <button
                           onClick={() => handleDuplicate(claim)}
-                          className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-slate-100 rounded-lg transition"
+                          disabled={isDuplicating || isDeleting}
+                          className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-slate-100 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
                           title="Duplicate Claim"
                         >
                           <Copy className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => setClaimToDelete(claim)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                          disabled={isDuplicating || isDeleting}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
                           title={isDraft ? "Discard Draft" : "Delete Claim"}
                         >
                           <Trash2 className="w-4 h-4" />

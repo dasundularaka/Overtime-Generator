@@ -39,6 +39,7 @@ import {
 import { AuditLogEntry, AuditActionType, AuditFieldDiff } from '../types';
 import { fetchAuditLogs, exportAuditLogsToCsv, extractDiffFromLog } from '../utils/auditLogger';
 import { useAuth } from '../context/AuthContext';
+import { TableSkeleton } from './Skeleton';
 
 export const AuditLogViewer: React.FC = () => {
   const { userProfile, isSuperAdmin } = useAuth();
@@ -476,9 +477,12 @@ export const AuditLogViewer: React.FC = () => {
 
       {/* Main Ledger Display */}
       {loading ? (
-        <div className="rounded-2xl bg-white p-12 text-center shadow-xs border border-slate-200">
-          <RefreshCw className="w-8 h-8 text-indigo-600 animate-spin mx-auto mb-3" />
-          <p className="text-xs font-semibold text-slate-600">Retrieving system audit logs...</p>
+        <div className="rounded-2xl bg-white p-4 shadow-xs border border-slate-200">
+          <TableSkeleton
+            rows={8}
+            cols={6}
+            colWidths={['w-24', 'w-32', 'w-36', 'w-24', 'w-20', 'w-16']}
+          />
         </div>
       ) : filteredLogs.length === 0 ? (
         <div className="rounded-2xl bg-white p-12 text-center shadow-xs border border-slate-200">
