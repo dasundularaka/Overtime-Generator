@@ -451,158 +451,85 @@ export const CalendarManager: React.FC<CalendarManagerProps> = ({ onNavigateToNe
 
   return (
     <div className="space-y-6 pb-20">
-      {/* Top Header Card */}
+      {/* Top Header & Navigation Card */}
       <div className="rounded-2xl bg-white p-5 sm:p-6 shadow-xs border border-slate-200">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-slate-100">
           <div>
             <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-linear-to-br from-indigo-500 to-purple-600 text-white shadow-xs">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-xs">
                 <CalendarIcon className="w-6 h-6" />
               </div>
               <div>
-                <div className="flex items-center gap-2">
-                  <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-                    Integrated Calendar &amp; Holidays
-                  </h1>
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-purple-50 text-purple-700 text-[10px] font-bold border border-purple-200">
-                    <Sparkles className="w-3 h-3 text-purple-500" />
-                    <span>Sri Lanka Sync</span>
-                  </span>
-                </div>
+                <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+                  Calendar &amp; Holidays
+                </h1>
                 <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-                  Official statutory holidays, banking holidays &amp; monthly overtime schedule. Integrated with Google Calendar &amp; iCal.
+                  Official statutory holidays, banking holidays &amp; monthly overtime schedule.
                 </p>
               </div>
             </div>
           </div>
 
-          {/* Action Toolbar */}
+          {/* Month / Year Navigator & Admin Action Buttons */}
           <div className="flex flex-wrap items-center gap-2">
-            {/* View Mode Switcher */}
-            <div className="inline-flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600">
+            {/* Month & Year Navigator */}
+            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl p-1">
               <button
                 type="button"
-                onClick={() => setViewMode('grid')}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${
-                  viewMode === 'grid'
-                    ? 'bg-white text-indigo-700 font-bold shadow-2xs'
-                    : 'hover:text-slate-900'
-                }`}
+                onClick={() => {
+                  if (selectedMonth === 0) {
+                    setSelectedMonth(11);
+                    setSelectedYear((y) => y - 1);
+                  } else {
+                    setSelectedMonth((m) => m - 1);
+                  }
+                }}
+                className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-700 transition cursor-pointer"
+                title="Previous Month"
               >
-                <CalendarDays className="w-3.5 h-3.5" />
-                <span>Month Grid</span>
+                <ChevronLeft className="w-4 h-4" />
               </button>
+
+              <span className="px-3 text-xs sm:text-sm font-bold text-slate-900 min-w-[130px] sm:min-w-[150px] text-center">
+                {MONTH_NAMES[selectedMonth]} {selectedYear}
+              </span>
+
               <button
                 type="button"
-                onClick={() => setViewMode('agenda')}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${
-                  viewMode === 'agenda'
-                    ? 'bg-white text-indigo-700 font-bold shadow-2xs'
-                    : 'hover:text-slate-900'
-                }`}
+                onClick={() => {
+                  if (selectedMonth === 11) {
+                    setSelectedMonth(0);
+                    setSelectedYear((y) => y + 1);
+                  } else {
+                    setSelectedMonth((m) => m + 1);
+                  }
+                }}
+                className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-700 transition cursor-pointer"
+                title="Next Month"
               >
-                <ListFilter className="w-3.5 h-3.5" />
-                <span>Agenda ({monthHolidays.length})</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('rules')}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${
-                  viewMode === 'rules'
-                    ? 'bg-white text-indigo-700 font-bold shadow-2xs'
-                    : 'hover:text-slate-900'
-                }`}
-              >
-                <BookOpen className="w-3.5 h-3.5" />
-                <span>OT Rules</span>
+                <ChevronRight className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Calendar Integration & Export Dropdown */}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setIsExportMenuOpen((prev) => !prev)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold border border-slate-300 transition cursor-pointer shadow-2xs"
-                title="Integrate with Google Calendar, Outlook, or Apple Calendar"
-              >
-                <Download className="w-3.5 h-3.5 text-slate-600" />
-                <span>Calendar Export</span>
-              </button>
+            <button
+              type="button"
+              onClick={handleJumpToToday}
+              className="px-3 py-2 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition cursor-pointer"
+              title="Jump to Today"
+            >
+              Today
+            </button>
 
-              {isExportMenuOpen && (
-                <div className="absolute right-0 mt-2 w-64 rounded-2xl bg-white shadow-xl border border-slate-200 p-2 z-30 animate-scale-in">
-                  <div className="px-3 py-2 border-b border-slate-100 mb-1">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
-                      Calendar Integrations
-                    </span>
-                    <span className="text-xs text-slate-600">
-                      Sync to Google, Apple &amp; Outlook
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleExportMonthIcs}
-                    className="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 transition flex items-center justify-between"
-                  >
-                    <span>Download Month (.ics)</span>
-                    <Download className="w-3.5 h-3.5 text-indigo-600" />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleExportYearIcs}
-                    className="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 transition flex items-center justify-between"
-                  >
-                    <span>Download Full Year {selectedYear} (.ics)</span>
-                    <Download className="w-3.5 h-3.5 text-indigo-600" />
-                  </button>
-
-                  <div className="border-t border-slate-100 my-1" />
-
-                  <button
-                    type="button"
-                    onClick={handlePrintCalendar}
-                    className="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition flex items-center justify-between"
-                  >
-                    <span>Print Official Month Notice</span>
-                    <Printer className="w-3.5 h-3.5 text-slate-500" />
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Admin Management Buttons */}
             {canEditCalendar && (
               <>
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  accept=".csv,.json"
-                  onChange={handleFileImport}
-                  className="hidden"
-                />
-
                 <button
                   type="button"
                   onClick={() => setIsSeedModalOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-bold border border-purple-200 transition cursor-pointer"
-                  title="Import Standard Annual Public & Bank Holidays"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-bold border border-purple-200 transition cursor-pointer"
+                  title="Import 2026 Public & Bank Holidays"
                 >
                   <Sparkles className="w-3.5 h-3.5 text-purple-600" />
-                  <span className="hidden sm:inline">Import Standard</span>
-                </button>
-
-                <button
-                  type="button"
-                  disabled={isImportingFile}
-                  onClick={() => fileInputRef.current?.click()}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold border border-slate-300 transition cursor-pointer disabled:opacity-60"
-                  title="Import Holidays from CSV or JSON file"
-                >
-                  <Upload className="w-3.5 h-3.5 text-slate-600" />
-                  <span className="hidden sm:inline">{isImportingFile ? 'Importing...' : 'Import File'}</span>
+                  <span>Import 2026</span>
                 </button>
 
                 <button
@@ -618,187 +545,55 @@ export const CalendarManager: React.FC<CalendarManagerProps> = ({ onNavigateToNe
           </div>
         </div>
 
-        {/* Executive Stats Bar (4 Metric Cards) */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-5">
-          {/* 1. Public & Poya Holidays */}
-          <div className="rounded-xl border border-purple-100 bg-purple-50/50 p-3.5">
-            <div className="flex items-center justify-between text-purple-700">
-              <span className="text-[11px] font-bold uppercase tracking-wider">Public &amp; Poya</span>
-              <Star className="w-4 h-4 text-purple-600" />
-            </div>
-            <div className="mt-1 flex items-baseline gap-2">
-              <span className="text-2xl font-black font-mono text-purple-950">
-                {calendarDays.publicHolidayCount}
-              </span>
-              <span className="text-[11px] text-purple-700 font-medium">days this month</span>
-            </div>
-            <span className="text-[10px] text-purple-600 block mt-0.5">All staff entitled full day off</span>
+        {/* Legend Bar & Category Filters */}
+        <div className="pt-4 flex flex-wrap items-center justify-between gap-3 text-xs">
+          {/* Visual Legend */}
+          <div className="flex flex-wrap items-center gap-3 text-[11px] font-semibold text-slate-600">
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-purple-600 inline-block" />
+              <span>Public / Poya Day</span>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block" />
+              <span>Bank Holiday</span>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-sky-500 inline-block" />
+              <span>Mercantile / Special</span>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block" />
+              <span>Sunday (Weekly Off)</span>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-600 inline-block" />
+              <span>Saturday Duty</span>
+            </span>
           </div>
 
-          {/* 2. Bank & Mercantile */}
-          <div className="rounded-xl border border-amber-100 bg-amber-50/50 p-3.5">
-            <div className="flex items-center justify-between text-amber-800">
-              <span className="text-[11px] font-bold uppercase tracking-wider">Bank &amp; Mercantile</span>
-              <Landmark className="w-4 h-4 text-amber-600" />
-            </div>
-            <div className="mt-1 flex items-baseline gap-2">
-              <span className="text-2xl font-black font-mono text-amber-950">
-                {calendarDays.bankHolidayCount}
-              </span>
-              <span className="text-[11px] text-amber-700 font-medium">days this month</span>
-            </div>
-            <span className="text-[10px] text-amber-600 block mt-0.5">Statutory bank holiday rules</span>
-          </div>
-
-          {/* 3. Official Working Days */}
-          <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3.5">
-            <div className="flex items-center justify-between text-emerald-800">
-              <span className="text-[11px] font-bold uppercase tracking-wider">Working Days</span>
-              <Building2 className="w-4 h-4 text-emerald-600" />
-            </div>
-            <div className="mt-1 flex items-baseline gap-2">
-              <span className="text-2xl font-black font-mono text-emerald-950">
-                {calendarDays.workingDaysCount}
-              </span>
-              <span className="text-[11px] text-emerald-700 font-medium">open days</span>
-            </div>
-            <span className="text-[10px] text-emerald-600 block mt-0.5">Standard 08:00 - 16:45 shifts</span>
-          </div>
-
-          {/* 4. Overtime Potential Days */}
-          <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-3.5">
-            <div className="flex items-center justify-between text-indigo-800">
-              <span className="text-[11px] font-bold uppercase tracking-wider">Non-Working / OT Days</span>
-              <Clock className="w-4 h-4 text-indigo-600" />
-            </div>
-            <div className="mt-1 flex items-baseline gap-2">
-              <span className="text-2xl font-black font-mono text-indigo-950">
-                {calendarDays.totalDays - calendarDays.workingDaysCount}
-              </span>
-              <span className="text-[11px] text-indigo-700 font-medium">Saturdays, Suns &amp; Hols</span>
-            </div>
-            <span className="text-[10px] text-indigo-600 block mt-0.5">Day's Pay + (OT hours) eligible</span>
+          {/* Search holidays input */}
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search holidays..."
+              className="pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 text-xs text-slate-800 placeholder-slate-400 bg-white focus:outline-hidden focus:border-indigo-400 w-44 sm:w-56"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 text-xs"
+              >
+                &times;
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Month Selector & Filter Controls Bar */}
-        <div className="mt-5 pt-4 border-t border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
-          {/* Month / Year Switcher */}
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                if (selectedMonth === 0) {
-                  setSelectedMonth(11);
-                  setSelectedYear((y) => y - 1);
-                } else {
-                  setSelectedMonth((m) => m - 1);
-                }
-              }}
-              className="p-2 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 transition cursor-pointer"
-              title="Previous Month"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-
-            <div className="px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-center min-w-[170px]">
-              <span className="text-sm font-bold text-slate-900 block leading-tight">
-                {MONTH_NAMES[selectedMonth]} {selectedYear}
-              </span>
-              <span className="text-[10px] text-slate-400 font-medium block">
-                {calendarDays.totalDays} Total Calendar Days
-              </span>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                if (selectedMonth === 11) {
-                  setSelectedMonth(0);
-                  setSelectedYear((y) => y + 1);
-                } else {
-                  setSelectedMonth((m) => m + 1);
-                }
-              }}
-              className="p-2 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 transition cursor-pointer"
-              title="Next Month"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-
-            <button
-              type="button"
-              onClick={handleJumpToToday}
-              className="px-3 py-2 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition cursor-pointer"
-              title="Jump to Today"
-            >
-              Today
-            </button>
-          </div>
-
-          {/* Search & Category Filter */}
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Search Input */}
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search holidays..."
-                className="pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 text-xs text-slate-800 placeholder-slate-400 bg-white focus:outline-none focus:border-indigo-400 w-44 sm:w-56"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 text-xs"
-                >
-                  &times;
-                </button>
-              )}
-            </div>
-
-            {/* Category Pills */}
-            <div className="flex items-center gap-1 text-[11px] font-bold">
-              <button
-                type="button"
-                onClick={() => setSelectedCategory('all')}
-                className={`px-2.5 py-1.5 rounded-lg transition cursor-pointer ${
-                  selectedCategory === 'all'
-                    ? 'bg-slate-900 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                All
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedCategory('public')}
-                className={`px-2.5 py-1.5 rounded-lg transition cursor-pointer ${
-                  selectedCategory === 'public'
-                    ? 'bg-purple-600 text-white'
-                    : 'bg-purple-50 text-purple-700 hover:bg-purple-100'
-                }`}
-              >
-                Public / Poya
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedCategory('bank')}
-                className={`px-2.5 py-1.5 rounded-lg transition cursor-pointer ${
-                  selectedCategory === 'bank'
-                    ? 'bg-amber-600 text-white'
-                    : 'bg-amber-50 text-amber-800 hover:bg-amber-100'
-                }`}
-              >
-                Bank
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Notifications */}
+        {/* Action feedback banners */}
         {actionSuccess && (
           <div className="mt-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center gap-2 animate-fade-in">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -813,322 +608,190 @@ export const CalendarManager: React.FC<CalendarManagerProps> = ({ onNavigateToNe
         )}
       </div>
 
-      {/* Main Content Area: Tab Views */}
-      {viewMode === 'grid' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Monthly Calendar View (2 Cols) */}
-          <div className="lg:col-span-2 rounded-2xl bg-white p-5 shadow-xs border border-slate-200">
-            <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
-              <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                <CalendarCheck className="w-4 h-4 text-indigo-600" />
-                <span>
-                  {MONTH_NAMES[selectedMonth]} {selectedYear} &bull; Overtime &amp; Holiday Matrix
-                </span>
-              </h2>
-              <span className="text-xs text-slate-400 font-medium hidden sm:inline">
-                Click any day for details &amp; Google Calendar sync
-              </span>
+      {/* Spacious, Full-Width Monthly Calendar Grid */}
+      <div className="rounded-2xl bg-white p-5 sm:p-6 shadow-xs border border-slate-200">
+        <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <CalendarCheck className="w-4 h-4 text-indigo-600" />
+            <h2 className="text-sm font-bold text-slate-900">
+              {MONTH_NAMES[selectedMonth]} {selectedYear} &bull; Monthly Schedule
+            </h2>
+          </div>
+          <span className="text-xs text-slate-400 font-medium">
+            Click any day to inspect details or claim overtime
+          </span>
+        </div>
+
+        {/* Day of Week Headers */}
+        <div className="grid grid-cols-7 gap-1.5 sm:gap-2 text-center font-bold text-xs mb-2">
+          {DAYS_SHORT.map((day, idx) => (
+            <div
+              key={day}
+              className={`py-2 rounded-xl text-center font-bold ${
+                idx === 0
+                  ? 'text-rose-600 bg-rose-50/70'
+                  : idx === 6
+                  ? 'text-amber-800 bg-amber-50/70'
+                  : 'bg-slate-50 text-slate-700'
+              }`}
+            >
+              {day}
             </div>
+          ))}
+        </div>
 
-            {/* Day of Week Headers */}
-            <div className="grid grid-cols-7 gap-1.5 text-center font-bold text-[11px] text-slate-500 mb-2">
-              {DAYS_SHORT.map((day, idx) => (
-                <div
-                  key={day}
-                  className={`py-2 rounded-xl text-center font-bold ${
-                    idx === 0
-                      ? 'text-rose-600 bg-rose-50/80'
-                      : idx === 6
-                      ? 'text-amber-800 bg-amber-50/80'
-                      : 'bg-slate-50 text-slate-700'
-                  }`}
-                >
-                  {day}
-                </div>
-              ))}
-            </div>
+        {/* Calendar Day Cells */}
+        <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
+          {/* Blank offset cells */}
+          {Array.from({ length: calendarDays.firstDayIndex }).map((_, i) => (
+            <div
+              key={`blank-${i}`}
+              className="min-h-[75px] sm:min-h-[105px] bg-slate-50/20 rounded-xl border border-dashed border-slate-200/70"
+            />
+          ))}
 
-            {/* Calendar Day Cells */}
-            <div className="grid grid-cols-7 gap-1.5">
-              {/* Blank cells for offset */}
-              {Array.from({ length: calendarDays.firstDayIndex }).map((_, i) => (
-                <div
-                  key={`blank-${i}`}
-                  className="min-h-[64px] sm:min-h-[82px] bg-slate-50/30 rounded-xl border border-dashed border-slate-200"
-                />
-              ))}
+          {/* Actual day cells */}
+          {calendarDays.days.map((item) => {
+            const isToday =
+              now.getFullYear() === selectedYear &&
+              now.getMonth() === selectedMonth &&
+              now.getDate() === item.dayNum;
 
-              {/* Actual day cells */}
-              {calendarDays.days.map((item) => {
-                const isToday =
-                  now.getFullYear() === selectedYear &&
-                  now.getMonth() === selectedMonth &&
-                  now.getDate() === item.dayNum;
+            const isHol = !!item.holiday;
+            const isSun = item.isSunday;
+            const isSat = item.isSaturday;
 
-                const isHol = !!item.holiday;
-                const isSun = item.isSunday;
-                const isSat = item.isSaturday;
-
-                return (
-                  <div
-                    key={item.dateStr}
-                    onClick={() => setInspectedDateStr(item.dateStr)}
-                    className={`min-h-[64px] sm:min-h-[82px] p-1.5 sm:p-2 rounded-xl border flex flex-col justify-between transition cursor-pointer group relative ${
+            return (
+              <div
+                key={item.dateStr}
+                onClick={() => setInspectedDateStr(item.dateStr)}
+                className={`min-h-[75px] sm:min-h-[105px] p-2 rounded-xl border flex flex-col justify-between transition cursor-pointer group relative ${
+                  isToday
+                    ? 'ring-2 ring-indigo-500 ring-offset-1 border-indigo-400 bg-indigo-50/40'
+                    : isHol
+                    ? 'bg-purple-50/70 border-purple-200 hover:bg-purple-100/70 text-purple-950 shadow-2xs'
+                    : isSun
+                    ? 'bg-rose-50/40 border-rose-200/60 hover:bg-rose-50/80 text-rose-950'
+                    : isSat
+                    ? 'bg-amber-50/30 border-amber-200/60 hover:bg-amber-50/70 text-amber-950'
+                    : 'bg-white border-slate-200 hover:border-indigo-300 hover:shadow-2xs'
+                }`}
+              >
+                {/* Header row in cell: Day number & dot indicators */}
+                <div className="flex items-center justify-between">
+                  <span
+                    className={`text-xs sm:text-sm font-bold ${
                       isToday
-                        ? 'ring-2 ring-indigo-500 ring-offset-1 border-indigo-300 bg-indigo-50/30'
-                        : isHol
-                        ? 'bg-purple-50/80 border-purple-200 hover:bg-purple-100/70 text-purple-950 shadow-2xs'
+                        ? 'w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-xs'
                         : isSun
-                        ? 'bg-rose-50/60 border-rose-200 hover:bg-rose-100/60 text-rose-950'
+                        ? 'text-rose-600'
                         : isSat
-                        ? 'bg-amber-50/50 border-amber-200 hover:bg-amber-100/50 text-amber-950'
-                        : 'bg-white border-slate-200 hover:border-indigo-300 hover:shadow-2xs'
+                        ? 'text-amber-800'
+                        : isHol
+                        ? 'text-purple-700'
+                        : 'text-slate-800'
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <span
-                        className={`text-xs font-bold ${
-                          isToday
-                            ? 'w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-xs'
-                            : isSun
-                            ? 'text-rose-600'
-                            : isSat
-                            ? 'text-amber-800'
-                            : isHol
-                            ? 'text-purple-700'
-                            : 'text-slate-800'
-                        }`}
-                      >
-                        {item.dayNum}
-                      </span>
+                    {item.dayNum}
+                  </span>
 
-                      {/* Indicator dots */}
-                      <div className="flex items-center gap-1">
-                        {isHol && (
-                          <span
-                            className="w-2 h-2 rounded-full bg-purple-600 shrink-0"
-                            title={item.holiday?.name}
-                          />
-                        )}
-                        {isSat && !isHol && (
-                          <span
-                            className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"
-                            title="Saturday Half-Day / OT eligible"
-                          />
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Day Content Badges */}
-                    {item.holiday ? (
-                      <div className="mt-1">
-                        <span className="block text-[9px] sm:text-[10px] font-bold leading-tight line-clamp-2 text-purple-900 bg-purple-100/90 px-1 py-0.5 rounded border border-purple-200">
-                          {item.holiday.name}
-                        </span>
-                      </div>
-                    ) : isSun ? (
-                      <div className="mt-1">
-                        <span className="block text-[9px] font-bold text-rose-600 bg-rose-100/60 px-1 py-0.5 rounded border border-rose-200/60 text-center">
-                          Sunday Off
-                        </span>
-                      </div>
-                    ) : isSat ? (
-                      <div className="mt-1">
-                        <span className="block text-[9px] font-medium text-amber-800 bg-amber-100/60 px-1 py-0.5 rounded border border-amber-200/60 text-center">
-                          Saturday OT
-                        </span>
-                      </div>
-                    ) : null}
-
-                    {/* Hover Sync / OT Quick Action */}
-                    <div className="hidden group-hover:flex items-center justify-end gap-1 mt-1 pt-0.5">
-                      <span className="text-[9px] font-bold text-indigo-600">Details &rarr;</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Monthly Holidays Agenda List (1 Col) */}
-          <div className="rounded-2xl bg-white p-5 shadow-xs border border-slate-200 flex flex-col">
-            <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
-              <div>
-                <h2 className="text-sm font-bold text-slate-900">
-                  Holidays in {MONTH_NAMES[selectedMonth]}
-                </h2>
-                <span className="text-[11px] text-slate-400">
-                  {monthHolidays.length} official holidays registered
-                </span>
-              </div>
-
-              {canEditCalendar && (
-                <button
-                  type="button"
-                  onClick={() => openAddModal()}
-                  className="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800 cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add</span>
-                </button>
-              )}
-            </div>
-
-            <div className="flex-1 overflow-y-auto space-y-2.5 max-h-[540px] pr-1">
-              {monthHolidays.length === 0 ? (
-                <div className="py-16 text-center text-slate-400 text-xs">
-                  <CalendarIcon className="w-9 h-9 mx-auto text-slate-300 mb-2" />
-                  <p className="font-bold text-slate-700">No public holidays in {MONTH_NAMES[selectedMonth]}</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    Sundays &amp; Saturdays are weekly non-working and overtime days.
-                  </p>
-                  {canEditCalendar && (
-                    <button
-                      type="button"
-                      onClick={() => openAddModal()}
-                      className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800 cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Add Custom Holiday</span>
-                    </button>
+                  {isHol && (
+                    <span
+                      className="w-2 h-2 rounded-full bg-purple-600 shrink-0"
+                      title={item.holiday?.name}
+                    />
                   )}
                 </div>
-              ) : (
-                monthHolidays.map((h) => {
-                  const googleCalUrl = generateGoogleCalendarUrl(h);
 
-                  return (
-                    <div
-                      key={h.id}
-                      className="p-3.5 rounded-xl border border-purple-100 bg-purple-50/40 hover:bg-purple-50/80 transition flex items-start justify-between gap-3 group"
+                {/* Holiday Badge: ONLY rendered on actual statutory holidays (no repetitive clutter on plain weekends) */}
+                {item.holiday ? (
+                  <div className="mt-1">
+                    <span
+                      className={`block text-[10px] sm:text-[11px] font-bold leading-tight line-clamp-2 px-1.5 py-1 rounded-md border shadow-3xs ${
+                        item.holiday.type === 'public'
+                          ? 'text-purple-900 bg-purple-100/90 border-purple-200'
+                          : item.holiday.type === 'bank'
+                          ? 'text-amber-950 bg-amber-100/90 border-amber-200'
+                          : 'text-sky-950 bg-sky-100/90 border-sky-200'
+                      }`}
+                      title={item.holiday.name}
                     >
-                      <div className="space-y-1.5 flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-200">
-                            {h.type}
-                          </span>
-                          <span className="text-xs font-mono font-bold text-slate-700">
-                            {h.date}
-                          </span>
-                        </div>
-
-                        <h3 className="text-xs font-bold text-slate-900 leading-snug truncate">
-                          {h.name}
-                        </h3>
-
-                        {h.description && (
-                          <p className="text-[11px] text-slate-500 leading-tight">
-                            {h.description}
-                          </p>
-                        )}
-
-                        {/* Integration Action Links */}
-                        <div className="pt-1 flex items-center gap-3 text-[11px]">
-                          <a
-                            href={googleCalUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 font-semibold text-indigo-600 hover:text-indigo-800 hover:underline"
-                            title="Add this holiday directly to your Google Calendar"
-                          >
-                            <ExternalLink className="w-3 h-3" />
-                            <span>Add to Google Cal</span>
-                          </a>
-
-                          {onNavigateToNewClaim && (
-                            <button
-                              type="button"
-                              onClick={() => onNavigateToNewClaim(h.date)}
-                              className="inline-flex items-center gap-1 font-semibold text-purple-700 hover:text-purple-900 hover:underline cursor-pointer"
-                              title="Claim Overtime for this Holiday"
-                            >
-                              <Clock className="w-3 h-3" />
-                              <span>Claim OT</span>
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Admin edit & delete buttons */}
-                      {canEditCalendar && (
-                        <div className="flex items-center gap-1 shrink-0 pt-0.5">
-                          <button
-                            type="button"
-                            onClick={() => openEditModal(h)}
-                            className="p-1.5 text-slate-400 hover:text-indigo-600 rounded-lg transition cursor-pointer hover:bg-indigo-50"
-                            title="Edit Holiday"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setHolidayToDelete(h);
-                              setIsDeleteModalOpen(true);
-                            }}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition cursor-pointer hover:bg-rose-50"
-                            title="Delete Holiday"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
+                      {item.holiday.name}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex-1" />
+                )}
+              </div>
+            );
+          })}
         </div>
-      )}
+      </div>
 
-      {/* Agenda / Full Year Timeline View */}
-      {viewMode === 'agenda' && (
-        <div className="rounded-2xl bg-white p-6 shadow-xs border border-slate-200 space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
-            <div>
-              <h2 className="text-base font-bold text-slate-900">
-                Official Holiday Timeline &bull; {selectedYear}
-              </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Complete list of Sri Lankan Public, Poya, Bank, and Mercantile holidays for statutory compliance.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleExportYearIcs}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold border border-indigo-200 transition cursor-pointer"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Export Full Year (.ics)</span>
-              </button>
-            </div>
+      {/* Clean Monthly Holidays Overview Section */}
+      <div className="rounded-2xl bg-white p-5 sm:p-6 shadow-xs border border-slate-200">
+        <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-bold text-slate-900">
+              Holidays in {MONTH_NAMES[selectedMonth]} {selectedYear}
+            </h2>
+            <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-800 border border-purple-200">
+              {monthHolidays.length} {monthHolidays.length === 1 ? 'holiday' : 'holidays'}
+            </span>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {yearHolidays.map((h) => {
+          {canEditCalendar && (
+            <button
+              type="button"
+              onClick={() => openAddModal()}
+              className="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Holiday</span>
+            </button>
+          )}
+        </div>
+
+        {monthHolidays.length === 0 ? (
+          <div className="py-10 text-center text-slate-400 text-xs">
+            <CalendarIcon className="w-8 h-8 mx-auto text-slate-300 mb-2" />
+            <p className="font-bold text-slate-700">No public holidays registered in {MONTH_NAMES[selectedMonth]} {selectedYear}</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              Saturdays and Sundays follow standard non-working day overtime calculation policies.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            {monthHolidays.map((h) => {
               const googleCalUrl = generateGoogleCalendarUrl(h);
               const [y, m, d] = h.date.split('-').map(Number);
-              const mName = MONTH_NAMES[m - 1];
+              const dt = new Date(y, m - 1, d);
+              const dayName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dt.getDay()];
 
               return (
                 <div
                   key={h.id}
-                  className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 hover:border-purple-300 hover:bg-purple-50/30 transition flex flex-col justify-between"
+                  className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-purple-50/30 hover:border-purple-200 transition flex flex-col justify-between"
                 >
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-200">
-                        {h.type}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-mono font-bold text-slate-700 bg-white px-2 py-0.5 rounded-md border border-slate-200">
+                        {h.date} &bull; {dayName}
                       </span>
-                      <span className="text-xs font-mono font-bold text-slate-600">
-                        {mName} {d}, {y}
+                      <span
+                        className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full border ${
+                          h.type === 'public'
+                            ? 'bg-purple-100 text-purple-800 border-purple-200'
+                            : h.type === 'bank'
+                            ? 'bg-amber-100 text-amber-800 border-amber-200'
+                            : 'bg-sky-100 text-sky-800 border-sky-200'
+                        }`}
+                      >
+                        {h.type}
                       </span>
                     </div>
 
-                    <h3 className="text-xs font-bold text-slate-900 leading-snug">
+                    <h3 className="text-xs sm:text-sm font-bold text-slate-900 leading-snug pt-1">
                       {h.name}
                     </h3>
 
@@ -1139,103 +802,62 @@ export const CalendarManager: React.FC<CalendarManagerProps> = ({ onNavigateToNe
                     )}
                   </div>
 
-                  <div className="mt-4 pt-3 border-t border-slate-200/60 flex items-center justify-between">
-                    <a
-                      href={googleCalUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 hover:underline"
-                    >
-                      <ExternalLink className="w-3 h-3" />
-                      <span>Google Calendar</span>
-                    </a>
-
-                    {onNavigateToNewClaim && (
-                      <button
-                        type="button"
-                        onClick={() => onNavigateToNewClaim(h.date)}
-                        className="inline-flex items-center gap-1 text-[11px] font-bold text-purple-700 hover:text-purple-900 cursor-pointer"
+                  <div className="mt-3.5 pt-3 border-t border-slate-200/70 flex items-center justify-between text-[11px]">
+                    <div className="flex items-center gap-3">
+                      <a
+                        href={googleCalUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 font-semibold text-indigo-600 hover:text-indigo-800 hover:underline"
+                        title="Add this holiday to Google Calendar"
                       >
-                        <Clock className="w-3 h-3" />
-                        <span>Claim OT</span>
-                      </button>
+                        <ExternalLink className="w-3 h-3" />
+                        <span>Google Cal</span>
+                      </a>
+
+                      {onNavigateToNewClaim && (
+                        <button
+                          type="button"
+                          onClick={() => onNavigateToNewClaim(h.date)}
+                          className="inline-flex items-center gap-1 font-bold text-purple-700 hover:text-purple-900 cursor-pointer hover:underline"
+                          title="Claim Overtime for this Holiday"
+                        >
+                          <Clock className="w-3 h-3" />
+                          <span>Claim OT</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {canEditCalendar && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => openEditModal(h)}
+                          className="p-1 text-slate-400 hover:text-indigo-600 rounded transition cursor-pointer"
+                          title="Edit Holiday"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setHolidayToDelete(h);
+                            setIsDeleteModalOpen(true);
+                          }}
+                          className="p-1 text-slate-400 hover:text-rose-600 rounded transition cursor-pointer"
+                          title="Delete Holiday"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
               );
             })}
           </div>
-        </div>
-      )}
-
-      {/* Statutory Rules & Labor Law Reference Tab */}
-      {viewMode === 'rules' && (
-        <div className="rounded-2xl bg-white p-6 shadow-xs border border-slate-200 space-y-6">
-          <div className="pb-4 border-b border-slate-100">
-            <h2 className="text-base font-bold text-slate-900">
-              Sri Lanka Statutory Overtime &amp; Holiday Calculation Policy
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Rules and standard banking/corporate calculation formulas applied to timesheets.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-xs text-slate-700">
-            {/* Rule 1: Saturday Overtime Calculation */}
-            <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 space-y-2">
-              <div className="flex items-center gap-2 font-bold text-amber-900 text-sm">
-                <Sun className="w-4 h-4 text-amber-600" />
-                <span>1. Saturday Overtime Rules</span>
-              </div>
-              <ul className="list-disc pl-5 space-y-1 text-slate-700 leading-relaxed text-[11px]">
-                <li>Overtime calculation on Saturdays strictly starts from <strong>8:00 AM</strong>.</li>
-                <li>Work hours are calculated in <strong>15-minute increments</strong>.</li>
-                <li>When claimed, the PDF timesheet prints the label: <strong>Day's Pay + (OT hours)</strong>.</li>
-                <li>Non-working day rate (1.5x standard hourly rate) applies for overtime hours worked.</li>
-              </ul>
-            </div>
-
-            {/* Rule 2: Public & Poya Holidays */}
-            <div className="rounded-xl border border-purple-200 bg-purple-50/50 p-4 space-y-2">
-              <div className="flex items-center gap-2 font-bold text-purple-900 text-sm">
-                <Star className="w-4 h-4 text-purple-600" />
-                <span>2. Public &amp; Poya Holidays</span>
-              </div>
-              <ul className="list-disc pl-5 space-y-1 text-slate-700 leading-relaxed text-[11px]">
-                <li>Full statutory holiday for all staff. Regular weekday shifts cannot be claimed.</li>
-                <li>Staff required to work receive their <strong>Day's Pay</strong> plus hourly overtime for all hours rendered.</li>
-                <li>Hours are calculated in 15-minute increments from shift commencement.</li>
-              </ul>
-            </div>
-
-            {/* Rule 3: Sunday Shifts */}
-            <div className="rounded-xl border border-rose-200 bg-rose-50/50 p-4 space-y-2">
-              <div className="flex items-center gap-2 font-bold text-rose-900 text-sm">
-                <CalendarIcon className="w-4 h-4 text-rose-600" />
-                <span>3. Sunday Shifts &amp; Weekly Off</span>
-              </div>
-              <ul className="list-disc pl-5 space-y-1 text-slate-700 leading-relaxed text-[11px]">
-                <li>Sunday is the statutory weekly rest day.</li>
-                <li>Duty performed on Sunday requires prior administrative authorization.</li>
-                <li>Compensated at non-working day rate or entitled to alternative lieu off as per company guidelines.</li>
-              </ul>
-            </div>
-
-            {/* Rule 4: Standard Remuneration Formula */}
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 space-y-2">
-              <div className="flex items-center gap-2 font-bold text-emerald-900 text-sm">
-                <Building2 className="w-4 h-4 text-emerald-600" />
-                <span>4. Form 10756 Banking Overtime Formula</span>
-              </div>
-              <ul className="list-disc pl-5 space-y-1 text-slate-700 leading-relaxed text-[11px]">
-                <li><strong>Day's Pay</strong> = Monthly Remuneration &divide; 22 working days.</li>
-                <li><strong>Working Days Hourly OT Rate</strong> = Day's Pay &divide; 8 working hours.</li>
-                <li><strong>Non-Working Days Hourly OT Rate</strong> = Hourly Rate &times; 1.5.</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Inspected Day Details Modal / Drawer */}
       {inspectedDay && (
