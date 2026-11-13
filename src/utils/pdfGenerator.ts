@@ -400,20 +400,29 @@ export async function generateOvertimePdf(
     const tbl = template.tableConfig;
     const font = await getFont(tbl.fontFamily, tbl.isBold);
 
-    // Non-claimed days are removed automatically in generation
+    // Strictly print ONLY OT-claimed dates:
+    // Exclude leaves, worked-but-not-OT days (totalMinutes === 0), and unclaimed holidays.
     const claimedRows = claim.rows.filter(r => {
-      if (r.endTime && r.endTime.trim()) {
-        return (
-          (r.totalMinutes || 0) > 0 ||
-          (r.totalWorkMinutes || 0) > 0 ||
-          !!r.isDaysPayment ||
-          !!r.isHolidayOverride ||
-          (!!r.specialAssignmentHours && r.specialAssignmentHours.trim() !== '')
-        );
-      }
-      return false;
+      if (r.isLeave) return false;
+      if (r.isHoliday && !r.isHolidayOverride) return false;
+
+      const hasValidOt = (r.totalMinutes || 0) > 0;
+      const hasSpecialHours = Boolean(
+        r.specialAssignmentHours &&
+        r.specialAssignmentHours.trim() !== '' &&
+        r.specialAssignmentHours.trim() !== '0' &&
+        r.specialAssignmentHours.trim() !== '00:00'
+      );
+      const hasOpAmount = Boolean(
+        (r.daysPaymentAmount || 0) > 0 &&
+        (!!r.startTime?.trim() || !!r.endTime?.trim() || !!r.reason?.trim())
+      );
+      const isSat = r.dayOfWeek === 'Sat' || (r.date ? new Date(r.date).getDay() === 6 : false);
+      const isQualifiedSatDayPay = isSat && !!r.isDaysPayment && (r.totalWorkMinutes || 0) >= 360;
+
+      return hasValidOt || hasSpecialHours || hasOpAmount || isQualifiedSatDayPay;
     });
-    const effectiveRows = claimedRows.length > 0 ? claimedRows : claim.rows.filter(r => r.startTime || r.endTime);
+    const effectiveRows = claimedRows;
 
     // Arrange rows into correct chronological date order in PDF (keeping user's entry order unchanged in New Claim panel)
     const sortedRows = [...effectiveRows].sort((a, b) => {

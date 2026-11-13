@@ -45,8 +45,12 @@ interface PDFPreviewModalProps {
   pdfUrl: string | null;
   filename: string;
   pdfBlob?: Blob | null;
-  onSaveClaim?: () => void;
+  onSaveClaim?: () => void | Promise<void>;
+  onDownload?: () => void | Promise<void>;
   isSaved?: boolean;
+  isSubmitting?: boolean;
+  isDownloading?: boolean;
+  submitLabel?: string;
   onRefresh?: () => void;
   isRefreshing?: boolean;
 }
@@ -58,7 +62,11 @@ export const PDFPreviewModal: React.FC<PDFPreviewModalProps> = ({
   filename,
   pdfBlob,
   onSaveClaim,
+  onDownload,
   isSaved,
+  isSubmitting = false,
+  isDownloading = false,
+  submitLabel,
   onRefresh,
   isRefreshing = false,
 }) => {
@@ -223,8 +231,12 @@ export const PDFPreviewModal: React.FC<PDFPreviewModalProps> = ({
     }
   };
 
-  // Download Handler
+  // Download Handler (routes to parent submit-and-download handler when provided)
   const handleDownload = () => {
+    if (onDownload) {
+      onDownload();
+      return;
+    }
     const a = document.createElement('a');
     a.href = pdfUrl;
     a.download = filename || 'Overtime_Claim_Form_10756.pdf';
@@ -442,11 +454,16 @@ export const PDFPreviewModal: React.FC<PDFPreviewModalProps> = ({
             <button
               type="button"
               onClick={handleDownload}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-xs transition cursor-pointer"
-              title="Download official PDF to device"
+              disabled={isDownloading || isSubmitting}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              title={onDownload ? 'Download PDF & submit OT claim' : 'Download official PDF to device'}
             >
-              <Download className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Download</span>
+              {isDownloading ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Download className="w-3.5 h-3.5" />
+              )}
+              <span className="hidden sm:inline">{isDownloading ? 'Submitting...' : 'Download'}</span>
             </button>
 
             {/* Fullscreen Toggle */}
@@ -602,31 +619,46 @@ export const PDFPreviewModal: React.FC<PDFPreviewModalProps> = ({
               <span className="hidden sm:inline">Backup to Google Drive</span>
             </button>
 
-            {/* Save to Claim History Button */}
+            {/* Submit Claim Button */}
             {onSaveClaim && (
               <button
                 type="button"
                 onClick={onSaveClaim}
-                disabled={isSaved}
+                disabled={isSaved || isSubmitting || isDownloading}
                 className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition ${
                   isSaved
                     ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 cursor-default'
-                    : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs cursor-pointer'
+                    : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed'
                 }`}
               >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>{isSaved ? 'Claim Saved to History' : 'Save to Claim History'}</span>
+                {isSubmitting ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                )}
+                <span>
+                  {isSubmitting
+                    ? 'Submitting...'
+                    : isSaved
+                    ? 'Claim Submitted'
+                    : submitLabel || 'Submit Claim'}
+                </span>
               </button>
             )}
 
-            {/* Download Button */}
+            {/* Download & Submit Button */}
             <button
               type="button"
               onClick={handleDownload}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-xs transition cursor-pointer"
+              disabled={isDownloading || isSubmitting}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Download className="w-3.5 h-3.5" />
-              <span>Download A4 PDF</span>
+              {isDownloading ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Download className="w-3.5 h-3.5" />
+              )}
+              <span>{isDownloading ? 'Submitting & Downloading...' : 'Download A4 PDF'}</span>
             </button>
           </div>
         </div>

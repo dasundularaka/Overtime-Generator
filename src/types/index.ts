@@ -138,6 +138,8 @@ export interface OvertimeRow {
   lateNote?: string;
   isHoliday?: boolean;
   holidayName?: string;
+  isLeave?: boolean; // When true, day is marked as Leave (excluded from OT calculations and PDF print)
+  leaveType?: string; // e.g. 'Full Day', 'Half Day', 'Annual Leave', 'Casual Leave', 'Medical Leave', 'Short Leave'
   isDaysPayment?: boolean; // true for non-working weekdays, Saturdays, Sundays, Holidays
   daysPaymentAmount?: number; // amount paid for this day
   reason: string;

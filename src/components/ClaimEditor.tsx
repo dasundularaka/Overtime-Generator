@@ -30,6 +30,10 @@ import {
   CloudOff,
   LayoutGrid,
   Table as TableIcon,
+  CalendarOff,
+  Briefcase,
+  Eraser,
+  ArrowRight,
 } from 'lucide-react';
 import {
   collection,
@@ -122,10 +126,19 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   }, []);
 
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
-  const [cardFilter, setCardFilter] = useState<'all' | 'claimed' | 'weekdays' | 'nonworking' | 'issues'>('all');
+  const [cardFilter, setCardFilter] = useState<'all' | 'claimed' | 'weekdays' | 'nonworking' | 'leaves' | 'issues'>('all');
   // Only reveal visual issue banners/rings if user triggers Preview, Download, or Submit
   const [showValidationAttention, setShowValidationAttention] = useState(false);
+  const [highlightedErrorRowId, setHighlightedErrorRowId] = useState<string | null>(null);
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
+
+  // Refs for smooth auto-scrolling & focusing on validation errors
+  const employeeHeaderRef = useRef<HTMLDivElement | null>(null);
+  const timesheetSectionRef = useRef<HTMLDivElement | null>(null);
+  const validationBannerRef = useRef<HTMLDivElement | null>(null);
+  const rowElementRefs = useRef<Record<string, HTMLElement | null>>({});
+  const reasonInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const dateInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   // Monitor keyboard display on mobile devices so floating bars do not cover inputs
   useEffect(() => {
@@ -513,8 +526,12 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     return map;
   }, [calendarHolidays]);
 
-  // Helper: Detect if a row is a holiday (strictly respects user's explicit isHoliday flag)
+  // Helper: Detect if a row is marked as Leave
+  const isRowLeave = (r: OvertimeRow): boolean => Boolean(r.isLeave);
+
+  // Helper: Detect if a row is a holiday (strictly respects user's explicit isHoliday flag and Leave status)
   const isRowHoliday = (r: OvertimeRow): boolean => {
+    if (r.isLeave) return false;
     if (r.isHoliday === false) return false; // Explicit user unmark!
     if (r.isHoliday === true) return true;
     const dow = r.dayOfWeek || getDayOfWeek(r.date);
@@ -524,12 +541,14 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
   // Helper: Detect other days (Saturdays, Sundays, and public/bank holidays)
   const isOtherDayRow = (r: OvertimeRow): boolean => {
+    if (r.isLeave) return false;
     const dow = r.dayOfWeek || getDayOfWeek(r.date);
     return dow === 'Sat' || isRowHoliday(r);
   };
 
-  // Helper: Detect regular weekday working days (Mon-Fri, non-holiday)
+  // Helper: Detect regular weekday working days (Mon-Fri, non-holiday, non-leave)
   const isWeekdayWorkingDay = (r: OvertimeRow): boolean => {
+    if (r.isLeave) return false;
     const dow = r.dayOfWeek || getDayOfWeek(r.date);
     return dow !== 'Sat' && !isRowHoliday(r);
   };
@@ -545,9 +564,31 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     return counts;
   }, [rows]);
 
-  // Comprehensive per-row validation and conflict detection for Day Cards
+  // Comprehensive per-row validation and conflict detection for Day Cards & Table
   const getRowValidation = (r: OvertimeRow) => {
+    if (r.isLeave) {
+      return {
+        hasIssue: false,
+        hasSameSession: false,
+        isMissingTimeOut: false,
+        isMissingTimeIn: false,
+        isZeroDuration: false,
+        isMissingReason: false,
+        isDuplicateDate: false,
+        isHolidayNotOverridden: false,
+        isSatShortHours: false,
+        issues: [] as string[],
+        primaryIssue: null as string | null,
+        friendlyMessage: null as string | null,
+        focusTarget: null as 'date' | 'reason' | 'startTime' | 'endTime' | 'holidayOverride' | null,
+      };
+    }
+
     const isHol = isRowHoliday(r);
+    const dow = r.dayOfWeek || getDayOfWeek(r.date);
+    const isSat = dow === 'Sat';
+    const defaultStart = userShiftStartTime || GENERAL_SHIFT_START;
+
     const hasStartTime = Boolean(r.startTime && r.startTime.trim());
     const hasEndTime = Boolean(r.endTime && r.endTime.trim());
     const hasTimes = hasStartTime || hasEndTime;
@@ -556,23 +597,83 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     const outPeriod = hasEndTime ? parse24To12(r.endTime).period : null;
     const hasSameSession = Boolean(hasStartTime && hasEndTime && inPeriod === outPeriod);
 
-    const isMissingTimeOut = hasStartTime && !hasEndTime;
+    // Untouched weekday rows carry the default shift startTime ('08:00') with blank endTime.
+    // Only flag Missing Time Out when the user actively entered a custom startTime, or on Saturday / Holiday OT.
+    const hasEnteredStartForOt = hasStartTime && (isSat || (isHol && !!r.isHolidayOverride) || r.startTime !== defaultStart);
+    const isMissingTimeOut = hasEnteredStartForOt && !hasEndTime;
     const isMissingTimeIn = !hasStartTime && hasEndTime;
     const isZeroDuration = Boolean(hasStartTime && hasEndTime && r.startTime === r.endTime);
+
+    const hasClaimableResult =
+      (r.totalMinutes || 0) > 0 ||
+      (!!r.isHolidayOverride && (r.totalWorkMinutes || 0) > 0) ||
+      (isSat && (r.totalWorkMinutes || 0) >= 360);
+
     const isMissingReason = Boolean(
-      hasStartTime && hasEndTime && (!r.reason || !r.reason.trim())
+      hasStartTime && hasEndTime && hasClaimableResult && (!r.reason || !r.reason.trim())
     );
     const isDuplicateDate = Boolean(r.date && (dateOccurrences.get(r.date) || 0) > 1);
     const isHolidayNotOverridden = Boolean(isHol && !r.isHolidayOverride && hasTimes);
+    const isSatShortHours = Boolean(isSat && !hasStartTime && !hasEndTime && (r.totalWorkMinutes || 0) > 0 && (r.totalWorkMinutes || 0) < 360);
 
     const issues: string[] = [];
-    if (hasSameSession) issues.push(`Same Session (${inPeriod})`);
-    if (isMissingTimeOut) issues.push('Missing Time Out');
-    if (isMissingTimeIn) issues.push('Missing Time In');
-    if (isZeroDuration) issues.push('Zero Duration');
-    if (isMissingReason) issues.push('Duties Required');
-    if (isDuplicateDate) issues.push('Duplicate Date');
-    if (isHolidayNotOverridden) issues.push('Holiday Override Needed');
+    let friendlyMessage: string | null = null;
+    let focusTarget: 'date' | 'reason' | 'startTime' | 'endTime' | 'holidayOverride' | null = null;
+
+    if (hasSameSession) {
+      issues.push(`Same Session (${inPeriod})`);
+      friendlyMessage = `Time In and Time Out are both set to ${inPeriod}. Switch Time Out to ${inPeriod === 'AM' ? 'PM' : 'AM'}.`;
+      focusTarget = 'endTime';
+    }
+    if (isMissingTimeOut) {
+      issues.push('Missing Time Out');
+      if (!friendlyMessage) {
+        friendlyMessage = 'Time In is entered without a Time Out. Add Time Out, clear the entry, or mark Leave.';
+        focusTarget = 'endTime';
+      }
+    }
+    if (isMissingTimeIn) {
+      issues.push('Missing Time In');
+      if (!friendlyMessage) {
+        friendlyMessage = 'Time Out is entered without a Time In. Select Time In or clear the entry.';
+        focusTarget = 'startTime';
+      }
+    }
+    if (isZeroDuration) {
+      issues.push('Zero Duration');
+      if (!friendlyMessage) {
+        friendlyMessage = `Time In and Time Out are identical (${r.startTime}). Update one time or clear the entry.`;
+        focusTarget = 'endTime';
+      }
+    }
+    if (isMissingReason) {
+      issues.push('Duties Required');
+      if (!friendlyMessage) {
+        friendlyMessage = 'Please describe the duties / nature of work for this OT claim.';
+        focusTarget = 'reason';
+      }
+    }
+    if (isDuplicateDate) {
+      issues.push('Duplicate Date');
+      if (!friendlyMessage) {
+        friendlyMessage = `Date ${r.date} appears more than once. Change the date or remove the duplicate.`;
+        focusTarget = 'date';
+      }
+    }
+    if (isHolidayNotOverridden) {
+      issues.push('Holiday OT Disabled');
+      if (!friendlyMessage) {
+        friendlyMessage = 'Enable "I worked on this holiday" to claim Holiday OT, or clear the times.';
+        focusTarget = 'holidayOverride';
+      }
+    }
+    if (isSatShortHours) {
+      issues.push("Saturday < 6h");
+      if (!friendlyMessage) {
+        friendlyMessage = "Saturday full Day's Pay requires at least 6 hours, or enter Time In & Time Out for hourly OT.";
+        focusTarget = 'endTime';
+      }
+    }
 
     return {
       hasIssue: issues.length > 0,
@@ -583,16 +684,68 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       isMissingReason,
       isDuplicateDate,
       isHolidayNotOverridden,
+      isSatShortHours,
       issues,
       primaryIssue: issues[0] || null,
+      friendlyMessage,
+      focusTarget,
     };
   };
 
   const rowsWithIssues = useMemo(() => {
     return rows.filter(r => getRowValidation(r).hasIssue);
-  }, [rows, holidayMap, dateOccurrences]);
+  }, [rows, holidayMap, dateOccurrences, userShiftStartTime]);
 
   const rowsWithIssuesCount = rowsWithIssues.length;
+
+  // Smooth auto-scroll & focus helper for validation errors
+  const scrollToErrorTarget = (target: {
+    type: 'employeeName' | 'row' | 'timesheet';
+    rowId?: string;
+    focusField?: 'date' | 'reason' | 'startTime' | 'endTime' | 'holidayOverride' | null;
+  }) => {
+    if (target.type === 'row' && target.rowId) {
+      setHighlightedErrorRowId(target.rowId);
+      setTimeout(() => {
+        const el = rowElementRefs.current[target.rowId!];
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else {
+          timesheetSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        if (target.focusField === 'reason') {
+          reasonInputRefs.current[target.rowId!]?.focus({ preventScroll: true });
+        } else if (target.focusField === 'date') {
+          dateInputRefs.current[target.rowId!]?.focus({ preventScroll: true });
+        }
+      }, 90);
+      return;
+    }
+    if (target.type === 'employeeName') {
+      setHighlightedErrorRowId(null);
+      setTimeout(() => {
+        employeeHeaderRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 60);
+      return;
+    }
+    setHighlightedErrorRowId(null);
+    setTimeout(() => {
+      timesheetSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 60);
+  };
+
+  // Clear highlight automatically once user fixes all issues
+  useEffect(() => {
+    if (highlightedErrorRowId) {
+      const targetRow = rows.find(r => r.id === highlightedErrorRowId);
+      if (!targetRow || !getRowValidation(targetRow).hasIssue) {
+        setHighlightedErrorRowId(null);
+        if (rowsWithIssuesCount === 0 && validationError) {
+          setValidationError(null);
+        }
+      }
+    }
+  }, [rows, highlightedErrorRowId, rowsWithIssuesCount]);
 
   // Visible rows for user-friendly Card View filtering
   const visibleCardRows = useMemo(() => {
@@ -602,8 +755,11 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         if (cardFilter === 'issues') {
           return getRowValidation(row).hasIssue;
         }
+        if (cardFilter === 'leaves') {
+          return Boolean(row.isLeave);
+        }
         if (cardFilter === 'claimed') {
-          return (row.totalMinutes || 0) > 0 || (row.totalWorkMinutes || 0) > 0;
+          return !row.isLeave && !(isRowHoliday(row) && !row.isHolidayOverride) && ((row.totalMinutes || 0) > 0 || (!!row.isDaysPayment && (row.totalWorkMinutes || 0) >= 360));
         }
         if (cardFilter === 'weekdays') {
           return isWeekdayWorkingDay(row);
@@ -613,7 +769,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         }
         return true;
       });
-  }, [rows, cardFilter, holidayMap, dateOccurrences]);
+  }, [rows, cardFilter, holidayMap, dateOccurrences, userShiftStartTime]);
 
   // Fetch users if admin (Admins only see users in their same branch; Super Admin sees all)
   useEffect(() => {
@@ -1057,6 +1213,176 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     };
   }
 
+  // User-friendly Day Status switcher: Workday / Leave / Holiday
+  const setRowDayStatus = (index: number, status: 'workday' | 'leave' | 'holiday') => {
+    markUserModified();
+    setRows(prevRows => {
+      const updated = [...prevRows];
+      const current = updated[index];
+      if (!current) return prevRows;
+      const target = { ...current };
+      const dow = target.dayOfWeek || getDayOfWeek(target.date);
+      const isSat = dow === 'Sat';
+      const isSun = dow === 'Sun';
+      const defaultStart = userShiftStartTime || GENERAL_SHIFT_START;
+
+      if (status === 'leave') {
+        target.isLeave = true;
+        target.leaveType = target.leaveType || 'Full Day';
+        target.isHoliday = false;
+        target.holidayName = undefined;
+        target.isHolidayOverride = false;
+        target.startTime = '';
+        target.endTime = '';
+        target.breakMinutes = 0;
+        target.totalWorkMinutes = 0;
+        target.rawOtMinutes = 0;
+        target.totalMinutes = 0;
+        target.totalFormatted = '00:00';
+        target.isOvernight = false;
+        target.isCapped = false;
+        target.uncappedMinutes = 0;
+        target.lateDeductionMinutes = 0;
+        target.isLateDisqualified = false;
+        target.lateNote = '';
+        target.isDaysPayment = false;
+        target.daysPaymentAmount = 0;
+        if (
+          target.reason === current.holidayName ||
+          target.reason === 'Saturday Duty' ||
+          target.reason === "Saturday Duty (Day's Pay)" ||
+          target.reason === defaultHolidayReason.trim() ||
+          target.reason === defaultSaturdayReason.trim()
+        ) {
+          target.reason = '';
+        }
+      } else if (status === 'holiday') {
+        target.isLeave = false;
+        target.leaveType = undefined;
+        target.isHoliday = true;
+        target.isHolidayOverride = false;
+        const holName = holidayMap.get(target.date)?.name || (isSun ? 'Sunday' : 'Holiday');
+        target.holidayName = holName;
+        target.startTime = '';
+        target.endTime = '';
+        target.totalWorkMinutes = 0;
+        target.rawOtMinutes = 0;
+        target.totalMinutes = 0;
+        target.totalFormatted = '';
+        target.isDaysPayment = false;
+        target.isCapped = false;
+        target.lateDeductionMinutes = 0;
+        target.isLateDisqualified = false;
+        target.lateNote = '';
+        target.reason = defaultHolidayReason.trim() ? defaultHolidayReason.trim() : holName;
+      } else {
+        // Regular workday (Mon-Fri or Saturday)
+        target.isLeave = false;
+        target.leaveType = undefined;
+        target.isHoliday = false;
+        target.holidayName = undefined;
+        target.isHolidayOverride = false;
+        if (!target.startTime && !isSat) {
+          target.startTime = defaultStart;
+        }
+        if (
+          target.reason === current.holidayName ||
+          target.reason === 'Sunday' ||
+          target.reason === 'Holiday' ||
+          target.reason === 'Public Holiday' ||
+          target.reason === defaultHolidayReason.trim()
+        ) {
+          target.reason = isSat
+            ? (defaultSaturdayReason.trim() ? defaultSaturdayReason.trim() : 'Saturday Duty')
+            : (defaultWeekdayReason.trim() ? defaultWeekdayReason.trim() : '');
+        }
+        if (target.startTime && target.endTime) {
+          const isSpecial = isSpecialAssignedOt || !!target.isSpecialAssignment;
+          const calc = calculateShiftOvertime(
+            target.startTime,
+            target.endTime,
+            0,
+            maxOtLimitHours,
+            isSat,
+            userShiftEndTime || GENERAL_SHIFT_END,
+            defaultStart,
+            isSpecial,
+            false
+          );
+          target.totalWorkMinutes = calc.totalWorkMinutes;
+          target.rawOtMinutes = calc.rawOtMinutes;
+          target.totalMinutes = calc.totalMinutes;
+          target.totalFormatted = formatMinutesToTime(calc.totalMinutes, otDisplayFormat);
+          target.isOvernight = calc.isOvernight;
+          target.isCapped = calc.isCapped;
+          target.uncappedMinutes = calc.uncappedMinutes;
+          target.lateDeductionMinutes = calc.lateDeductionMinutes;
+          target.isLateDisqualified = calc.isLateDisqualified;
+          target.lateNote = calc.lateNote;
+          target.isDaysPayment = isSat && calc.totalWorkMinutes > 0;
+        }
+      }
+
+      updated[index] = target;
+      return updated;
+    });
+  };
+
+  const updateRowLeaveType = (index: number, leaveType: string) => {
+    markUserModified();
+    setRows(prevRows => {
+      const updated = [...prevRows];
+      if (!updated[index]) return prevRows;
+      updated[index] = {
+        ...updated[index],
+        isLeave: true,
+        leaveType,
+      };
+      return updated;
+    });
+  };
+
+  // User-friendly 1-click fix: clear partial/conflicting times on a row
+  const clearRowEntry = (index: number) => {
+    markUserModified();
+    setRows(prevRows => {
+      const updated = [...prevRows];
+      const current = updated[index];
+      if (!current) return prevRows;
+      const dow = current.dayOfWeek || getDayOfWeek(current.date);
+      const isHol = isRowHoliday(current);
+      const isSat = dow === 'Sat';
+      updated[index] = {
+        ...current,
+        startTime: isHol || isSat || current.isLeave ? '' : (userShiftStartTime || GENERAL_SHIFT_START),
+        endTime: '',
+        totalWorkMinutes: 0,
+        rawOtMinutes: 0,
+        totalMinutes: 0,
+        totalFormatted: isHol && !current.isHolidayOverride ? '' : '00:00',
+        isOvernight: false,
+        isCapped: false,
+        uncappedMinutes: 0,
+        lateDeductionMinutes: 0,
+        isLateDisqualified: false,
+        lateNote: '',
+        isDaysPayment: false,
+      };
+      return updated;
+    });
+  };
+
+  // User-friendly 1-click fix: flip Time Out AM/PM to resolve same-session conflict
+  const fixSameSessionRow = (index: number) => {
+    const row = rows[index];
+    if (!row || !row.startTime || !row.endTime) return;
+    const inParsed = parse24To12(row.startTime);
+    const outParsed = parse24To12(row.endTime);
+    const oppositePeriod = inParsed.period === 'AM' ? 'PM' : 'AM';
+    const fixedEndTime = format12To24(outParsed.hour, outParsed.minute, oppositePeriod);
+    updateRowField(index, 'endTime', fixedEndTime);
+  };
+
   // Toggle holiday override to enter In/Out times and claim overtime
   const toggleHolidayOverride = (index: number) => {
     markUserModified();
@@ -1080,6 +1406,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         target.rawOtMinutes = 0;
         target.totalMinutes = 0;
         target.totalFormatted = '';
+        target.isDaysPayment = false;
         const holName = holidayMap.get(target.date)?.name || (isSun ? 'Sunday' : 'Holiday');
         target.reason = defaultHolidayReason.trim() ? defaultHolidayReason.trim() : holName;
       }
@@ -1115,9 +1442,13 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     setRows(prevRows => {
       const updated = [...prevRows];
       const current = updated[index];
+      if (!current) return prevRows;
       const currentIsHoliday = isRowHoliday(current);
 
-      // Policy: Holidays, users can't enter times or reason without overriding
+      // Policy: Leave days or unclaimed Holidays cannot edit times without switching day status
+      if (current.isLeave && (field === 'startTime' || field === 'endTime')) {
+        return prevRows;
+      }
       if (currentIsHoliday && !current.isHolidayOverride && (field === 'startTime' || field === 'endTime' || field === 'reason')) {
         return prevRows; // Strictly block editing times or reason on holidays without override
       }
@@ -1130,24 +1461,26 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         target.isWeekend = isWeekendDay(value);
         const checkHol = holidayMap.has(value) || newDow === 'Sun';
 
-        if (checkHol) {
-          target.isHoliday = true;
-          const holName = holidayMap.get(value)?.name || (newDow === 'Sun' ? 'Sunday' : 'Holiday');
-          target.holidayName = holName;
-          if (!target.isHolidayOverride) {
-            target.startTime = '';
-            target.endTime = '';
-            target.reason = defaultHolidayReason.trim() ? defaultHolidayReason.trim() : holName;
-          }
-        } else {
-          // Changed to normal working day or Saturday (not holiday)
-          target.isHoliday = false;
-          target.holidayName = undefined;
-          if (newDow === 'Sat') {
-            target.reason = defaultSaturdayReason.trim() ? defaultSaturdayReason.trim() : 'Saturday Duty';
+        if (!target.isLeave) {
+          if (checkHol) {
+            target.isHoliday = true;
+            const holName = holidayMap.get(value)?.name || (newDow === 'Sun' ? 'Sunday' : 'Holiday');
+            target.holidayName = holName;
+            if (!target.isHolidayOverride) {
+              target.startTime = '';
+              target.endTime = '';
+              target.reason = defaultHolidayReason.trim() ? defaultHolidayReason.trim() : holName;
+            }
           } else {
-            // Monday through Friday
-            target.reason = defaultWeekdayReason.trim() ? defaultWeekdayReason.trim() : '';
+            // Changed to normal working day or Saturday (not holiday)
+            target.isHoliday = false;
+            target.holidayName = undefined;
+            if (newDow === 'Sat') {
+              target.reason = defaultSaturdayReason.trim() ? defaultSaturdayReason.trim() : 'Saturday Duty';
+            } else {
+              // Monday through Friday
+              target.reason = defaultWeekdayReason.trim() ? defaultWeekdayReason.trim() : '';
+            }
           }
         }
       }
@@ -1155,6 +1488,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       if (field === 'isHoliday') {
         const isSettingHoliday = Boolean(value);
         if (isSettingHoliday) {
+          target.isLeave = false;
+          target.leaveType = undefined;
           target.isHoliday = true;
           const holName = holidayMap.get(target.date)?.name || (target.dayOfWeek === 'Sun' ? 'Sunday' : 'Holiday');
           target.holidayName = holName;
@@ -1216,14 +1551,21 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
       const effectiveDow = target.dayOfWeek || getDayOfWeek(target.date);
       const effectiveIsHoliday = isRowHoliday(target);
-      const isOther = effectiveDow === 'Sat' || effectiveDow === 'Sun' || effectiveIsHoliday;
+      const isOther = !target.isLeave && (effectiveDow === 'Sat' || effectiveDow === 'Sun' || effectiveIsHoliday);
       const isSpecial = isSpecialAssignedOt || !!target.isSpecialAssignment;
       const isHolOverride = !!target.isHolidayOverride;
 
-      // If holiday is not overridden, ensure times are blank and reason is protected
-      if (effectiveIsHoliday && !isHolOverride) {
+      // If leave or holiday is not overridden, ensure times are blank
+      if (target.isLeave || (effectiveIsHoliday && !isHolOverride)) {
         target.startTime = '';
         target.endTime = '';
+        target.totalWorkMinutes = 0;
+        target.rawOtMinutes = 0;
+        target.totalMinutes = 0;
+        target.totalFormatted = target.isLeave ? '00:00' : '';
+        target.isDaysPayment = false;
+        updated[index] = target;
+        return updated;
       }
 
       // Calculate shift overtime according to company rules:
@@ -1262,6 +1604,19 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   useEffect(() => {
     setRows(prevRows =>
       prevRows.map(row => {
+        if (row.isLeave) {
+          return {
+            ...row,
+            startTime: '',
+            endTime: '',
+            totalWorkMinutes: 0,
+            rawOtMinutes: 0,
+            totalMinutes: 0,
+            totalFormatted: '00:00',
+            isDaysPayment: false,
+            isCapped: false,
+          };
+        }
         if (!row.startTime || !row.endTime) return row;
         const dow = row.dayOfWeek || getDayOfWeek(row.date);
         const isHoliday = isRowHoliday(row);
@@ -1391,12 +1746,12 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     setRows(rows.filter((_, i) => i !== index));
   };
 
-  // Column A: Regular Overtime (Mon-Fri and Saturdays / non-working days; NOT Special OT, NOT Holiday Override)
+  // Column A: Regular Overtime (Mon-Fri and Saturdays / non-working days; NOT Special OT, NOT Holiday Override, NOT Leave)
   const columnA_Rows = useMemo(() => {
     return rows.filter(
-      r => !(r.isSpecialAssignment ?? isSpecialAssignedOt) && !r.isHolidayOverride && (r.totalMinutes || 0) > 0
+      r => !r.isLeave && !(isRowHoliday(r) && !r.isHolidayOverride) && !(r.isSpecialAssignment ?? isSpecialAssignedOt) && !r.isHolidayOverride && (r.totalMinutes || 0) > 0
     );
-  }, [rows, isSpecialAssignedOt]);
+  }, [rows, isSpecialAssignedOt, holidayMap]);
 
   const colAMinutes = useMemo(() => {
     return columnA_Rows.reduce((acc, r) => acc + (r.totalMinutes || 0), 0);
@@ -1414,9 +1769,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   // Column B: Special Assigned OT (no limit) OR Holiday Overridden Overtime
   const columnB_Rows = useMemo(() => {
     return rows.filter(
-      r => ((r.isSpecialAssignment ?? isSpecialAssignedOt) || r.isHolidayOverride) && (r.totalMinutes || 0) > 0
+      r => !r.isLeave && !(isRowHoliday(r) && !r.isHolidayOverride) && ((r.isSpecialAssignment ?? isSpecialAssignedOt) || r.isHolidayOverride) && (r.totalMinutes || 0) > 0
     );
-  }, [rows, isSpecialAssignedOt]);
+  }, [rows, isSpecialAssignedOt, holidayMap]);
 
   const colBMinutes = useMemo(() => {
     return columnB_Rows.reduce((acc, r) => acc + (r.totalMinutes || 0), 0);
@@ -1429,7 +1784,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   // Special OT on weekdays
   const specialOtWeekdayMinutes = useMemo(() => {
     return rows
-      .filter(r => isWeekdayWorkingDay(r) && (r.isSpecialAssignment ?? isSpecialAssignedOt) && !r.isHolidayOverride)
+      .filter(r => !r.isLeave && isWeekdayWorkingDay(r) && (r.isSpecialAssignment ?? isSpecialAssignedOt) && !r.isHolidayOverride)
       .reduce((acc, r) => acc + (r.totalMinutes || 0), 0);
   }, [rows, holidayMap, isSpecialAssignedOt]);
 
@@ -1440,7 +1795,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
   // Overridden Holiday Overtime: time worked on holidays earns Day's Pay AND Non-Working Days Hourly Rate
   const holidayOverriddenRows = useMemo(() => {
-    return rows.filter(r => r.isHolidayOverride && (r.totalMinutes > 0 || r.totalWorkMinutes > 0));
+    return rows.filter(r => !r.isLeave && r.isHolidayOverride && ((r.totalMinutes || 0) > 0 || (r.totalWorkMinutes || 0) > 0));
   }, [rows]);
 
   const holidayOtMinutes = useMemo(() => {
@@ -1467,10 +1822,12 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   }, [holidayDecimalHours, effectiveNonWorkingHourlyRate]);
 
   // Other days (Saturdays, Sundays, non-working days, holidays)
-  // Condition: Saturday requires minimum 6 hours (360 mins) to earn a Day's Payment; Sundays and holidays earn Day's payment if worked.
+  // Condition: Saturday requires minimum 6 hours (360 mins) to earn a Day's Payment; overridden holidays/Sundays earn Day's payment if worked.
   const otherDaysWorkedRows = useMemo(() => {
     return rows.filter(r => {
+      if (r.isLeave) return false;
       if (!isOtherDayRow(r)) return false;
+      if (isRowHoliday(r) && !r.isHolidayOverride) return false;
       const isSat = r.dayOfWeek === 'Sat' || getDayOfWeek(r.date) === 'Sat';
       if (isSat) {
         return (r.totalWorkMinutes || 0) >= 360;
@@ -1565,74 +1922,66 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
     if (!employeeName.trim()) {
       setValidationError('Please enter employee name.');
+      scrollToErrorTarget({ type: 'employeeName' });
       return false;
     }
 
-    // Check day cards completeness & shift conflicts
+    // Check day cards completeness & shift conflicts and auto-scroll directly to the first error
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
       const val = getRowValidation(r);
-      if (val.isMissingTimeOut) {
-        setValidationError(`Day #${i + 1} (${r.date || 'entry'}): Ending time cannot be empty when starting time is provided.`);
-        setCardFilter('issues');
-        return false;
-      }
-      if (val.isMissingTimeIn) {
-        setValidationError(`Day #${i + 1} (${r.date || 'entry'}): Starting time cannot be empty when ending time is provided.`);
-        setCardFilter('issues');
-        return false;
-      }
-      if (val.hasSameSession) {
-        setValidationError(`Day #${i + 1} (${r.date || 'entry'}): Time In and Time Out cannot be in the same session. If Time In is AM, Time Out must be PM.`);
-        setCardFilter('issues');
-        return false;
-      }
-      if (val.isZeroDuration) {
-        setValidationError(`Day #${i + 1} (${r.date || 'entry'}): Starting time and ending time cannot be the same (${r.startTime}).`);
-        setCardFilter('issues');
-        return false;
-      }
-      if (val.isMissingReason) {
-        setValidationError(`Day #${i + 1} (${r.date || 'entry'}): Please provide duties or nature of work for the claimed shift.`);
-        setCardFilter('issues');
-        return false;
-      }
-      if (val.isDuplicateDate) {
-        setValidationError(`Duplicate date: Day #${i + 1} has date ${r.date} which is used in multiple cards.`);
-        setCardFilter('issues');
-        return false;
-      }
-    }
+      if (val.hasIssue) {
+        const dayLabel = `Day #${i + 1}${r.date ? ` (${r.date})` : ''}`;
+        if (val.isMissingTimeOut) {
+          setValidationError(`${dayLabel}: Time Out is missing. Enter Time Out, clear the entry, or mark this day as Leave.`);
+        } else if (val.isMissingTimeIn) {
+          setValidationError(`${dayLabel}: Time In is missing when Time Out is provided.`);
+        } else if (val.hasSameSession) {
+          setValidationError(`${dayLabel}: Time In and Time Out cannot be in the same AM/PM session.`);
+        } else if (val.isZeroDuration) {
+          setValidationError(`${dayLabel}: Time In and Time Out cannot be the same (${r.startTime}).`);
+        } else if (val.isMissingReason) {
+          setValidationError(`${dayLabel}: Please enter duties / nature of work for this OT entry.`);
+        } else if (val.isDuplicateDate) {
+          setValidationError(`${dayLabel}: Date ${r.date} is duplicated on another row.`);
+        } else if (val.isHolidayNotOverridden) {
+          setValidationError(`${dayLabel}: Enable "I worked on this holiday" to claim OT, or clear the times.`);
+        } else if (val.isSatShortHours) {
+          setValidationError(
+            `${dayLabel}: Saturday Day's Pay requires at least 6 hours worked, or enter Time In & Time Out for hourly OT.`
+          );
+        } else if (val.friendlyMessage) {
+          setValidationError(`${dayLabel}: ${val.friendlyMessage}`);
+        }
 
-    // Check Saturday condition: If Saturday duty is claimed as full Day's Pay without hourly times, minimum 6 hrs applies.
-    // If start and end times are provided, Saturday hourly overtime from 8:00 AM is calculated and claimable.
-    for (let i = 0; i < rows.length; i++) {
-      const r = rows[i];
-      const isSat = r.dayOfWeek === 'Sat' || getDayOfWeek(r.date) === 'Sat';
-      if (isSat && !r.startTime && !r.endTime && r.totalWorkMinutes > 0 && r.totalWorkMinutes < 360) {
-        setValidationError(
-          `Saturday requirement: Row ${i + 1} (${r.date || 'Saturday'}) has only ${formatMinutesToTime(r.totalWorkMinutes, 'hhmm')} working time. Saturday full Day's Pay requires a minimum of 6.00 hours (360 mins) of working time, or enter Time In and Time Out to claim hourly overtime.`
-        );
+        // Ensure the row card is visible even if a restrictive filter was active
+        if (viewMode === 'cards' && cardFilter !== 'all' && cardFilter !== 'issues') {
+          setCardFilter('all');
+        }
+        scrollToErrorTarget({ type: 'row', rowId: r.id, focusField: val.focusTarget });
         return false;
       }
     }
 
     if (summary.totalMinutes <= 0 && daysPayCount <= 0) {
       setValidationError(
-        'No claimable overtime or days payment recorded. Please enter valid working hours for weekdays or non-working days.'
+        'No claimable overtime recorded yet. Enter Time In and Time Out on at least one working day (worked-but-no-OT days and Leave days do not print).'
       );
+      scrollToErrorTarget({ type: 'timesheet' });
       return false;
     }
 
+    setHighlightedErrorRowId(null);
     return true;
   };
 
   const checkSundayOrHolidayReview = (trigger: 'preview' | 'download' | 'save'): boolean => {
     if (hasReviewedSunday) return true;
     const sundayOrHolidayRows = rows.filter(r => {
+      if (r.isLeave) return false;
       const isSun = r.dayOfWeek === 'Sun' || getDayOfWeek(r.date) === 'Sun';
       const isHol = isRowHoliday(r);
-      return (isSun || isHol) && (r.startTime || r.endTime || r.totalWorkMinutes > 0);
+      return (isSun || isHol) && !!r.isHolidayOverride && (r.startTime || r.endTime || r.totalWorkMinutes > 0);
     });
     if (sundayOrHolidayRows.length > 0) {
       setSundayRowsToReview(sundayOrHolidayRows);
@@ -1655,30 +2004,39 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     }
   };
 
-  // Helper to identify claimed rows (non-claimed days are removed automatically in generation)
+  // Strictly identify OT-claimed rows for submission & PDF print:
+  // Leaves, worked-but-not-OT days (totalMinutes === 0), and unclaimed holidays NEVER print or submit as claimed lines.
   const isClaimedRow = (r: OvertimeRow): boolean => {
-    if (!r.endTime || r.endTime.trim() === '') return false;
-    return (
-      (r.totalMinutes || 0) > 0 ||
-      (r.totalWorkMinutes || 0) > 0 ||
-      !!r.isDaysPayment ||
-      !!r.isHolidayOverride ||
-      (!!r.specialAssignmentHours && r.specialAssignmentHours.trim() !== '')
+    if (r.isLeave) return false;
+    const isHol = isRowHoliday(r);
+    if (isHol && !r.isHolidayOverride) return false;
+
+    const hasValidOt = (r.totalMinutes || 0) > 0;
+    const hasSpecialHours = Boolean(
+      r.specialAssignmentHours &&
+      r.specialAssignmentHours.trim() !== '' &&
+      r.specialAssignmentHours.trim() !== '0' &&
+      r.specialAssignmentHours.trim() !== '00:00'
     );
+    const hasOpAmount = Boolean(
+      (r.daysPaymentAmount || 0) > 0 &&
+      (!!r.startTime?.trim() || !!r.endTime?.trim() || !!r.reason?.trim())
+    );
+    const isSat = r.dayOfWeek === 'Sat' || getDayOfWeek(r.date) === 'Sat';
+    const isQualifiedSatDayPay = isSat && !!r.isDaysPayment && (r.totalWorkMinutes || 0) >= 360;
+
+    return hasValidOt || hasSpecialHours || hasOpAmount || isQualifiedSatDayPay;
   };
 
   const buildClaimRecord = (status: 'draft' | 'submitted' = 'submitted', customRows?: OvertimeRow[]): ClaimRecord => {
     const claimId = activeClaimId || initialClaim?.id || 'clm_' + Date.now();
     const sourceRows = customRows || rows;
-    // Automatically remove non-claimed days in final submission; preserve all rows in drafts
+    // Strictly keep ONLY OT-claimed dates on submitted claims / PDF generation; preserve all rows in drafts
     const claimedRows = sourceRows.filter(isClaimedRow);
-    const activeRows =
-      status === 'draft'
-        ? sourceRows
-        : (claimedRows.length > 0 ? claimedRows : sourceRows.filter(r => r.startTime || r.endTime));
+    const activeRows = status === 'draft' ? sourceRows : claimedRows;
 
     const totalMinutes = activeRows.reduce((acc, r) => acc + (r.totalMinutes || 0), 0);
-    const otDaysCount = activeRows.filter(r => (r.totalMinutes || 0) > 0).length;
+    const otDaysCount = activeRows.filter(r => !r.isLeave && (r.totalMinutes || 0) > 0).length;
     const totalDecimalHours = parseFloat((totalMinutes / 60).toFixed(2));
     const totalHoursFormatted = formatMinutesToTime(totalMinutes, otDisplayFormat);
 
@@ -1687,7 +2045,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       hourlyRate !== '' && !isNaN(Number(hourlyRate))
         ? Math.round(
             activeRows
-              .filter(r => !(r.isSpecialAssignment ?? isSpecialAssignedOt) && !r.isHolidayOverride)
+              .filter(r => !r.isLeave && !(isRowHoliday(r) && !r.isHolidayOverride) && !(r.isSpecialAssignment ?? isSpecialAssignedOt) && !r.isHolidayOverride)
               .reduce((acc, r) => acc + (r.totalMinutes || 0), 0) /
               60 *
               Number(hourlyRate) *
@@ -1695,7 +2053,13 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           ) / 100
         : 0;
 
-    const currentDaysPayCount = activeRows.filter(r => isOtherDayRow(r) && r.totalWorkMinutes > 0).length;
+    const currentDaysPayCount = activeRows.filter(r => {
+      if (r.isLeave) return false;
+      if (!isOtherDayRow(r)) return false;
+      if (isRowHoliday(r) && !r.isHolidayOverride) return false;
+      const isSat = r.dayOfWeek === 'Sat' || getDayOfWeek(r.date) === 'Sat';
+      return isSat ? (r.totalWorkMinutes || 0) >= 360 : (r.totalWorkMinutes || 0) > 0;
+    }).length;
     const currentDaysPayTotal =
       daysPay !== '' && !isNaN(Number(daysPay))
         ? Math.round(currentDaysPayCount * Number(daysPay) * 100) / 100
@@ -1821,6 +2185,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           r: r.reason,
           sp: r.isSpecialAssignment,
           ho: r.isHolidayOverride,
+          lv: r.isLeave,
+          lt: r.leaveType,
         })),
         tot: draftClaim.totalMinutes,
         hr: draftClaim.hourlyRate,
@@ -1948,9 +2314,19 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
   // Trigger confirmation dialog for Save / Submit Claim
   const handleSaveClaim = () => {
-    if (isSavingClaim) return;
+    if (isSavingClaim || isGeneratingPdf) return;
     if (!validateForm()) return;
     if (!checkSundayOrHolidayReview('save')) return;
+    setIsConfirmSaveClaimOpen(true);
+  };
+
+  // Triggered from inside PDF Preview modal: submit OT sheet just like direct Submit button
+  const handleSaveClaimFromPreview = () => {
+    if (isSavingClaim || isGeneratingPdf) return;
+    if (!validateForm()) {
+      setIsPreviewOpen(false);
+      return;
+    }
     setIsConfirmSaveClaimOpen(true);
   };
 
@@ -2037,6 +2413,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
       setClaimSavedSuccess(true);
       setIsConfirmSaveClaimOpen(false);
+      setIsPreviewOpen(false);
       if (onClaimSaved) onClaimSaved(claim);
       setTimeout(() => setClaimSavedSuccess(false), 3000);
     } catch (err) {
@@ -2087,47 +2464,36 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
   // Triggered by "Download PDF" button to start confirmation sequence
   const handleInitiateDownload = () => {
+    if (isGeneratingPdf || isSavingClaim) return;
     if (!validateForm()) return;
     if (!checkSundayOrHolidayReview('download')) return;
     setIsConfirmDownloadOpen(true);
   };
 
-  // Step 1: User confirmed download intent; check for No-OT days (< 15 min OT)
-  // ONLY for valid working days (weekdays, non-holiday), NOT Saturdays or other holidays!
-  const handleConfirmDownloadStep1 = () => {
-    setIsConfirmDownloadOpen(false);
-
-    // Check for valid weekday working days with entered hours that yielded no claimable OT (< 15 mins)
-    const noOtDays = rows.filter(r => {
-      const isWeekday = isWeekdayWorkingDay(r);
-      return isWeekday && (r.startTime || r.endTime || r.totalWorkMinutes > 0) && r.totalMinutes < 15;
-    });
-
-    if (noOtDays.length > 0) {
-      setNoOtRowsDetected(noOtDays);
-      setIsNoOtModalOpen(true);
+  // Triggered from inside PDF Preview modal: download & post as submitted just like direct Download button
+  const handleDownloadFromPreview = () => {
+    if (isGeneratingPdf || isSavingClaim) return;
+    if (!validateForm()) {
+      setIsPreviewOpen(false);
       return;
     }
+    setIsConfirmDownloadOpen(true);
+  };
 
-    // No zero-OT days, proceed directly
+  // Step 1: User confirmed download intent; Leaves, worked-but-no-OT days, and unclaimed holidays
+  // are automatically excluded from printed PDF & submitted claim, so generate & submit directly.
+  const handleConfirmDownloadStep1 = () => {
+    setIsConfirmDownloadOpen(false);
     executeGenerateAndDownload(rows);
   };
 
-  // Step 2: User confirmed removing No-OT days
+  // Step 2: User confirmed removing No-OT days (kept for modal compatibility)
   const handleConfirmRemoveNoOtAndDownload = () => {
     setIsNoOtModalOpen(false);
-    // Remove only the No-OT valid weekday working days; retain other days (Saturdays, holidays with Day's Pay) and valid OT rows
-    const validRows = rows.filter(r => {
-      const isWeekday = isWeekdayWorkingDay(r);
-      const isNoOtWeekday = isWeekday && (r.startTime || r.endTime || r.totalWorkMinutes > 0) && r.totalMinutes < 15;
-      return !isNoOtWeekday;
-    });
-    const finalRows = validRows.length > 0 ? validRows : [createBlankRow()];
-    setRows(finalRows);
-    executeGenerateAndDownload(finalRows);
+    executeGenerateAndDownload(rows);
   };
 
-  // Generates PDF and downloads file
+  // Generates PDF, downloads file, and posts OT sheet as submitted
   const executeGenerateAndDownload = async (claimRows: OvertimeRow[]) => {
     setIsGeneratingPdf(true);
     isSubmittedRef.current = true;
@@ -2171,7 +2537,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       // Record administrative audit log for PDF generation/export
       await recordAuditLog({
         action: 'CLAIM_EXPORT_PDF',
-        actionLabel: 'Exported Official Claim Timesheet PDF',
+        actionLabel: 'Exported & Submitted Official Claim Timesheet PDF',
         targetType: 'claim',
         targetId: claim.id,
         targetDescription: `${claim.claimNumber} (${claim.employeeName} - ${claim.month}/${claim.year})`,
@@ -2181,10 +2547,12 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           totalOtPayment: claim.totalOtPayment,
           month: claim.month,
           year: claim.year,
+          status: claim.status,
         },
       });
 
       setClaimSavedSuccess(true);
+      setIsPreviewOpen(false);
       if (onClaimSaved) onClaimSaved(claim);
       setTimeout(() => setClaimSavedSuccess(false), 3000);
     } catch (err: any) {
@@ -2339,16 +2707,42 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           </div>
         )}
 
-        {/* Validation Error Alert */}
+        {/* Validation Error Alert with Jump-to-Error */}
         {validationError && (
-          <div className="mt-4 p-3.5 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-between text-xs text-rose-800">
-            <div className="flex items-center gap-2">
+          <div
+            ref={validationBannerRef}
+            className="mt-4 p-3.5 rounded-xl bg-rose-50 border border-rose-300 flex flex-wrap items-center justify-between gap-2 text-xs text-rose-900 shadow-2xs"
+          >
+            <div className="flex items-center gap-2 min-w-0">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-              <span>{validationError}</span>
+              <span className="font-medium">{validationError}</span>
             </div>
-            <button onClick={() => setValidationError(null)} className="font-bold text-rose-600">
-              Dismiss
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              {rowsWithIssues.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const firstIssue = rowsWithIssues[0];
+                    const firstVal = getRowValidation(firstIssue);
+                    if (viewMode === 'cards' && cardFilter !== 'all' && cardFilter !== 'issues') {
+                      setCardFilter('all');
+                    }
+                    scrollToErrorTarget({ type: 'row', rowId: firstIssue.id, focusField: firstVal.focusTarget });
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px] transition cursor-pointer inline-flex items-center gap-1"
+                >
+                  <span>Go to Error</span>
+                  <ArrowRight className="w-3 h-3" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setValidationError(null)}
+                className="font-bold text-rose-600 hover:text-rose-800 px-1.5 py-1 cursor-pointer"
+              >
+                Dismiss
+              </button>
+            </div>
           </div>
         )}
 
@@ -2426,7 +2820,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         )}
 
         {/* Read-Only Verified Claimant Particulars (No Change Access) & Period / Special OT Controls */}
-        <div className="mt-4 p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs">
+        <div
+          ref={employeeHeaderRef}
+          className="mt-4 p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs"
+        >
           {/* Claimant Identity (Locked & Verified from Profile) */}
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-600 text-white font-bold text-base shadow-sm shrink-0">
@@ -2782,7 +3179,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
 
       {/* Timesheet Daily Entries Table */}
-      <div className="rounded-2xl bg-white shadow-xs border border-slate-200 overflow-hidden">
+      <div
+        ref={timesheetSectionRef}
+        className="rounded-2xl bg-white shadow-xs border border-slate-200 overflow-hidden"
+      >
         {/* Quick summary strip of active default reasons */}
         <div className="px-5 py-2.5 bg-gradient-to-r from-amber-50/50 via-slate-50 to-indigo-50/30 border-b border-slate-200/80 flex flex-wrap items-center justify-between gap-2 text-xs">
           <div className="flex flex-wrap items-center gap-3">
@@ -2942,7 +3342,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                   <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
                     cardFilter === 'claimed' ? 'bg-white/25 text-white' : 'bg-emerald-100 text-emerald-800'
                   }`}>
-                    {rows.filter(r => (r.totalMinutes || 0) > 0 || (r.totalWorkMinutes || 0) > 0).length}
+                    {rows.filter(isClaimedRow).length}
                   </span>
                 </button>
                 <button
@@ -2966,6 +3366,22 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                   }`}
                 >
                   Saturdays &amp; Holidays ({rows.filter(r => isOtherDayRow(r)).length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCardFilter('leaves')}
+                  className={`px-3 py-1 rounded-lg transition cursor-pointer select-none flex items-center gap-1.5 ${
+                    cardFilter === 'leaves'
+                      ? 'bg-sky-600 text-white shadow-2xs font-bold'
+                      : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                  }`}
+                >
+                  <span>Leaves</span>
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                    cardFilter === 'leaves' ? 'bg-white/25 text-white' : 'bg-sky-100 text-sky-800'
+                  }`}>
+                    {rows.filter(isRowLeave).length}
+                  </span>
                 </button>
                 {showValidationAttention && rowsWithIssuesCount > 0 && (
                   <button
@@ -2994,21 +3410,39 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             </div>
 
             {/* Visual Callout Banner if any day card has issues (only shown after action attempt) */}
-            {showValidationAttention && rowsWithIssuesCount > 0 && cardFilter !== 'issues' && (
-              <div className="p-3 bg-amber-50/90 border border-amber-200 rounded-xl flex items-center justify-between gap-3 text-xs text-amber-900 shadow-2xs">
+            {showValidationAttention && rowsWithIssuesCount > 0 && (
+              <div className="p-3 bg-rose-50/90 border border-rose-200 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs text-rose-900 shadow-2xs">
                 <div className="flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
                   <span>
-                    <strong>{rowsWithIssuesCount} {rowsWithIssuesCount === 1 ? 'day card has' : 'day cards have'} missing or conflicting entries</strong> (e.g. missing Time Out or missing duties). Fix them before saving.
+                    <strong>{rowsWithIssuesCount} {rowsWithIssuesCount === 1 ? 'day entry needs' : 'day entries need'} attention</strong> before submitting or downloading.
                   </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setCardFilter('issues')}
-                  className="text-xs font-bold text-amber-900 bg-amber-200/80 hover:bg-amber-300 px-2.5 py-1 rounded-lg transition shrink-0 cursor-pointer"
-                >
-                  Review {rowsWithIssuesCount} {rowsWithIssuesCount === 1 ? 'Card' : 'Cards'}
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const firstIssue = rowsWithIssues[0];
+                      if (firstIssue) {
+                        const firstVal = getRowValidation(firstIssue);
+                        scrollToErrorTarget({ type: 'row', rowId: firstIssue.id, focusField: firstVal.focusTarget });
+                      }
+                    }}
+                    className="text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 px-3 py-1 rounded-lg transition cursor-pointer inline-flex items-center gap-1"
+                  >
+                    <span>Jump to Issue</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </button>
+                  {cardFilter !== 'issues' && (
+                    <button
+                      type="button"
+                      onClick={() => setCardFilter('issues')}
+                      className="text-xs font-bold text-rose-900 bg-rose-200/80 hover:bg-rose-300 px-2.5 py-1 rounded-lg transition cursor-pointer"
+                    >
+                      Filter ({rowsWithIssuesCount})
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
@@ -3033,20 +3467,31 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
               {visibleCardRows.map(({ row, originalIndex: index }) => {
                 const val = getRowValidation(row);
                 const hasVisualIssue = showValidationAttention && val.hasIssue;
-                const hasOt = (row.totalMinutes || 0) > 0;
+                const isScrolledTarget = highlightedErrorRowId === row.id && val.hasIssue;
+                const isLeave = Boolean(row.isLeave);
+                const hasOt = !isLeave && (row.totalMinutes || 0) > 0;
                 const isSat = row.dayOfWeek === 'Sat' || getDayOfWeek(row.date) === 'Sat';
                 const isSun = row.dayOfWeek === 'Sun' || getDayOfWeek(row.date) === 'Sun';
                 const isHol = isRowHoliday(row);
-                const isOther = isSat || isSun || isHol;
+                const isOther = !isLeave && (isSat || isSun || isHol);
                 const isRowSpecial = row.isSpecialAssignment ?? isSpecialAssignedOt;
                 const holidayInfo = holidayMap.get(row.date);
+                const dayStatus: 'workday' | 'leave' | 'holiday' = isLeave ? 'leave' : isHol ? 'holiday' : 'workday';
+                const hasWorkedNoOt = !isLeave && !(isHol && !row.isHolidayOverride) && !isOther && Boolean(row.startTime && row.endTime) && (row.totalMinutes || 0) === 0;
 
                 return (
                   <div
                     key={row.id}
-                    className={`rounded-2xl border p-4 bg-white transition-all shadow-2xs hover:shadow-md flex flex-col justify-between space-y-3.5 relative ${
-                      hasVisualIssue
-                        ? 'border-rose-400 ring-2 ring-rose-300/50 bg-linear-to-b from-rose-50/20 via-white to-white'
+                    ref={el => {
+                      rowElementRefs.current[row.id] = el;
+                    }}
+                    className={`rounded-2xl border p-4 bg-white transition-all shadow-2xs hover:shadow-md flex flex-col justify-between space-y-3 relative ${
+                      isScrolledTarget
+                        ? 'border-rose-500 ring-4 ring-rose-400/50 bg-linear-to-b from-rose-50/40 via-white to-white'
+                        : hasVisualIssue
+                        ? 'border-rose-400 ring-2 ring-rose-300/60 bg-linear-to-b from-rose-50/25 via-white to-white'
+                        : isLeave
+                        ? 'border-sky-300 bg-linear-to-b from-sky-50/35 to-white'
                         : hasOt
                         ? 'border-indigo-300 ring-1 ring-indigo-200/60 bg-linear-to-b from-indigo-50/25 to-white'
                         : isSat
@@ -3058,7 +3503,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                         : 'border-slate-200/90 hover:border-slate-300'
                     }`}
                   >
-                    {/* 1. Card Top Bar: Day Index, Date, Day Pill, Tag & Actions */}
+                    {/* 1. Card Top Bar: Day Index, Date, Day Label & Row Actions */}
                     <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
                       <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                         <span className="font-mono text-xs font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-md">
@@ -3066,17 +3511,22 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                         </span>
 
                         <input
+                          ref={el => {
+                            dateInputRefs.current[row.id] = el;
+                          }}
                           type="date"
                           value={row.date}
                           onChange={e => updateRowField(index, 'date', e.target.value)}
                           className={`font-mono text-xs font-semibold px-2 py-0.5 rounded-lg border bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                            hasVisualIssue && val.isDuplicateDate ? 'border-rose-400 bg-rose-50/40 text-rose-900 ring-1 ring-rose-300' : 'border-slate-200'
+                            hasVisualIssue && val.isDuplicateDate ? 'border-rose-500 bg-rose-50/50 text-rose-900 ring-1 ring-rose-400' : 'border-slate-200'
                           }`}
                         />
 
                         <span
                           className={`inline-block px-2 py-0.5 rounded-md text-xs font-bold tracking-tight ${
-                            row.isHoliday || isHol
+                            isLeave
+                              ? 'bg-sky-100 text-sky-800 border border-sky-200'
+                              : isHol
                               ? 'bg-rose-100 text-rose-800 border border-rose-200'
                               : isSun
                               ? 'bg-purple-100 text-purple-800 border border-purple-200'
@@ -3087,12 +3537,6 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                         >
                           {row.dayOfWeek || '-'}
                         </span>
-
-                        {isHol && (
-                          <span className="text-[10px] font-semibold text-rose-700 truncate max-w-[110px]" title={row.holidayName || holidayInfo?.name || 'Public Holiday'}>
-                            {row.holidayName || holidayInfo?.name || 'Holiday'}
-                          </span>
-                        )}
 
                         {hasVisualIssue && (
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1 shadow-2xs">
@@ -3108,23 +3552,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                           type="button"
                           onClick={() => handleDuplicateRow(index)}
                           className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
-                          title="Duplicate day"
+                          title="Duplicate day entry"
                         >
                           <Copy className="w-3.5 h-3.5" />
-                        </button>
-
-                        {/* Holiday Toggle (Click to mark or unmark as holiday) */}
-                        <button
-                          type="button"
-                          onClick={() => updateRowField(index, 'isHoliday', !isHol)}
-                          className={`p-1.5 rounded-lg transition cursor-pointer ${
-                            isHol
-                              ? 'bg-rose-100 text-rose-700 hover:bg-rose-200'
-                              : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
-                          }`}
-                          title={isHol ? "Unmark holiday (switch to normal working day)" : "Mark as holiday"}
-                        >
-                          <Tag className="w-3.5 h-3.5" />
                         </button>
 
                         {/* Delete Row */}
@@ -3139,206 +3569,336 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       </div>
                     </div>
 
-                    {/* Duplicate Date Inline Alert (Only shown after action attempt) */}
-                    {hasVisualIssue && val.isDuplicateDate && (
-                      <div className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-1 rounded-lg border border-rose-200 flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3 text-rose-600 shrink-0" />
-                        <span>Duplicate date: {row.date} is entered on multiple day cards</span>
-                      </div>
-                    )}
-
-                    {/* Holiday Alert & Override Banner */}
-                    {isHol && (
-                      <div className={`p-2.5 rounded-xl border text-xs flex items-center justify-between gap-2 transition ${
-                        row.isHolidayOverride
-                          ? 'bg-amber-100/70 border-amber-300 text-amber-900'
-                          : 'bg-slate-100 border-slate-200 text-slate-600'
-                      }`}>
-                        <div className="flex items-center gap-1.5">
-                          <AlertTriangle className={`w-3.5 h-3.5 shrink-0 ${row.isHolidayOverride ? 'text-amber-600 animate-pulse' : 'text-slate-400'}`} />
-                          <span className="text-[11px] font-medium">
-                            {row.isHolidayOverride ? "Holiday Overridden (Claiming OT)" : "Holiday / Non-working day"}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => toggleHolidayOverride(index)}
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded-md transition cursor-pointer ${
-                            row.isHolidayOverride
-                              ? 'bg-amber-600 text-white shadow-2xs'
-                              : 'bg-white text-amber-800 border border-amber-300 hover:bg-amber-50'
-                          }`}
-                        >
-                          {row.isHolidayOverride ? "Override Active ✓" : "Override OT"}
-                        </button>
-                      </div>
-                    )}
-
-                    {/* 2. Duties & Nature of Work */}
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between text-[11px]">
-                        <label className="font-bold text-slate-600">
-                          Duties / Nature of Work
-                        </label>
-                        {isSat && !row.reason && (
-                          <span className="text-[10px] text-amber-700 font-medium">Saturday Duty</span>
-                        )}
-                      </div>
-                      <input
-                        type="text"
-                        disabled={isHol && !row.isHolidayOverride}
-                        value={row.reason}
-                        onChange={e => updateRowField(index, 'reason', e.target.value)}
-                        placeholder={
-                          isHol && !row.isHolidayOverride
-                            ? "Holiday / Off Day (Click 'Override' to enter duties)"
-                            : (isSat ? "Saturday Duty..." : "Duties performed...")
-                        }
-                        className={`w-full rounded-xl border px-3 py-1.5 text-xs transition ${
-                          showValidationAttention && val.isMissingReason
-                            ? 'border-amber-400 ring-1 ring-amber-300 bg-amber-50/20 text-slate-800 focus:border-amber-500'
-                            : isHol && !row.isHolidayOverride
-                            ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed select-none'
-                            : 'border-slate-200 bg-white text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
-                        }`}
-                      />
-                      {showValidationAttention && val.isMissingReason && (
-                        <div className="text-[10px] font-bold text-amber-700 flex items-center gap-1 mt-1">
-                          <AlertCircle className="w-3 h-3 text-amber-600 shrink-0" />
-                          <span>Duties required: Please specify duties performed for claimed hours</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* 3. Modern Scrollable Time In & Time Out section with AM/PM (No rotatable dial) */}
-                    <div className="grid grid-cols-2 gap-2.5 pt-0.5">
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
-                            <span>Time In</span>
-                          </label>
-                        </div>
-                        <ScrollableTimePicker
-                          isTimeIn={true}
-                          disabled={isHol && !row.isHolidayOverride}
-                          value={(isHol && !row.isHolidayOverride) ? '' : row.startTime}
-                          onChange={val => updateRowField(index, 'startTime', val)}
-                          label="Time In (Start)"
-                          placeholder="Select In"
-                        />
-                      </div>
-
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 inline-block"></span>
-                            <span>Time Out</span>
-                          </label>
-                        </div>
-                        <ScrollableTimePicker
-                          isTimeIn={false}
-                          disabled={isHol && !row.isHolidayOverride}
-                          value={(isHol && !row.isHolidayOverride) ? '' : row.endTime}
-                          onChange={val => updateRowField(index, 'endTime', val)}
-                          label="Time Out (End)"
-                          placeholder="Select Out"
-                          disableSession={row.startTime ? parse24To12(row.startTime).period : null}
-                          autoSession={row.startTime ? (parse24To12(row.startTime).period === 'AM' ? 'PM' : 'AM') : 'PM'}
-                        />
-                      </div>
-
-                      {/* Conflict & Missing Field Warning Messages for Time Section (Only shown after action attempt) */}
-                      {showValidationAttention && val.hasSameSession && (
-                        <div className="col-span-2 text-[10px] font-bold text-rose-600 flex items-center gap-1 mt-0.5">
-                          <AlertCircle className="w-3 h-3 shrink-0" />
-                          <span>Same session conflict: Time In and Time Out cannot both be {row.startTime ? parse24To12(row.startTime).period : 'AM/PM'}. If In is AM, Out must be PM.</span>
-                        </div>
-                      )}
-                      {showValidationAttention && val.isMissingTimeOut && (
-                        <div className="col-span-2 text-[10px] font-bold text-rose-600 flex items-center gap-1 mt-0.5">
-                          <AlertCircle className="w-3 h-3 shrink-0" />
-                          <span>Missing Time Out: Starting time is entered, please provide Time Out</span>
-                        </div>
-                      )}
-                      {showValidationAttention && val.isMissingTimeIn && (
-                        <div className="col-span-2 text-[10px] font-bold text-rose-600 flex items-center gap-1 mt-0.5">
-                          <AlertCircle className="w-3 h-3 shrink-0" />
-                          <span>Missing Time In: Ending time is entered, please provide Time In</span>
-                        </div>
-                      )}
-                      {showValidationAttention && val.isZeroDuration && (
-                        <div className="col-span-2 text-[10px] font-bold text-rose-600 flex items-center gap-1 mt-0.5">
-                          <AlertCircle className="w-3 h-3 shrink-0" />
-                          <span>Time conflict: Time In and Time Out cannot be identical ({row.startTime})</span>
-                        </div>
-                      )}
-                      {showValidationAttention && val.isHolidayNotOverridden && (
-                        <div className="col-span-2 text-[10px] font-bold text-amber-700 flex items-center gap-1 mt-0.5">
-                          <AlertCircle className="w-3 h-3 shrink-0" />
-                          <span>Holiday: Click &apos;Override OT&apos; above to claim overtime on this holiday</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* 4. Card Bottom Strip: Worked Time, Outcome OT Badge, and Special OT Checkbox */}
-                    <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between gap-2 flex-wrap text-xs">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {row.totalWorkMinutes > 0 ? (
-                          <span className="text-[11px] font-mono font-semibold text-slate-600 bg-white px-2 py-0.5 rounded-md border border-slate-200">
-                            {formatMinutesToTime(row.totalWorkMinutes, 'hhmm')} worked
-                          </span>
-                        ) : (
-                          <span className="text-[11px] text-slate-400">-</span>
-                        )}
-
-                        {row.isHolidayOverride && hasOt ? (
-                          <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
-                            Col B: {row.totalFormatted}
-                          </span>
-                        ) : isRowSpecial && hasOt ? (
-                          <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
-                            Col B: {row.totalFormatted} (Special)
-                          </span>
-                        ) : hasOt ? (
-                          <div className="flex items-center gap-1">
-                            {isOther ? (
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded border bg-amber-50 text-amber-900 border-amber-300 shadow-2xs">
-                                Day&apos;s Pay + ({row.totalFormatted} OT)
-                              </span>
-                            ) : (
-                              <span className="font-mono text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded">
-                                Col A: {row.totalFormatted}
-                              </span>
-                            )}
-                            {row.isLateDisqualified && (
-                              <span className="text-[9px] font-bold text-rose-700 bg-rose-50 px-1 rounded border border-rose-200">
-                                Late 0 OT
-                              </span>
-                            )}
-                          </div>
-                        ) : isOther && row.totalWorkMinutes > 0 ? (
-                          <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded border bg-amber-50 text-amber-800 border-amber-200">
-                            Day&apos;s Pay
-                          </span>
-                        ) : null}
-                      </div>
-
-                      {/* Special OT toggle button */}
+                    {/* 1B. Clear, Plain-Language Day Status Selector (Workday / Leave / Holiday) */}
+                    <div className="flex items-center justify-between gap-2 bg-slate-100/80 p-1 rounded-xl border border-slate-200/80 text-[11px] font-semibold">
                       <button
                         type="button"
-                        onClick={() => updateRowField(index, 'isSpecialAssignment', !isRowSpecial)}
-                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border transition cursor-pointer select-none ${
-                          isRowSpecial
-                            ? 'bg-emerald-600 text-white border-emerald-700 shadow-2xs'
-                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                        onClick={() => setRowDayStatus(index, 'workday')}
+                        className={`flex-1 inline-flex items-center justify-center gap-1 py-1 px-2 rounded-lg transition cursor-pointer ${
+                          dayStatus === 'workday'
+                            ? 'bg-white text-indigo-700 shadow-2xs font-bold border border-slate-200/80'
+                            : 'text-slate-600 hover:text-slate-900'
                         }`}
-                        title="Special Assigned OT (moves to Column B, no daily limit)"
                       >
-                        <Check className={`w-3 h-3 ${isRowSpecial ? 'text-white' : 'text-slate-300'}`} />
-                        <span>Special OT</span>
+                        <Briefcase className="w-3 h-3 shrink-0" />
+                        <span>Workday</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRowDayStatus(index, 'leave')}
+                        className={`flex-1 inline-flex items-center justify-center gap-1 py-1 px-2 rounded-lg transition cursor-pointer ${
+                          dayStatus === 'leave'
+                            ? 'bg-sky-600 text-white shadow-2xs font-bold'
+                            : 'text-slate-600 hover:text-sky-700'
+                        }`}
+                      >
+                        <CalendarOff className="w-3 h-3 shrink-0" />
+                        <span>Leave</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRowDayStatus(index, 'holiday')}
+                        className={`flex-1 inline-flex items-center justify-center gap-1 py-1 px-2 rounded-lg transition cursor-pointer ${
+                          dayStatus === 'holiday'
+                            ? 'bg-rose-600 text-white shadow-2xs font-bold'
+                            : 'text-slate-600 hover:text-rose-700'
+                        }`}
+                      >
+                        <Calendar className="w-3 h-3 shrink-0" />
+                        <span>Holiday</span>
                       </button>
                     </div>
+
+                    {/* Leave Mode Box */}
+                    {isLeave && (
+                      <div className="p-3 rounded-xl bg-sky-50 border border-sky-200 space-y-2.5 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-bold text-sky-900 flex items-center gap-1.5">
+                            <CalendarOff className="w-3.5 h-3.5 text-sky-600" />
+                            <span>On Leave</span>
+                          </span>
+                          <span className="text-[10px] font-semibold text-sky-700">
+                            Excluded from OT sheet PDF
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 items-center">
+                          <label className="text-[11px] font-semibold text-slate-600">Leave Type:</label>
+                          <select
+                            value={row.leaveType || 'Full Day'}
+                            onChange={e => updateRowLeaveType(index, e.target.value)}
+                            className="rounded-lg border border-sky-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-sky-500 cursor-pointer"
+                          >
+                            <option value="Full Day">Full Day Leave</option>
+                            <option value="Half Day">Half Day Leave</option>
+                            <option value="Annual Leave">Annual Leave</option>
+                            <option value="Casual Leave">Casual Leave</option>
+                            <option value="Medical Leave">Medical Leave</option>
+                            <option value="Short Leave">Short Leave</option>
+                          </select>
+                        </div>
+
+                        <input
+                          type="text"
+                          value={row.reason}
+                          onChange={e => updateRowField(index, 'reason', e.target.value)}
+                          placeholder="Optional leave note (not printed)..."
+                          className="w-full rounded-lg border border-sky-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                        />
+                      </div>
+                    )}
+
+                    {/* Holiday Banner with Clear Plain-Language Toggle */}
+                    {!isLeave && isHol && (
+                      <div className={`p-2.5 rounded-xl border text-xs space-y-1.5 transition ${
+                        row.isHolidayOverride
+                          ? 'bg-amber-50 border-amber-300 text-amber-950'
+                          : 'bg-rose-50/60 border-rose-200 text-rose-900'
+                      }`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-bold truncate">
+                              {row.holidayName || holidayInfo?.name || (isSun ? 'Sunday' : 'Public Holiday')}
+                            </p>
+                            <p className="text-[10px] opacity-80">
+                              {row.isHolidayOverride
+                                ? 'Worked on holiday — enter duties & times below to claim OT'
+                                : "Holiday off-day (won't print on OT sheet)"}
+                            </p>
+                          </div>
+                        </div>
+                        <label className="flex items-center gap-2 pt-1 border-t border-black/10 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={!!row.isHolidayOverride}
+                            onChange={() => toggleHolidayOverride(index)}
+                            className="w-3.5 h-3.5 rounded text-amber-600 focus:ring-amber-500 border-amber-400 cursor-pointer"
+                          />
+                          <span className="text-[11px] font-bold">
+                            {row.isHolidayOverride ? 'Claiming Holiday OT (Active)' : 'I worked on this holiday — Claim OT'}
+                          </span>
+                        </label>
+                      </div>
+                    )}
+
+                    {/* 2 & 3. Duties + Times (Hidden/disabled gracefully when on Leave) */}
+                    {!isLeave && (
+                      <>
+                        {/* 2. Duties & Nature of Work */}
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-[11px]">
+                            <label className="font-bold text-slate-600">
+                              Duties / Nature of Work
+                            </label>
+                            {isSat && !row.reason && (
+                              <span className="text-[10px] text-amber-700 font-medium">Saturday Duty</span>
+                            )}
+                          </div>
+                          <input
+                            ref={el => {
+                              reasonInputRefs.current[row.id] = el;
+                            }}
+                            type="text"
+                            disabled={isHol && !row.isHolidayOverride}
+                            value={row.reason}
+                            onChange={e => updateRowField(index, 'reason', e.target.value)}
+                            placeholder={
+                              isHol && !row.isHolidayOverride
+                                ? 'Tick "I worked on this holiday" above to edit'
+                                : (isSat ? 'Saturday Duty...' : 'Enter duties performed...')
+                            }
+                            className={`w-full rounded-xl border px-3 py-1.5 text-xs transition ${
+                              hasVisualIssue && val.isMissingReason
+                                ? 'border-rose-500 ring-2 ring-rose-300 bg-rose-50/40 text-slate-900 focus:border-rose-600'
+                                : isHol && !row.isHolidayOverride
+                                ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed select-none'
+                                : 'border-slate-200 bg-white text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
+                            }`}
+                          />
+                        </div>
+
+                        {/* 3. Modern Scrollable Time In & Time Out section with AM/PM */}
+                        <div className="grid grid-cols-2 gap-2.5 pt-0.5">
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+                                <span>Time In</span>
+                              </label>
+                            </div>
+                            <ScrollableTimePicker
+                              isTimeIn={true}
+                              disabled={isHol && !row.isHolidayOverride}
+                              value={(isHol && !row.isHolidayOverride) ? '' : row.startTime}
+                              onChange={val => updateRowField(index, 'startTime', val)}
+                              label="Time In (Start)"
+                              placeholder="Select In"
+                            />
+                          </div>
+
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 inline-block"></span>
+                                <span>Time Out</span>
+                              </label>
+                            </div>
+                            <ScrollableTimePicker
+                              isTimeIn={false}
+                              disabled={isHol && !row.isHolidayOverride}
+                              value={(isHol && !row.isHolidayOverride) ? '' : row.endTime}
+                              onChange={val => updateRowField(index, 'endTime', val)}
+                              label="Time Out (End)"
+                              placeholder="Select Out"
+                              disableSession={row.startTime ? parse24To12(row.startTime).period : null}
+                              autoSession={row.startTime ? (parse24To12(row.startTime).period === 'AM' ? 'PM' : 'AM') : 'PM'}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Friendly Inline Error Guidance + 1-Click Fix Buttons */}
+                        {hasVisualIssue && val.friendlyMessage && (
+                          <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-300 text-rose-900 text-[11px] space-y-2">
+                            <div className="flex items-start gap-1.5 font-semibold">
+                              <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0 mt-0.5" />
+                              <span>{val.friendlyMessage}</span>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              {val.hasSameSession && (
+                                <button
+                                  type="button"
+                                  onClick={() => fixSameSessionRow(index)}
+                                  className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] cursor-pointer transition"
+                                >
+                                  Switch Out to {row.startTime && parse24To12(row.startTime).period === 'AM' ? 'PM' : 'AM'}
+                                </button>
+                              )}
+                              {val.isMissingTimeIn && (
+                                <button
+                                  type="button"
+                                  onClick={() => updateRowField(index, 'startTime', userShiftStartTime || GENERAL_SHIFT_START)}
+                                  className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] cursor-pointer transition"
+                                >
+                                  Set Time In ({userShiftStartTime || GENERAL_SHIFT_START})
+                                </button>
+                              )}
+                              {val.isMissingReason && defaultWeekdayReason && (
+                                <button
+                                  type="button"
+                                  onClick={() => updateRowField(index, 'reason', isSat ? (defaultSaturdayReason || 'Saturday Duty') : defaultWeekdayReason)}
+                                  className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] cursor-pointer transition"
+                                >
+                                  Fill Default Duties
+                                </button>
+                              )}
+                              {val.isHolidayNotOverridden && (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleHolidayOverride(index)}
+                                  className="px-2 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] cursor-pointer transition"
+                                >
+                                  Enable Holiday OT
+                                </button>
+                              )}
+                              {val.isDuplicateDate && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteRow(index)}
+                                  className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] cursor-pointer transition"
+                                >
+                                  Remove Duplicate
+                                </button>
+                              )}
+                              {(val.isMissingTimeOut || val.isMissingTimeIn || val.isZeroDuration || val.isHolidayNotOverridden) && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => clearRowEntry(index)}
+                                    className="px-2 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 font-semibold text-[10px] cursor-pointer inline-flex items-center gap-1 transition"
+                                  >
+                                    <Eraser className="w-2.5 h-2.5" />
+                                    <span>Clear Times</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setRowDayStatus(index, 'leave')}
+                                    className="px-2 py-1 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-300 font-semibold text-[10px] cursor-pointer transition"
+                                  >
+                                    Mark Leave
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Worked-but-no-OT notice */}
+                        {hasWorkedNoOt && (
+                          <div className="px-2.5 py-1.5 rounded-lg bg-slate-100 border border-slate-200 text-[10px] font-medium text-slate-600">
+                            Normal shift / &lt;15m OT (0:00 OT) — will not print on OT sheet
+                          </div>
+                        )}
+
+                        {/* 4. Card Bottom Strip: Worked Time, Outcome OT Badge, and Special OT Checkbox */}
+                        <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between gap-2 flex-wrap text-xs">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {row.totalWorkMinutes > 0 ? (
+                              <span className="text-[11px] font-mono font-semibold text-slate-600 bg-white px-2 py-0.5 rounded-md border border-slate-200">
+                                {formatMinutesToTime(row.totalWorkMinutes, 'hhmm')} worked
+                              </span>
+                            ) : (
+                              <span className="text-[11px] text-slate-400">-</span>
+                            )}
+
+                            {row.isHolidayOverride && hasOt ? (
+                              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                Col B: {row.totalFormatted}
+                              </span>
+                            ) : isRowSpecial && hasOt ? (
+                              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                Col B: {row.totalFormatted} (Special)
+                              </span>
+                            ) : hasOt ? (
+                              <div className="flex items-center gap-1">
+                                {isOther ? (
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded border bg-amber-50 text-amber-900 border-amber-300 shadow-2xs">
+                                    Day&apos;s Pay + ({row.totalFormatted} OT)
+                                  </span>
+                                ) : (
+                                  <span className="font-mono text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded">
+                                    Col A: {row.totalFormatted}
+                                  </span>
+                                )}
+                                {row.isLateDisqualified && (
+                                  <span className="text-[9px] font-bold text-rose-700 bg-rose-50 px-1 rounded border border-rose-200">
+                                    Late 0 OT
+                                  </span>
+                                )}
+                              </div>
+                            ) : isOther && row.totalWorkMinutes > 0 && !(isHol && !row.isHolidayOverride) ? (
+                              <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded border bg-amber-50 text-amber-800 border-amber-200">
+                                Day&apos;s Pay
+                              </span>
+                            ) : null}
+                          </div>
+
+                          {/* Special OT toggle button */}
+                          <button
+                            type="button"
+                            onClick={() => updateRowField(index, 'isSpecialAssignment', !isRowSpecial)}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border transition cursor-pointer select-none ${
+                              isRowSpecial
+                                ? 'bg-emerald-600 text-white border-emerald-700 shadow-2xs'
+                                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                            }`}
+                            title="Special Assigned OT (moves to Column B, no daily limit)"
+                          >
+                            <Check className={`w-3 h-3 ${isRowSpecial ? 'text-white' : 'text-slate-300'}`} />
+                            <span>Special OT</span>
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 );
               })}
@@ -3349,15 +3909,15 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         {/* Tabular Spreadsheet View (Available when user switches to Table) */}
         {viewMode === 'table' && (
           <div className="overflow-x-auto w-full rounded-xl border border-slate-200 bg-white">
-            <table className="w-full min-w-[820px] table-fixed text-left border-collapse text-xs">
+            <table className="w-full min-w-[920px] table-fixed text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-100 text-slate-700 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200">
-                <th className="py-2 px-1 w-6 text-center">#</th>
-                <th className="py-2 px-1.5 w-28">Date &amp; Day</th>
-                <th className="py-2 px-1.5 w-28 text-center">Holiday / Override</th>
+                <th className="py-2 px-1 w-8 text-center">#</th>
+                <th className="py-2 px-1.5 w-32">Date &amp; Day</th>
+                <th className="py-2 px-1.5 w-40 text-center">Day Status</th>
                 <th className="py-2 px-2">Duties / Nature of Work</th>
-                <th className="py-2 px-1 w-24 text-center">Time In</th>
-                <th className="py-2 px-1 w-24 text-center">Time Out</th>
+                <th className="py-2 px-1 w-28 text-center">Time In</th>
+                <th className="py-2 px-1 w-28 text-center">Time Out</th>
                 <th className="py-2 px-1 w-14 text-center">Worked</th>
                 <th className="py-2 px-1 w-28 text-center" title="Column A: Regular Weekday &amp; Non-working Day Overtime">OT (A)</th>
                 <th className="py-2 px-1 w-16 text-center" title="Column B: Special Assigned OT &amp; Holiday Overridden Overtime">OT (B)</th>
@@ -3369,19 +3929,29 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
               {rows.map((row, index) => {
                 const val = getRowValidation(row);
                 const hasVisualIssue = showValidationAttention && val.hasIssue;
-                const hasOt = row.totalMinutes > 0;
+                const isScrolledTarget = highlightedErrorRowId === row.id && val.hasIssue;
+                const isLeave = Boolean(row.isLeave);
+                const hasOt = !isLeave && row.totalMinutes > 0;
                 const isSat = row.dayOfWeek === 'Sat' || getDayOfWeek(row.date) === 'Sat';
                 const isSun = row.dayOfWeek === 'Sun' || getDayOfWeek(row.date) === 'Sun';
                 const isHol = isRowHoliday(row);
-                const isOther = isSat || isSun || isHol;
+                const isOther = !isLeave && (isSat || isSun || isHol);
                 const isRowSpecial = row.isSpecialAssignment ?? isSpecialAssignedOt;
+                const dayStatus: 'workday' | 'leave' | 'holiday' = isLeave ? 'leave' : isHol ? 'holiday' : 'workday';
 
                 return (
                   <tr
                     key={row.id}
+                    ref={el => {
+                      rowElementRefs.current[row.id] = el;
+                    }}
                     className={`transition-colors ${
-                      hasVisualIssue
-                        ? 'bg-rose-50/60 hover:bg-rose-100/60'
+                      isScrolledTarget
+                        ? 'bg-rose-100/80 ring-2 ring-inset ring-rose-400'
+                        : hasVisualIssue
+                        ? 'bg-rose-50/70 hover:bg-rose-100/60'
+                        : isLeave
+                        ? 'bg-sky-50/50 hover:bg-sky-50/80'
                         : hasOt
                         ? 'bg-indigo-50/20 hover:bg-slate-50/80'
                         : 'hover:bg-slate-50/80'
@@ -3392,8 +3962,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       <div className="flex items-center justify-center gap-1">
                         <span>{index + 1}</span>
                         {hasVisualIssue && (
-                          <span title={val.primaryIssue || 'Issue'} className="cursor-help">
-                            <AlertCircle className="w-3 h-3 text-rose-600 inline" />
+                          <span title={val.friendlyMessage || val.primaryIssue || 'Issue'} className="cursor-help">
+                            <AlertCircle className="w-3.5 h-3.5 text-rose-600 inline" />
                           </span>
                         )}
                       </div>
@@ -3403,14 +3973,21 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                     <td className="py-2 px-1.5">
                       <div className="flex items-center gap-1">
                         <input
+                          ref={el => {
+                            if (viewMode === 'table') dateInputRefs.current[row.id] = el;
+                          }}
                           type="date"
                           value={row.date}
                           onChange={e => updateRowField(index, 'date', e.target.value)}
-                          className="w-full min-w-0 rounded-md border border-slate-200 bg-white px-1 py-1 text-xs text-slate-800 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          className={`w-full min-w-0 rounded-md border bg-white px-1 py-1 text-xs text-slate-800 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                            hasVisualIssue && val.isDuplicateDate ? 'border-rose-500 bg-rose-50' : 'border-slate-200'
+                          }`}
                         />
                         <span
                           className={`inline-block px-1 py-0.5 rounded text-[10px] font-bold shrink-0 ${
-                            row.isHoliday || isHol
+                            isLeave
+                              ? 'bg-sky-100 text-sky-800'
+                              : isHol
                               ? 'bg-rose-100 text-rose-800'
                               : isSun
                               ? 'bg-purple-100 text-purple-800'
@@ -3424,33 +4001,57 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       </div>
                     </td>
 
-                    {/* Holiday Status & Holiday Override Checkbox with Caution Icon */}
+                    {/* Day Status: Workday / Leave / Holiday + Holiday Claim OT */}
                     <td className="py-2 px-1.5 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        {isHol ? (
+                      <div className="flex flex-col items-center gap-1">
+                        <select
+                          value={dayStatus}
+                          onChange={e => setRowDayStatus(index, e.target.value as 'workday' | 'leave' | 'holiday')}
+                          className={`w-full rounded-md border px-1.5 py-1 text-[11px] font-bold cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                            dayStatus === 'leave'
+                              ? 'border-sky-300 bg-sky-100 text-sky-900'
+                              : dayStatus === 'holiday'
+                              ? 'border-rose-300 bg-rose-50 text-rose-900'
+                              : 'border-slate-200 bg-white text-slate-700'
+                          }`}
+                        >
+                          <option value="workday">Workday</option>
+                          <option value="leave">Leave</option>
+                          <option value="holiday">Holiday</option>
+                        </select>
+
+                        {isLeave && (
+                          <select
+                            value={row.leaveType || 'Full Day'}
+                            onChange={e => updateRowLeaveType(index, e.target.value)}
+                            className="w-full rounded-md border border-sky-200 bg-white px-1 py-0.5 text-[10px] font-semibold text-sky-900 cursor-pointer"
+                          >
+                            <option value="Full Day">Full Day</option>
+                            <option value="Half Day">Half Day</option>
+                            <option value="Annual Leave">Annual</option>
+                            <option value="Casual Leave">Casual</option>
+                            <option value="Medical Leave">Medical</option>
+                            <option value="Short Leave">Short Leave</option>
+                          </select>
+                        )}
+
+                        {!isLeave && isHol && (
                           <label
-                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-lg border text-[10px] font-bold cursor-pointer select-none transition ${
+                            className={`w-full inline-flex items-center justify-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] font-bold cursor-pointer select-none transition ${
                               row.isHolidayOverride
-                                ? 'bg-amber-100 text-amber-900 border-amber-300 shadow-2xs'
-                                : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                                ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                             }`}
-                            title="Tick override checkbox to enable in/out times and claim overtime on holidays (Adds to Column B)"
+                            title="Tick if you worked on this holiday and want to claim OT"
                           >
                             <input
                               type="checkbox"
                               checked={!!row.isHolidayOverride}
                               onChange={() => toggleHolidayOverride(index)}
-                              className="w-3.5 h-3.5 rounded text-amber-600 focus:ring-amber-500 border-amber-300 cursor-pointer"
+                              className="w-3 h-3 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
                             />
-                            <span>{row.isHolidayOverride ? 'Override' : 'Holiday'}</span>
-                            {row.isHolidayOverride && (
-                              <span title="Caution: Holiday Overridden" className="inline-flex items-center">
-                                <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0 animate-pulse" />
-                              </span>
-                            )}
+                            <span>{row.isHolidayOverride ? 'Claiming OT' : 'Claim OT?'}</span>
                           </label>
-                        ) : (
-                          <span className="text-[11px] text-slate-400 font-medium">Regular</span>
                         )}
                       </div>
                     </td>
@@ -3458,60 +4059,103 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                     {/* Reason / Duties */}
                     <td className="py-2 px-2">
                       <input
+                        ref={el => {
+                          if (viewMode === 'table') reasonInputRefs.current[row.id] = el;
+                        }}
                         type="text"
-                        disabled={isHol && !row.isHolidayOverride}
+                        disabled={!isLeave && isHol && !row.isHolidayOverride}
                         value={row.reason}
                         onChange={e => updateRowField(index, 'reason', e.target.value)}
-                        placeholder={isHol && !row.isHolidayOverride ? "Holiday / Off Day (Tick override to edit)" : (isSat ? "Saturday Duty..." : "Duties performed...")}
-                        title={isHol && !row.isHolidayOverride ? "Holidays: Tick 'Override' to enter reason" : "Duties performed"}
+                        placeholder={
+                          isLeave
+                            ? `Leave note (${row.leaveType || 'Full Day'})...`
+                            : isHol && !row.isHolidayOverride
+                            ? 'Holiday off-day (tick Claim OT to edit)'
+                            : (isSat ? 'Saturday Duty...' : 'Duties performed...')
+                        }
                         className={`w-full rounded-md border px-2 py-1 text-xs truncate focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                          isHol && !row.isHolidayOverride
+                          hasVisualIssue && val.isMissingReason
+                            ? 'border-rose-500 bg-rose-50 text-rose-900'
+                            : !isLeave && isHol && !row.isHolidayOverride
                             ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed select-none'
                             : 'border-slate-200 bg-white text-slate-800'
                         }`}
                       />
+                      {hasVisualIssue && val.friendlyMessage && (
+                        <div className="mt-1 flex items-center gap-1.5 text-[10px] font-bold text-rose-700">
+                          <span className="truncate">{val.friendlyMessage}</span>
+                          {val.hasSameSession && (
+                            <button
+                              type="button"
+                              onClick={() => fixSameSessionRow(index)}
+                              className="shrink-0 px-1.5 py-0.5 rounded bg-rose-600 text-white hover:bg-rose-700 cursor-pointer"
+                            >
+                              Fix AM/PM
+                            </button>
+                          )}
+                          {(val.isMissingTimeOut || val.isZeroDuration) && (
+                            <button
+                              type="button"
+                              onClick={() => clearRowEntry(index)}
+                              className="shrink-0 px-1.5 py-0.5 rounded bg-slate-200 text-slate-800 hover:bg-slate-300 cursor-pointer"
+                            >
+                              Clear
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </td>
 
-                    {/* Time In (Modern Scrollable Control with AM/PM) */}
+                    {/* Time In */}
                     <td className="py-2 px-1 text-center min-w-[130px]">
-                      <ScrollableTimePicker
-                        isTimeIn={true}
-                        disabled={isHol && !row.isHolidayOverride}
-                        value={(isHol && !row.isHolidayOverride) ? '' : row.startTime}
-                        onChange={val => updateRowField(index, 'startTime', val)}
-                        label="Time In (Start)"
-                        placeholder="Time In"
-                      />
+                      {isLeave ? (
+                        <span className="text-[11px] font-semibold text-sky-700">On Leave</span>
+                      ) : (
+                        <ScrollableTimePicker
+                          isTimeIn={true}
+                          disabled={isHol && !row.isHolidayOverride}
+                          value={(isHol && !row.isHolidayOverride) ? '' : row.startTime}
+                          onChange={val => updateRowField(index, 'startTime', val)}
+                          label="Time In (Start)"
+                          placeholder="Time In"
+                        />
+                      )}
                     </td>
 
-                    {/* Time Out (Modern Scrollable Control with AM/PM) */}
+                    {/* Time Out */}
                     <td className="py-2 px-1 text-center min-w-[130px]">
-                      <ScrollableTimePicker
-                        isTimeIn={false}
-                        disabled={isHol && !row.isHolidayOverride}
-                        value={(isHol && !row.isHolidayOverride) ? '' : row.endTime}
-                        onChange={val => updateRowField(index, 'endTime', val)}
-                        label="Time Out (End)"
-                        placeholder="Time Out"
-                        disableSession={row.startTime ? parse24To12(row.startTime).period : null}
-                        autoSession={row.startTime ? (parse24To12(row.startTime).period === 'AM' ? 'PM' : 'AM') : 'PM'}
-                      />
+                      {isLeave ? (
+                        <span className="text-[11px] text-slate-400">—</span>
+                      ) : (
+                        <ScrollableTimePicker
+                          isTimeIn={false}
+                          disabled={isHol && !row.isHolidayOverride}
+                          value={(isHol && !row.isHolidayOverride) ? '' : row.endTime}
+                          onChange={val => updateRowField(index, 'endTime', val)}
+                          label="Time Out (End)"
+                          placeholder="Time Out"
+                          disableSession={row.startTime ? parse24To12(row.startTime).period : null}
+                          autoSession={row.startTime ? (parse24To12(row.startTime).period === 'AM' ? 'PM' : 'AM') : 'PM'}
+                        />
+                      )}
                     </td>
 
                     {/* Worked */}
                     <td className="py-2 px-1 text-center font-mono text-[11px] text-slate-600">
-                      {row.isHolidayOverride && row.totalWorkMinutes > 0 ? (
+                      {!isLeave && row.isHolidayOverride && row.totalWorkMinutes > 0 ? (
                         <span className="font-bold text-amber-800">{formatMinutesToTime(row.totalWorkMinutes, 'hhmm')}</span>
-                      ) : row.totalWorkMinutes > 0 ? (
+                      ) : !isLeave && row.totalWorkMinutes > 0 ? (
                         <span>{formatMinutesToTime(row.totalWorkMinutes, 'hhmm')}</span>
                       ) : (
                         <span className="text-slate-300">-</span>
                       )}
                     </td>
 
-                    {/* Overtime (A): Regular Weekday Overtime OR Saturday / Non-working Day OT */}
+                    {/* Overtime (A) */}
                     <td className="py-2 px-1 text-center font-mono text-xs font-bold">
-                      {!isRowSpecial && !row.isHolidayOverride && hasOt ? (
+                      {isLeave ? (
+                        <span className="text-[10px] font-semibold text-sky-700">Excluded</span>
+                      ) : !isRowSpecial && !row.isHolidayOverride && hasOt ? (
                         isOther ? (
                           <span className="inline-block px-1.5 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-300 text-[10px] font-bold shadow-2xs whitespace-nowrap" title="Saturday / Non-working day OT">
                             Day&apos;s Pay + ({row.totalFormatted} OT)
@@ -3519,7 +4163,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                         ) : (
                           <span className="text-indigo-600">{row.totalFormatted || '00:00'}</span>
                         )
-                      ) : isOther && row.totalWorkMinutes > 0 ? (
+                      ) : !isLeave && isOther && row.totalWorkMinutes > 0 && !(isHol && !row.isHolidayOverride) ? (
                         <span className="inline-block px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-bold">
                           Day&apos;s Pay
                         </span>
@@ -3528,9 +4172,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       )}
                     </td>
 
-                    {/* Overtime (B): Special Assigned OT OR Holiday Overridden Overtime */}
+                    {/* Overtime (B) */}
                     <td className="py-2 px-1 text-center font-mono text-xs font-bold">
-                      {(isRowSpecial || row.isHolidayOverride) && hasOt ? (
+                      {!isLeave && (isRowSpecial || row.isHolidayOverride) && hasOt ? (
                         <span className="inline-block px-1 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
                           {row.totalFormatted || '00:00'}
                         </span>
@@ -3539,24 +4183,28 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       )}
                     </td>
 
-                    {/* Special Assigned OT Toggle (No Limit / No Break / No Manager Initial) */}
+                    {/* Special Assigned OT Toggle */}
                     <td className="py-2 px-1 text-center">
-                      <label
-                        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-lg border text-[10px] font-bold cursor-pointer select-none transition ${
-                          isRowSpecial
-                            ? 'bg-emerald-600 text-white border-emerald-700 shadow-2xs'
-                            : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                        }`}
-                        title="Special Assigned OT (no limit/no break/no manager initial). When selected, OT moves to Column B."
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isRowSpecial}
-                          onChange={e => updateRowField(index, 'isSpecialAssignment', e.target.checked)}
-                          className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 cursor-pointer"
-                        />
-                        <span>{isRowSpecial ? 'Special' : 'Special'}</span>
-                      </label>
+                      {!isLeave ? (
+                        <label
+                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-lg border text-[10px] font-bold cursor-pointer select-none transition ${
+                            isRowSpecial
+                              ? 'bg-emerald-600 text-white border-emerald-700 shadow-2xs'
+                              : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                          }`}
+                          title="Special Assigned OT (moves to Column B, no daily limit)"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isRowSpecial}
+                            onChange={e => updateRowField(index, 'isSpecialAssignment', e.target.checked)}
+                            className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 cursor-pointer"
+                          />
+                          <span>Special</span>
+                        </label>
+                      ) : (
+                        <span className="text-slate-300">-</span>
+                      )}
                     </td>
 
                     {/* Actions */}
@@ -3708,8 +4356,12 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         pdfUrl={previewPdfUrl}
         filename={previewFilename}
         pdfBlob={previewPdfBlob}
-        onSaveClaim={handleSaveClaim}
+        onSaveClaim={handleSaveClaimFromPreview}
+        onDownload={handleDownloadFromPreview}
         isSaved={claimSavedSuccess}
+        isSubmitting={isSavingClaim}
+        isDownloading={isGeneratingPdf}
+        submitLabel={initialClaim && initialClaim.status !== 'draft' ? 'Update Claim' : 'Submit Claim'}
         onRefresh={executePreviewPdf}
         isRefreshing={isGeneratingPdf}
       />
