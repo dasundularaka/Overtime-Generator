@@ -42,7 +42,7 @@ import {
 
 export const SettingsPage: React.FC = () => {
   const { currentUser, userProfile, isAdmin, refreshUserProfile } = useAuth();
-  const employees = getEmployees();
+  const [employees, setEmployees] = useState(getEmployees());
   const [settings, setSettings] = useState<AppSettings>(getSettings());
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
@@ -56,6 +56,30 @@ export const SettingsPage: React.FC = () => {
   useEffect(() => {
     setIsGoogleConnected(hasGoogleWorkspaceToken());
   }, []);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    getDocs(collection(db, 'users'))
+      .then(snap => {
+        const list = snap.docs.map(d => {
+          const data = d.data() as any;
+          return {
+            id: data.id || d.id,
+            name: data.name || 'Staff Member',
+            employeeNumber: data.employeeNumber || data.pfNumber || '',
+            designation: data.designation || '',
+            branch: data.branch || '',
+            department: data.department || '',
+            createdAt: data.createdAt || '',
+          };
+        });
+        if (list.length > 0) {
+          list.sort((a, b) => a.name.localeCompare(b.name));
+          setEmployees(list);
+        }
+      })
+      .catch(() => {});
+  }, [isAdmin]);
 
   useEffect(() => {
     const unsub = subscribeToTemplates(list => {
@@ -864,7 +888,7 @@ export const SettingsPage: React.FC = () => {
           </h2>
         </div>
         <p className="text-xs text-slate-600 leading-relaxed">
-          Overtime Claim Manager operates <strong>100% locally in your web browser</strong>. All employee details, overtime hours, and custom templates are stored securely in browser storage. No data is transmitted to external servers.
+          Overtime Claim Manager securely synchronizes claims, staff profiles, and calibrated templates with <strong>Cloud Firestore</strong> while maintaining an <strong>encrypted browser cache</strong> for fast offline PDF generation.
         </p>
 
         {backupStatus && (

@@ -195,7 +195,7 @@ export async function sendWelcomeEmailViaGmail(
 
   const cleanPf = payload.pfNumber.trim().toUpperCase();
   const pass = payload.initialPassword || cleanPf;
-  const webLink = payload.loginUrl || 'https://otclaim.vercel.app/';
+  const webLink = payload.loginUrl || (typeof window !== 'undefined' ? window.location.origin : 'https://otclaim.vercel.app/');
   const recipient = payload.to.trim();
   const subject = `OT Claim - Your Login Credentials [${cleanPf}]`;
 

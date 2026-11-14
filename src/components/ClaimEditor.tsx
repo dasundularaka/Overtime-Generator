@@ -403,6 +403,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   const isSubmittedRef = useRef<boolean>(false);
   const isInitialMountRef = useRef<boolean>(true);
   const lastSavedHashRef = useRef<string>('');
+  const initializedClaimKeyRef = useRef<string | null>(null);
 
   // User Modification Tracking: Ensure NO draft is created simply by opening a new claim.
   // Draft is ONLY saved when the user actively changes ANY letter, time, field, or row.
@@ -433,6 +434,16 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
   const [previewPdfBlob, setPreviewPdfBlob] = useState<Blob | null>(null);
   const [previewFilename, setPreviewFilename] = useState<string>('');
+
+  useEffect(() => {
+    return () => {
+      if (previewPdfUrl && previewPdfUrl.startsWith('blob:')) {
+        try {
+          URL.revokeObjectURL(previewPdfUrl);
+        } catch {}
+      }
+    };
+  }, [previewPdfUrl]);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [claimSavedSuccess, setClaimSavedSuccess] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -855,25 +866,41 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   }, [targetProfile, designation, roleRates]);
 
   // Lock status calculation:
-  // 1. Check if individual user account is locked by admin (via User Profile)
-  const isUserExplicitlyLocked = Boolean(targetProfile?.isRatesLocked || userProfile?.isRatesLocked);
+  // 1. Check if the active target user account is explicitly locked by admin
+  const isUserExplicitlyLocked = Boolean(targetProfile ? targetProfile.isRatesLocked : userProfile?.isRatesLocked);
 
   // 2. Check if assigned corporate role or designation is locked by admin (via Role Management tool)
+  const normalizeRoleKey = (val?: string | null) => (val || '').toLowerCase().trim();
+  const targetRoleId = targetProfile?.roleId;
+  const targetRoleNameKey = normalizeRoleKey(targetProfile?.roleName);
+  const targetDesignationKey = normalizeRoleKey(targetProfile?.designation);
+  const formDesignationKey = normalizeRoleKey(designation);
+  const relevantRoleNameKey = normalizeRoleKey(userRelevantRole?.name);
+
   const isRoleLocked = Boolean(
     userRelevantRole?.isRatesLocked ||
-    (targetProfile?.roleId && roleRates.some(r => r.id === targetProfile.roleId && r.isRatesLocked)) ||
-    (targetProfile?.roleName && roleRates.some(r => (r.name || '').toLowerCase().trim() === targetProfile.roleName.toLowerCase().trim() && r.isRatesLocked)) ||
-    (targetProfile?.designation && roleRates.some(r => (r.name || '').toLowerCase().trim() === targetProfile.designation.toLowerCase().trim() && r.isRatesLocked)) ||
-    (designation && roleRates.some(r => (r.name || '').toLowerCase().trim() === designation.toLowerCase().trim() && r.isRatesLocked))
+    (targetRoleId && roleRates.some(r => r.id === targetRoleId && r.isRatesLocked)) ||
+    (relevantRoleNameKey && roleRates.some(r => normalizeRoleKey(r.name) === relevantRoleNameKey && r.isRatesLocked)) ||
+    (targetRoleNameKey && roleRates.some(r => normalizeRoleKey(r.name) === targetRoleNameKey && r.isRatesLocked)) ||
+    (targetDesignationKey && roleRates.some(r => normalizeRoleKey(r.name) === targetDesignationKey && r.isRatesLocked)) ||
+    (formDesignationKey && roleRates.some(r => {
+      const rn = normalizeRoleKey(r.name);
+      return Boolean(
+        r.isRatesLocked &&
+        (rn === formDesignationKey ||
+          (rn.length > 2 && formDesignationKey.includes(rn)) ||
+          (formDesignationKey.length > 2 && rn.includes(formDesignationKey)))
+      );
+    }))
   );
 
   // If EITHER the user's profile is locked OR their assigned role is locked by admin, rates are LOCKED!
   const isTargetUserRatesLocked = isUserExplicitlyLocked || isRoleLocked;
 
-  // For the current UI session: admins can always edit (admin override); standard non-admin users are strictly locked
+  // Standard non-admin users are strictly prevented from editing locked rates
   const isRoleRatesLocked = !isAdmin && isTargetUserRatesLocked;
 
-  // Standard non-admin users CANNOT edit if locked
+  // Standard non-admin users CANNOT edit if locked (admins retain override edit capability)
   const canEditRates = isAdmin || !isRoleRatesLocked;
 
   // Enforce locked rates in form: if locked by admin, standard non-admin users cannot change rates
@@ -907,16 +934,23 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     }
   }, [isAdmin, isRoleRatesLocked, userRelevantRole, targetProfile]);
 
-  // Sync profile details into form
+  // Sync profile details into form without wiping user-entered rows on async roleRates/allUsers updates
   useEffect(() => {
-    // Reset user modification flags so opening a claim NEVER saves a draft
-    hasUserModifiedRef.current = false;
-    setHasUserModified(false);
-    setHasUnsavedChanges(false);
-    lastSavedHashRef.current = '';
-    isSubmittedRef.current = false;
+    const claimKey = initialClaim
+      ? `edit:${initialClaim.id}`
+      : `new:${selectedUserId || userProfile?.id || ''}`;
+    const isNewContext = initializedClaimKeyRef.current !== claimKey;
 
     if (initialClaim) {
+      if (!isNewContext) return;
+      initializedClaimKeyRef.current = claimKey;
+
+      hasUserModifiedRef.current = false;
+      setHasUserModified(false);
+      setHasUnsavedChanges(false);
+      lastSavedHashRef.current = '';
+      isSubmittedRef.current = false;
+
       setSelectedUserId(initialClaim.userId);
       setEmployeeName(initialClaim.employeeName);
       setEmployeeNumber(initialClaim.employeeNumber);
@@ -941,8 +975,21 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       return;
     }
 
-    setActiveClaimId('');
-    setActiveClaimNumber('');
+    // If same new-claim user context and user has already started entering data, never overwrite rows or edited rates
+    if (!isNewContext && hasUserModifiedRef.current) {
+      return;
+    }
+
+    if (isNewContext) {
+      initializedClaimKeyRef.current = claimKey;
+      hasUserModifiedRef.current = false;
+      setHasUserModified(false);
+      setHasUnsavedChanges(false);
+      lastSavedHashRef.current = '';
+      isSubmittedRef.current = false;
+      setActiveClaimId('');
+      setActiveClaimNumber('');
+    }
 
     if (targetProfile) {
       setEmployeeName(targetProfile.name || '');
@@ -980,8 +1027,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       setTotalRemuneration(targetProfile.totalRemuneration !== undefined ? targetProfile.totalRemuneration : '');
     }
 
-    // For a brand-new claim: generate clean rows for this month without saving or loading any draft
-    setRows(generateFullMonthRows(claimMonth, claimYear, isSpecialAssignedOt));
+    // Only generate initial clean rows when entering this claim context (not on background roleRates/allUsers updates)
+    if (isNewContext) {
+      setRows(generateFullMonthRows(claimMonth, claimYear, isSpecialAssignedOt));
+    }
   }, [initialClaim, userProfile, selectedUserId, allUsers, roleRates]);
 
   // Generate full month of dates and flag holidays & weekends
@@ -2417,6 +2466,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       if (onClaimSaved) onClaimSaved(claim);
       setTimeout(() => setClaimSavedSuccess(false), 3000);
     } catch (err) {
+      isSubmittedRef.current = false;
       handleFirestoreError(err, OperationType.WRITE, `claims/${claim.id}`);
       setIsConfirmSaveClaimOpen(false);
     } finally {
@@ -2512,6 +2562,11 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+      setTimeout(() => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch {}
+      }, 10000);
 
       // If finalizing an in-progress draft, mint a permanent claim ID and remove old draft from draft list
       let draftIdToDelete: string | null = null;
@@ -2556,6 +2611,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       if (onClaimSaved) onClaimSaved(claim);
       setTimeout(() => setClaimSavedSuccess(false), 3000);
     } catch (err: any) {
+      isSubmittedRef.current = false;
       setValidationError('Failed to generate PDF download: ' + err.message);
     } finally {
       setIsGeneratingPdf(false);
@@ -2894,14 +2950,14 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
       {/* Overtime Rates & Remuneration Panel (Subject to Role Lock Status) */}
       <div className={`rounded-2xl p-4 sm:p-5 border transition-all ${
-        isRoleRatesLocked && !isAdmin
+        isTargetUserRatesLocked
           ? 'bg-amber-50/60 border-amber-200 shadow-2xs'
           : 'bg-white border-slate-200 shadow-xs'
       }`}>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
           <div className="flex items-center gap-2.5">
             <div className={`p-2 rounded-xl shrink-0 ${
-              isRoleRatesLocked && !isAdmin
+              isTargetUserRatesLocked
                 ? 'bg-amber-100 text-amber-800'
                 : 'bg-indigo-50 text-indigo-700'
             }`}>
@@ -2925,8 +2981,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           </div>
 
           {/* Role Rates Lock Status Pill */}
-          <div className="flex items-center gap-2 shrink-0">
-            {isRoleRatesLocked ? (
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            {isTargetUserRatesLocked ? (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-900 text-xs font-bold border border-amber-300 shadow-2xs">
                 <Lock className="w-3.5 h-3.5 text-amber-700 shrink-0" />
                 <span>Rates Locked by Admin</span>
@@ -2937,7 +2993,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                 <span>Rates Unlocked (Editable)</span>
               </span>
             )}
-            {isAdmin && isRoleRatesLocked && (
+            {isAdmin && isTargetUserRatesLocked && (
               <span className="text-[10px] bg-purple-100 text-purple-800 px-2 py-0.5 rounded font-bold border border-purple-200">
                 Admin Override Active
               </span>
@@ -2945,18 +3001,23 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           </div>
         </div>
 
-        {/* Lock Notice for Standard Users */}
-        {isRoleRatesLocked && !isAdmin && (
+        {/* Lock Notice when Role/User Rates Are Locked */}
+        {isTargetUserRatesLocked ? (
           <div className="mt-3 p-3 rounded-xl bg-amber-100/70 border border-amber-200/80 text-amber-900 text-xs flex items-center gap-2">
             <Lock className="w-4 h-4 text-amber-700 shrink-0" />
             <p className="leading-relaxed">
-              Your overtime rates are <strong>locked by corporate administration</strong> for your assigned role (<strong>{userRelevantRole?.name || designation || 'Staff'}</strong>). You cannot edit these rates on this claim sheet.
+              {isAdmin ? (
+                <>
+                  Overtime rates are <strong>locked by corporate administration</strong> for this role (<strong>{userRelevantRole?.name || designation || 'Staff'}</strong>). Standard users cannot edit these rates (Admin Override is active for your session).
+                </>
+              ) : (
+                <>
+                  Your overtime rates are <strong>locked by corporate administration</strong> for your assigned role (<strong>{userRelevantRole?.name || designation || 'Staff'}</strong>). You cannot edit these rates on this claim sheet.
+                </>
+              )}
             </p>
           </div>
-        )}
-
-        {/* Unlocked Notice for Standard Users */}
-        {!isRoleRatesLocked && (
+        ) : (
           <div className="mt-3 p-2.5 rounded-xl bg-emerald-50/70 border border-emerald-200 text-emerald-900 text-xs flex items-center gap-2">
             <Unlock className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
             <p className="leading-relaxed">
@@ -4352,7 +4413,15 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       <PDFPreviewModal
         key={previewPdfUrl || 'preview_modal'}
         isOpen={isPreviewOpen}
-        onClose={() => setIsPreviewOpen(false)}
+        onClose={() => {
+          setIsPreviewOpen(false);
+          if (previewPdfUrl && previewPdfUrl.startsWith('blob:')) {
+            try {
+              URL.revokeObjectURL(previewPdfUrl);
+            } catch {}
+          }
+          setPreviewPdfUrl(null);
+        }}
         pdfUrl={previewPdfUrl}
         filename={previewFilename}
         pdfBlob={previewPdfBlob}

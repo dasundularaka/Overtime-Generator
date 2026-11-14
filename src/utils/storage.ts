@@ -117,8 +117,12 @@ export function getTemplates(activeProfile?: UserProfile | null): TemplateConfig
     }
 
     const session = activeProfile || getActiveSession();
-    // If admin, all templates are visible
-    if (session?.role === 'admin') {
+    // If admin or super_admin, all templates are visible
+    if (
+      session?.role === 'admin' ||
+      session?.role === 'super_admin' ||
+      session?.email?.toLowerCase() === 'dasundularaka@gmail.com'
+    ) {
       return allTemplates;
     }
 
@@ -309,16 +313,16 @@ export function importAllData(jsonString: string): { success: boolean; message: 
     }
 
     if (Array.isArray(parsed.employees)) {
-      localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(parsed.employees));
+      localStorage.setItem(getUserStorageKey(STORAGE_KEYS.EMPLOYEES), JSON.stringify(parsed.employees));
     }
     if (Array.isArray(parsed.claims)) {
-      localStorage.setItem(STORAGE_KEYS.CLAIMS, JSON.stringify(parsed.claims));
+      localStorage.setItem(getUserStorageKey(STORAGE_KEYS.CLAIMS), JSON.stringify(parsed.claims));
     }
     if (Array.isArray(parsed.templates) && parsed.templates.length > 0) {
-      localStorage.setItem(STORAGE_KEYS.TEMPLATES, JSON.stringify(parsed.templates));
+      localStorage.setItem('ot_manager_templates_global_v2', JSON.stringify(parsed.templates));
     }
     if (parsed.settings && typeof parsed.settings === 'object') {
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(parsed.settings));
+      localStorage.setItem(getUserStorageKey(STORAGE_KEYS.SETTINGS), JSON.stringify(parsed.settings));
     }
 
     return { success: true, message: 'All overtime claims, templates, and employee records restored successfully!' };
@@ -328,9 +332,8 @@ export function importAllData(jsonString: string): { success: boolean; message: 
 }
 
 export function resetAllApplicationData(): void {
-  localStorage.removeItem(STORAGE_KEYS.EMPLOYEES);
-  localStorage.removeItem(STORAGE_KEYS.CLAIMS);
-  localStorage.removeItem(STORAGE_KEYS.TEMPLATES);
-  localStorage.removeItem(STORAGE_KEYS.SETTINGS);
-  localStorage.removeItem(STORAGE_KEYS.DRAFT_CLAIM);
+  Object.values(STORAGE_KEYS).forEach(base => {
+    localStorage.removeItem(base);
+    localStorage.removeItem(getUserStorageKey(base));
+  });
 }

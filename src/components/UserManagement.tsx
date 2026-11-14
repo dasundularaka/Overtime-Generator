@@ -496,9 +496,35 @@ export const UserManagement: React.FC = () => {
         const cleanUpdated = sanitizeFirestoreData(updatedData);
         await updateDoc(userRef, cleanUpdated);
 
+        const localUpdatedData: Record<string, any> = {
+          name: name.trim(),
+          role: effectiveSaveRole,
+          roleId: roleId || undefined,
+          claimType,
+          employeeNumber: cleanPf,
+          pfNumber: cleanPf,
+          designation: designation.trim(),
+          branch: branch.trim(),
+          branchCode: branchCode || undefined,
+          department: department.trim(),
+          maxOtHoursPerDay: Number(maxOtHoursPerDay) || 0,
+          shiftStartTime: shiftStartTime || '08:00',
+          shiftEndTime: shiftEndTime || '16:45',
+          assignedTemplateIds: assignedTemplateIds || [],
+          isRatesLocked: isRatesLocked,
+          defaultWeekdayReason: defaultWeekdayReason.trim() || undefined,
+          defaultSaturdayReason: defaultSaturdayReason.trim() || undefined,
+          defaultHolidayReason: defaultHolidayReason.trim() || undefined,
+          hourlyRate: hourlyRate !== '' && !isNaN(Number(hourlyRate)) ? Number(hourlyRate) : undefined,
+          daysPay: daysPay !== '' && !isNaN(Number(daysPay)) ? Number(daysPay) : undefined,
+          hourlyRateNonWorkingDays: hourlyRateNonWorkingDays !== '' && !isNaN(Number(hourlyRateNonWorkingDays)) ? Number(hourlyRateNonWorkingDays) : undefined,
+          totalRemuneration: totalRemuneration !== '' && !isNaN(Number(totalRemuneration)) ? Number(totalRemuneration) : undefined,
+          updatedAt: updatedData.updatedAt,
+        };
+
         upsertStoredAccount({
           ...editingUser,
-          ...updatedData,
+          ...localUpdatedData,
         } as UserProfile);
 
         // Sync to pfDirectory
@@ -545,7 +571,7 @@ export const UserManagement: React.FC = () => {
           beforeState: editingUser,
           afterState: {
             ...editingUser,
-            ...updatedData,
+            ...localUpdatedData,
           },
           details: {
             role,
@@ -638,7 +664,7 @@ export const UserManagement: React.FC = () => {
           console.warn('pfDirectory write note:', dirErr);
         }
 
-        if (role === 'admin') {
+        if (role === 'admin' || role === 'super_admin') {
           await setDoc(doc(db, 'admins', targetUid), {
             email: cleanNewProfile.email,
             assignedAt: new Date().toISOString(),
@@ -672,7 +698,7 @@ export const UserManagement: React.FC = () => {
               name: name.trim(),
               pfNumber: cleanPf,
               initialPassword: cleanPf,
-              loginUrl: 'https://otclaim.vercel.app/',
+              loginUrl: typeof window !== 'undefined' ? window.location.origin : 'https://otclaim.vercel.app/',
             },
             true // Automatic dispatch via Gmail API
           );

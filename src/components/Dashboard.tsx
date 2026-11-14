@@ -30,6 +30,7 @@ import { ClaimRecord, TemplateConfig } from '../types';
 import { getActiveTemplate } from '../utils/storage';
 import { recordAuditLog } from '../utils/auditLogger';
 import { generateOvertimePdf, printPdfDocument } from '../utils/pdfGenerator';
+import { MONTH_NAMES } from '../utils/timeCalculations';
 import { PDFPreviewModal } from './PDFPreviewModal';
 import { ConfirmationModal } from './ConfirmationModal';
 import { NavigationTab } from './Navbar';
@@ -90,6 +91,51 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [isDeleting, setIsDeleting] = useState(false);
   const [generatingPdfId, setGeneratingPdfId] = useState<string | null>(null);
 
+  const revokeBlobUrl = (url: string | null | undefined) => {
+    if (url && url.startsWith('blob:')) {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {}
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      revokeBlobUrl(previewPdfUrl);
+    };
+  }, [previewPdfUrl]);
+
+  const getClaimPeriodSortValue = (c: ClaimRecord): number => {
+    const year = typeof c.year === 'number' && !isNaN(c.year)
+      ? c.year
+      : (parseInt(String(c.year || 0), 10) || 0);
+    let monthIdx = -1;
+    if (typeof c.month === 'string') {
+      const cleanMonth = c.month.trim().toLowerCase();
+      monthIdx = MONTH_NAMES.findIndex(m => m.toLowerCase() === cleanMonth);
+      if (monthIdx === -1) {
+        const num = parseInt(cleanMonth, 10);
+        if (!isNaN(num) && num >= 1 && num <= 12) {
+          monthIdx = num - 1;
+        }
+      }
+    } else if (typeof c.month === 'number') {
+      monthIdx = c.month - 1;
+    }
+    if (monthIdx < 0) monthIdx = 0;
+    return year * 100 + (monthIdx + 1);
+  };
+
+  const compareClaimsByPeriodDesc = (a: ClaimRecord, b: ClaimRecord): number => {
+    const periodDiff = getClaimPeriodSortValue(b) - getClaimPeriodSortValue(a);
+    if (periodDiff !== 0) return periodDiff;
+    const bDate = b.updatedAt || b.createdAt || b.claimDate || '';
+    const aDate = a.updatedAt || a.createdAt || a.claimDate || '';
+    const dateDiff = bDate.localeCompare(aDate);
+    if (dateDiff !== 0) return dateDiff;
+    return (b.claimNumber || '').localeCompare(a.claimNumber || '');
+  };
+
   // Fetch claims from Firestore: strictly fetch relevant user's own claims for the Dashboard (for all users, including Admins)
   const fetchClaims = async () => {
     if (!currentUser) return;
@@ -135,7 +181,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       }
 
       const list = Array.from(claimMap.values());
-      list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+      list.sort(compareClaimsByPeriodDesc);
       setClaims(list);
     } catch (err) {
       handleFirestoreError(err, OperationType.LIST, 'claims');
@@ -151,7 +197,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       const snap = await getDocs(collection(db, 'claims'));
       const list: ClaimRecord[] = [];
       snap.forEach(d => list.push(d.data() as ClaimRecord));
-      list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+      list.sort(compareClaimsByPeriodDesc);
       setAllClaims(list);
     } catch (e) {
       console.warn('Super admin fetch all claims note:', e);
@@ -262,6 +308,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+      setTimeout(() => revokeBlobUrl(url), 10000);
     } catch {
       // PDF download failed silently or retry
     } finally {
@@ -275,6 +322,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     try {
       const templateToUse = resolveTemplate(claim);
       const { blob, url, filename } = await generateOvertimePdf(claim, templateToUse);
+      revokeBlobUrl(previewPdfUrl);
       setPreviewPdfUrl(url);
       setPreviewPdfBlob(blob);
       setPreviewFilename(filename);
@@ -293,6 +341,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       const templateToUse = resolveTemplate(claim);
       const { url } = await generateOvertimePdf(claim, templateToUse);
       printPdfDocument(url);
+      setTimeout(() => revokeBlobUrl(url), 60000);
     } catch {
       // print error
     } finally {
@@ -846,7 +895,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
       {/* PDF Preview Modal */}
       <PDFPreviewModal
         isOpen={isPreviewOpen}
-        onClose={() => setIsPreviewOpen(false)}
+        onClose={() => {
+          setIsPreviewOpen(false);
+          revokeBlobUrl(previewPdfUrl);
+          setPreviewPdfUrl(null);
+        }}
         pdfUrl={previewPdfUrl}
         filename={previewFilename}
         pdfBlob={previewPdfBlob}

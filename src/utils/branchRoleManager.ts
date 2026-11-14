@@ -354,27 +354,28 @@ export async function deleteRoleRate(roleId: string): Promise<void> {
 export async function toggleRoleRateLock(roleId: string, isLocked: boolean): Promise<void> {
   const local = getLocalRoleRates();
   const existing = local.find(r => r.id === roleId) || DEFAULT_ROLE_RATES.find(r => r.id === roleId);
-  const fullRole: RoleRate = {
-    ...(existing || {
-      id: roleId,
-      name: 'Designation',
-      claimType: 'OT',
-      hourlyRateWorkingDays: 1850,
-      daysPaymentNonWorkingDays: 12500,
-      hourlyRateNonWorkingDays: 2312.5,
-      createdAt: new Date().toISOString(),
-    }),
-    isRatesLocked: isLocked,
-    updatedAt: new Date().toISOString(),
-  };
+  const nowIso = new Date().toISOString();
 
-  await setDoc(doc(db, 'roles', roleId), sanitizeFirestoreData(fullRole));
-  const idx = local.findIndex(r => r.id === roleId);
-  if (idx >= 0) {
-    local[idx] = fullRole;
-    saveLocalRoleRates([...local]);
+  if (existing) {
+    const fullRole: RoleRate = {
+      ...existing,
+      isRatesLocked: isLocked,
+      updatedAt: nowIso,
+    };
+    await setDoc(doc(db, 'roles', roleId), sanitizeFirestoreData(fullRole), { merge: true });
+    const idx = local.findIndex(r => r.id === roleId);
+    if (idx >= 0) {
+      local[idx] = fullRole;
+      saveLocalRoleRates([...local]);
+    } else {
+      saveLocalRoleRates([fullRole, ...local]);
+    }
   } else {
-    saveLocalRoleRates([fullRole, ...local]);
+    await setDoc(
+      doc(db, 'roles', roleId),
+      sanitizeFirestoreData({ isRatesLocked: isLocked, updatedAt: nowIso }),
+      { merge: true }
+    );
   }
 }
 

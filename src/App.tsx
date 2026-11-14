@@ -55,6 +55,7 @@ function AppContent() {
   });
 
   const transitionTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const switchTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Automatically adjust initial load time according to real database & auth load time
   useEffect(() => {
@@ -63,42 +64,53 @@ function AppContent() {
     // Real loading complete: smoothly fade out with minimum 350ms to appreciate clock spread animation
     const elapsed = Date.now() - loadStartRef.current;
     const remainingDelay = Math.max(0, 350 - elapsed);
+    let finishTimer: ReturnType<typeof setTimeout> | null = null;
 
     const fadeTimer = setTimeout(() => {
       setIsInitialFadingOut(true);
-      const finishTimer = setTimeout(() => {
+      finishTimer = setTimeout(() => {
         setIsInitialReady(true);
       }, 300);
-      return () => clearTimeout(finishTimer);
     }, remainingDelay);
 
-    return () => clearTimeout(fadeTimer);
+    return () => {
+      clearTimeout(fadeTimer);
+      if (finishTimer) clearTimeout(finishTimer);
+    };
   }, [loading]);
 
   // Safety fallback: ensure initial loading screen never stays visible longer than 3.5s under any condition
   useEffect(() => {
+    let safetyFinishTimer: ReturnType<typeof setTimeout> | null = null;
     const safetyTimer = setTimeout(() => {
       setIsInitialFadingOut(true);
-      setTimeout(() => {
+      safetyFinishTimer = setTimeout(() => {
         setIsInitialReady(true);
       }, 300);
     }, 3500);
 
-    return () => clearTimeout(safetyTimer);
+    return () => {
+      clearTimeout(safetyTimer);
+      if (safetyFinishTimer) clearTimeout(safetyFinishTimer);
+    };
   }, []);
 
-  // Virtual keyboard scroll-into-view handler: automatically scroll any focused input field into clear view
+  // Virtual keyboard scroll-into-view handler: automatically scroll focused mobile inputs into clear view
   useEffect(() => {
+    let scrollTimer: ReturnType<typeof setTimeout> | null = null;
     const handleFocusIn = (e: FocusEvent) => {
+      if (window.innerWidth >= 768) return;
       const target = e.target as HTMLElement | null;
       if (
         target &&
+        !target.closest('[role="dialog"], .fixed') &&
         (target.tagName === 'INPUT' ||
           target.tagName === 'TEXTAREA' ||
           target.tagName === 'SELECT' ||
           target.isContentEditable)
       ) {
-        setTimeout(() => {
+        if (scrollTimer) clearTimeout(scrollTimer);
+        scrollTimer = setTimeout(() => {
           try {
             target.scrollIntoView({ behavior: 'smooth', block: 'center' });
           } catch {
@@ -111,6 +123,15 @@ function AppContent() {
     window.addEventListener('focusin', handleFocusIn);
     return () => {
       window.removeEventListener('focusin', handleFocusIn);
+      if (scrollTimer) clearTimeout(scrollTimer);
+    };
+  }, []);
+
+  // Cleanup tab transition timers on unmount
+  useEffect(() => {
+    return () => {
+      if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
+      if (switchTimerRef.current) clearTimeout(switchTimerRef.current);
     };
   }, []);
 
@@ -126,6 +147,9 @@ function AppContent() {
     if (transitionTimerRef.current) {
       clearTimeout(transitionTimerRef.current);
     }
+    if (switchTimerRef.current) {
+      clearTimeout(switchTimerRef.current);
+    }
 
     const info = TAB_TITLES[targetTab] || {
       message: 'Loading Page...',
@@ -138,7 +162,7 @@ function AppContent() {
       subMessage: customSubMessage || info.subMessage,
     });
 
-    const switchTimer = setTimeout(() => {
+    switchTimerRef.current = setTimeout(() => {
       if (onBeforeSwitch) onBeforeSwitch();
       if (targetTab === 'designer' && !isSuperAdmin) {
         setActiveTab('dashboard');
@@ -152,8 +176,6 @@ function AppContent() {
         }, 400);
       });
     }, 250);
-
-    return () => clearTimeout(switchTimer);
   };
 
   // Initialize automated user creation email dispatch trigger for admins
@@ -253,7 +275,8 @@ function AppContent() {
       <Navbar
         activeTab={activeTab}
         onSelectTab={(tab) => {
-          transitionToTab(tab);
+          if (tab === 'new-claim') handleStartFreshClaim();
+          else transitionToTab(tab);
         }}
       />
 
@@ -286,9 +309,8 @@ function AppContent() {
 
         {activeTab === 'calendar' && (
           <CalendarManager
-            onNavigateToNewClaim={(dateStr) => {
+            onNavigateToNewClaim={() => {
               handleStartFreshClaim();
-              transitionToTab('new-claim');
             }}
           />
         )}

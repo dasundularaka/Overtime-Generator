@@ -1,6 +1,6 @@
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { ClaimRecord, FieldConfig, FontFamily, TemplateConfig } from '../types';
-import { formatMinutesToTime } from './timeCalculations';
+import { formatMinutesToTime, getDayOfWeek } from './timeCalculations';
 
 export const MM_TO_PT = 72 / 25.4; // ~2.83464567 points per millimeter
 export const A4_WIDTH_PT = 210 * MM_TO_PT; // ~595.28 pt
@@ -417,7 +417,7 @@ export async function generateOvertimePdf(
         (r.daysPaymentAmount || 0) > 0 &&
         (!!r.startTime?.trim() || !!r.endTime?.trim() || !!r.reason?.trim())
       );
-      const isSat = r.dayOfWeek === 'Sat' || (r.date ? new Date(r.date).getDay() === 6 : false);
+      const isSat = r.dayOfWeek === 'Sat' || (r.date ? getDayOfWeek(r.date) === 'Sat' : false);
       const isQualifiedSatDayPay = isSat && !!r.isDaysPayment && (r.totalWorkMinutes || 0) >= 360;
 
       return hasValidOt || hasSpecialHours || hasOpAmount || isQualifiedSatDayPay;
@@ -443,8 +443,8 @@ export async function generateOvertimePdf(
       // Columns mapping matching Overtime Sheet: date, day, reason, approvedBy, startTime, endTime, totalHours, otHoursClaimed, specialHoursClaimed
       const cols = tbl.columns;
 
-      const isSat = row.dayOfWeek === 'Sat' || (row.date && new Date(row.date).getDay() === 6);
-      const isSun = row.dayOfWeek === 'Sun' || (row.date && new Date(row.date).getDay() === 0);
+      const isSat = row.dayOfWeek === 'Sat' || (row.date ? getDayOfWeek(row.date) === 'Sat' : false);
+      const isSun = row.dayOfWeek === 'Sun' || (row.date ? getDayOfWeek(row.date) === 'Sun' : false);
       const isOtherDay = isSat || isSun || !!row.isHoliday || !!row.isDaysPayment;
       // Show non-working days OT period (in, out, worked, and OT claimed) like other working days for rates-unlocked users or holiday override
       const showPeriod = !isOtherDay || isRatesUnlocked || !!row.isHolidayOverride || (row.totalMinutes || 0) > 0;
@@ -540,7 +540,15 @@ export async function generateOvertimePdf(
  * Triggers native browser print dialog for the generated PDF in an iframe.
  */
 export function printPdfDocument(pdfUrl: string): void {
+  // Clean up any stale print iframes from prior prints
+  document.querySelectorAll('iframe[data-ot-print-frame="true"]').forEach(el => {
+    try {
+      el.remove();
+    } catch {}
+  });
+
   const iframe = document.createElement('iframe');
+  iframe.setAttribute('data-ot-print-frame', 'true');
   iframe.style.position = 'fixed';
   iframe.style.right = '0';
   iframe.style.bottom = '0';
@@ -556,8 +564,13 @@ export function printPdfDocument(pdfUrl: string): void {
         iframe.contentWindow?.focus();
         iframe.contentWindow?.print();
       } catch (err) {
-        console.error('Direct print failed, opening in new tab', err);
-        window.open(pdfUrl, '_blank');
+        console.error('Direct print failed, falling back to download', err);
+        const fallbackLink = document.createElement('a');
+        fallbackLink.href = pdfUrl;
+        fallbackLink.download = 'Overtime_Claim.pdf';
+        document.body.appendChild(fallbackLink);
+        fallbackLink.click();
+        document.body.removeChild(fallbackLink);
       }
     }, 300);
   };

@@ -392,4 +392,9 @@ export function exportAuditLogsToCsv(logs: AuditLogEntry[]): void {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+  setTimeout(() => {
+    try {
+      URL.revokeObjectURL(url);
+    } catch {}
+  }, 10000);
 }

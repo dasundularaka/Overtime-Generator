@@ -16,6 +16,7 @@ import {
   User,
   Filter,
   Clock,
+  AlertCircle,
 } from 'lucide-react';
 import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
@@ -83,6 +84,7 @@ export const EmployeeManager: React.FC = () => {
   const [isDeletingEmployee, setIsDeletingEmployee] = useState(false);
   const [isConfirmSaveModalOpen, setIsConfirmSaveModalOpen] = useState(false);
   const [isSavingEmployee, setIsSavingEmployee] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Fetch employees and users - strictly real Firestore database data
   const loadEmployeesAndUsers = async () => {
@@ -176,6 +178,7 @@ export const EmployeeManager: React.FC = () => {
     setTotalRemuneration('');
     setShiftStartTime('08:00');
     setShiftEndTime('16:45');
+    setFormError(null);
     setIsModalOpen(true);
   };
 
@@ -194,6 +197,7 @@ export const EmployeeManager: React.FC = () => {
     setHourlyRateNonWorkingDays(emp.hourlyRateNonWorkingDays !== undefined ? emp.hourlyRateNonWorkingDays : '');
     setTotalRemuneration(emp.totalRemuneration !== undefined ? emp.totalRemuneration : '');
     setRoleId(emp.roleId || '');
+    setFormError(null);
     setIsModalOpen(true);
   };
 
@@ -214,7 +218,9 @@ export const EmployeeManager: React.FC = () => {
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
     if (!name.trim()) {
+      setFormError('Please enter the employee full name.');
       return;
     }
     const cleanPf = formatPfNumber(employeeNumber.trim());
@@ -223,7 +229,7 @@ export const EmployeeManager: React.FC = () => {
         emp => emp.id !== editingEmployee?.id && (emp.employeeNumber || emp.pfNumber || '').toUpperCase() === cleanPf.toUpperCase()
       );
       if (isDuplicate) {
-        alert(`Employee / PF Number "${cleanPf}" is already assigned to another profile.`);
+        setFormError(`Employee / PF Number "${cleanPf}" is already assigned to another profile.`);
         return;
       }
     }
@@ -386,8 +392,8 @@ export const EmployeeManager: React.FC = () => {
       activeTabFilter === 'ALL'
         ? true
         : activeTabFilter === 'admins'
-        ? emp.role === 'admin'
-        : emp.role !== 'admin';
+        ? (emp.role === 'admin' || emp.role === 'super_admin')
+        : (emp.role !== 'admin' && emp.role !== 'super_admin');
 
     const matchesBranch = branchFilter === 'ALL' || emp.branch === branchFilter;
     const matchesRoleRate =
@@ -398,8 +404,8 @@ export const EmployeeManager: React.FC = () => {
     return matchesSearch && matchesRoleType && matchesBranch && matchesRoleRate;
   });
 
-  const adminCount = branchScopedEmployees.filter(e => e.role === 'admin').length;
-  const standardUserCount = branchScopedEmployees.filter(e => e.role !== 'admin').length;
+  const adminCount = branchScopedEmployees.filter(e => e.role === 'admin' || e.role === 'super_admin').length;
+  const standardUserCount = branchScopedEmployees.filter(e => e.role !== 'admin' && e.role !== 'super_admin').length;
 
   return (
     <div className="space-y-6 pb-16">
@@ -527,7 +533,8 @@ export const EmployeeManager: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filtered.map(emp => {
           const isDefault = settings.defaultEmployeeId === emp.id;
-          const isUserAdmin = emp.role === 'admin';
+          const isUserSuperAdmin = emp.role === 'super_admin';
+          const isUserAdmin = emp.role === 'admin' || isUserSuperAdmin;
           return (
             <div
               key={emp.id}
@@ -578,7 +585,7 @@ export const EmployeeManager: React.FC = () => {
                           : 'bg-blue-50 text-blue-700 border border-blue-200'
                       }`}
                     >
-                      {isUserAdmin ? 'Admin' : 'User'}
+                      {isUserSuperAdmin ? 'Super Admin' : isUserAdmin ? 'Admin' : 'User'}
                     </span>
                   </div>
                 </div>
@@ -706,13 +713,23 @@ export const EmployeeManager: React.FC = () => {
             </p>
 
             <form onSubmit={handleSave} className="mt-5 space-y-3.5 text-xs">
+              {formError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 flex items-center gap-2 text-xs text-rose-700 font-semibold">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                  <span>{formError}</span>
+                </div>
+              )}
+
               <div>
                 <label className="block font-bold text-slate-700 mb-1">Full Name *</label>
                 <input
                   type="text"
                   required
                   value={name}
-                  onChange={e => setName(e.target.value)}
+                  onChange={e => {
+                    setName(e.target.value);
+                    if (formError) setFormError(null);
+                  }}
                   placeholder="e.g. Dasun Ramasingha"
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                 />
@@ -725,7 +742,10 @@ export const EmployeeManager: React.FC = () => {
                 <input
                   type="text"
                   value={employeeNumber}
-                  onChange={e => setEmployeeNumber(e.target.value.toUpperCase())}
+                  onChange={e => {
+                    setEmployeeNumber(e.target.value.toUpperCase());
+                    if (formError) setFormError(null);
+                  }}
                   placeholder="e.g. PF123456"
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                 />

@@ -112,6 +112,20 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [isBulkPrinting, setIsBulkPrinting] = useState(false);
 
+  const revokeBlobUrl = (url: string | null | undefined) => {
+    if (url && url.startsWith('blob:')) {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {}
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      revokeBlobUrl(previewPdfUrl);
+    };
+  }, [previewPdfUrl]);
+
   // Chronological period calculation helper: latest month & year first (e.g. 202611 > 202610 > 202512)
   const getClaimPeriodSortValue = (c: ClaimRecord): number => {
     const year = typeof c.year === 'number' && !isNaN(c.year)
@@ -228,6 +242,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
     try {
       const templateToUse = resolveTemplate(claim);
       const { blob, url, filename } = await generateOvertimePdf(claim, templateToUse);
+      revokeBlobUrl(previewPdfUrl);
       setPreviewPdfUrl(url);
       setPreviewPdfBlob(blob);
       setPreviewFilename(filename);
@@ -252,6 +267,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+      setTimeout(() => revokeBlobUrl(url), 10000);
     } catch (err: any) {
       setToastMessage('Failed to download PDF: ' + err.message);
       setTimeout(() => setToastMessage(null), 4000);
@@ -267,6 +283,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
       const templateToUse = resolveTemplate(claim);
       const { url } = await generateOvertimePdf(claim, templateToUse);
       printPdfDocument(url);
+      setTimeout(() => revokeBlobUrl(url), 60000);
     } catch (err: any) {
       setToastMessage('Failed to print document: ' + err.message);
       setTimeout(() => setToastMessage(null), 4000);
@@ -529,7 +546,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
   };
 
   const handleBulkPrint = async () => {
-    const selectedClaims = claims.filter(c => selectedClaimIds.includes(c.id));
+    const selectedClaims = accessibleClaims.filter(c => selectedClaimIds.includes(c.id));
     if (selectedClaims.length === 0) return;
     setIsBulkPrinting(true);
     setToastMessage(`Processing batch print for ${selectedClaims.length} claims...`);
@@ -539,6 +556,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
         const templateToUse = resolveTemplate(c);
         const { url } = await generateOvertimePdf(c, templateToUse);
         printPdfDocument(url);
+        setTimeout(() => revokeBlobUrl(url), 60000);
         if (i < selectedClaims.length - 1) {
           await new Promise(r => setTimeout(r, 600));
         }
@@ -1938,7 +1956,11 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
       {/* PDF Preview Modal */}
       <PDFPreviewModal
         isOpen={isPreviewOpen}
-        onClose={() => setIsPreviewOpen(false)}
+        onClose={() => {
+          setIsPreviewOpen(false);
+          revokeBlobUrl(previewPdfUrl);
+          setPreviewPdfUrl(null);
+        }}
         pdfUrl={previewPdfUrl}
         filename={previewFilename}
         pdfBlob={previewPdfBlob}
@@ -2004,7 +2026,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
 
       {/* Action Toast Feedback */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 rounded-2xl bg-slate-900 text-white px-4 py-3 shadow-2xl border border-slate-800 flex items-center gap-2.5 text-xs animate-scale-in">
+        <div className="fixed bottom-24 md:bottom-6 right-4 md:right-6 z-50 rounded-2xl bg-slate-900 text-white px-4 py-3 shadow-2xl border border-slate-800 flex items-center gap-2.5 text-xs animate-scale-in">
           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           <span>{toastMessage}</span>
         </div>

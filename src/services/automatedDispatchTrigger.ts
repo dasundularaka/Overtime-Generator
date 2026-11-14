@@ -47,7 +47,7 @@ export async function triggerWelcomeEmailForUser(
       name,
       pfNumber: cleanPf,
       initialPassword: pass,
-      loginUrl: 'https://otclaim.vercel.app/',
+      loginUrl: typeof window !== 'undefined' ? window.location.origin : 'https://otclaim.vercel.app/',
     });
 
     if (gmailResult.success) {
