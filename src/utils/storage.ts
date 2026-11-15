@@ -47,6 +47,22 @@ const DEFAULT_SETTINGS: AppSettings = {
   defaultHolidayReason: '',
 };
 
+function safeSetItem(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch (err) {
+    console.warn('localStorage write skipped:', key, err);
+  }
+}
+
+function safeRemoveItem(key: string): void {
+  try {
+    localStorage.removeItem(key);
+  } catch (err) {
+    console.warn('localStorage remove skipped:', key, err);
+  }
+}
+
 // ---------------- Employees (User Isolated) ----------------
 
 export function getEmployees(customUserId?: string): Employee[] {
@@ -56,7 +72,8 @@ export function getEmployees(customUserId?: string): Employee[] {
     if (!raw) {
       return [];
     }
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
   } catch (err) {
     console.error('Failed to read user employees from storage', err);
     return [];
@@ -74,14 +91,14 @@ export function saveEmployee(employee: Employee, customUserId?: string): Employe
   } else {
     updated = [employee, ...list];
   }
-  localStorage.setItem(key, JSON.stringify(updated));
+  safeSetItem(key, JSON.stringify(updated));
   return updated;
 }
 
 export function deleteEmployee(id: string, customUserId?: string): Employee[] {
   const key = getUserStorageKey(STORAGE_KEYS.EMPLOYEES, customUserId);
   const list = getEmployees(customUserId).filter(e => e.id !== id);
-  localStorage.setItem(key, JSON.stringify(list));
+  safeSetItem(key, JSON.stringify(list));
   return list;
 }
 
@@ -99,7 +116,12 @@ export function getTemplates(activeProfile?: UserProfile | null): TemplateConfig
     if (globalRaw) {
       const parsed = JSON.parse(globalRaw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        allTemplates = parsed;
+        allTemplates = parsed.filter(
+          (t): t is TemplateConfig => Boolean(t && typeof t === 'object' && typeof t.id === 'string')
+        );
+        if (allTemplates.length === 0) {
+          allTemplates = [...BUILTIN_TEMPLATES];
+        }
         // Ensure all built-in templates (Overtime Form 10756 and Out of Pocket Form 10610) exist
         let hasNew = false;
         for (const builtin of BUILTIN_TEMPLATES) {
@@ -109,11 +131,11 @@ export function getTemplates(activeProfile?: UserProfile | null): TemplateConfig
           }
         }
         if (hasNew) {
-          localStorage.setItem('ot_manager_templates_global_v2', JSON.stringify(allTemplates));
+          safeSetItem('ot_manager_templates_global_v2', JSON.stringify(allTemplates));
         }
       }
     } else {
-      localStorage.setItem('ot_manager_templates_global_v2', JSON.stringify(BUILTIN_TEMPLATES));
+      safeSetItem('ot_manager_templates_global_v2', JSON.stringify(BUILTIN_TEMPLATES));
     }
 
     const session = activeProfile || getActiveSession();
@@ -127,7 +149,7 @@ export function getTemplates(activeProfile?: UserProfile | null): TemplateConfig
     }
 
     // If regular user: strictly restrict to assignedTemplateIds only!
-    if (session?.assignedTemplateIds && session.assignedTemplateIds.length > 0) {
+    if (Array.isArray(session?.assignedTemplateIds) && session.assignedTemplateIds.length > 0) {
       return allTemplates.filter(t => session.assignedTemplateIds!.includes(t.id));
     }
 
@@ -148,13 +170,18 @@ export function getActiveTemplate(activeProfile?: UserProfile | null): TemplateC
 }
 
 export function saveTemplate(template: TemplateConfig): TemplateConfig[] {
-  const globalRaw = localStorage.getItem('ot_manager_templates_global_v2');
   let templates: TemplateConfig[] = [DEFAULT_TEMPLATE];
-  if (globalRaw) {
-    try {
-      templates = JSON.parse(globalRaw);
-    } catch {}
-  }
+  try {
+    const globalRaw = localStorage.getItem('ot_manager_templates_global_v2');
+    if (globalRaw) {
+      const parsed = JSON.parse(globalRaw);
+      if (Array.isArray(parsed)) {
+        templates = parsed.filter(
+          (t): t is TemplateConfig => Boolean(t && typeof t === 'object' && typeof t.id === 'string')
+        );
+      }
+    }
+  } catch {}
 
   const index = templates.findIndex(t => t.id === template.id);
   let updated: TemplateConfig[];
@@ -164,34 +191,40 @@ export function saveTemplate(template: TemplateConfig): TemplateConfig[] {
   } else {
     updated = [...templates, { ...template, updatedAt: new Date().toISOString() }];
   }
-  localStorage.setItem('ot_manager_templates_global_v2', JSON.stringify(updated));
+  safeSetItem('ot_manager_templates_global_v2', JSON.stringify(updated));
   return updated;
 }
 
 export function deleteTemplate(templateId: string): TemplateConfig[] {
-  const globalRaw = localStorage.getItem('ot_manager_templates_global_v2');
   let templates: TemplateConfig[] = [DEFAULT_TEMPLATE];
-  if (globalRaw) {
-    try {
-      templates = JSON.parse(globalRaw);
-    } catch {}
-  }
-  const updated = templates.filter(t => t.id !== templateId);
+  try {
+    const globalRaw = localStorage.getItem('ot_manager_templates_global_v2');
+    if (globalRaw) {
+      const parsed = JSON.parse(globalRaw);
+      if (Array.isArray(parsed)) {
+        templates = parsed;
+      }
+    }
+  } catch {}
+  const updated = templates.filter(t => t && t.id !== templateId);
   const finalTemplates = updated.length > 0 ? updated : [DEFAULT_TEMPLATE];
-  localStorage.setItem('ot_manager_templates_global_v2', JSON.stringify(finalTemplates));
+  safeSetItem('ot_manager_templates_global_v2', JSON.stringify(finalTemplates));
   return finalTemplates;
 }
 
 export function resetTemplateToDefault(): TemplateConfig {
-  const globalRaw = localStorage.getItem('ot_manager_templates_global_v2');
   let templates: TemplateConfig[] = [];
-  if (globalRaw) {
-    try {
-      templates = JSON.parse(globalRaw).filter((t: TemplateConfig) => t.id !== DEFAULT_TEMPLATE.id);
-    } catch {}
-  }
+  try {
+    const globalRaw = localStorage.getItem('ot_manager_templates_global_v2');
+    if (globalRaw) {
+      const parsed = JSON.parse(globalRaw);
+      if (Array.isArray(parsed)) {
+        templates = parsed.filter((t: TemplateConfig) => t && t.id !== DEFAULT_TEMPLATE.id);
+      }
+    }
+  } catch {}
   const updated = [DEFAULT_TEMPLATE, ...templates];
-  localStorage.setItem('ot_manager_templates_global_v2', JSON.stringify(updated));
+  safeSetItem('ot_manager_templates_global_v2', JSON.stringify(updated));
   const settings = getSettings();
   saveSettings({ ...settings, activeTemplateId: DEFAULT_TEMPLATE.id });
   return DEFAULT_TEMPLATE;
@@ -204,7 +237,8 @@ export function getClaims(customUserId?: string): ClaimRecord[] {
     const key = getUserStorageKey(STORAGE_KEYS.CLAIMS, customUserId);
     const raw = localStorage.getItem(key);
     if (!raw) return [];
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
   } catch (err) {
     console.error('Failed to read claims', err);
     return [];
@@ -222,14 +256,14 @@ export function saveClaim(claim: ClaimRecord, customUserId?: string): ClaimRecor
   } else {
     updated = [{ ...claim, updatedAt: new Date().toISOString() }, ...claims];
   }
-  localStorage.setItem(key, JSON.stringify(updated));
+  safeSetItem(key, JSON.stringify(updated));
   return updated;
 }
 
 export function deleteClaim(id: string, customUserId?: string): ClaimRecord[] {
   const key = getUserStorageKey(STORAGE_KEYS.CLAIMS, customUserId);
   const claims = getClaims(customUserId).filter(c => c.id !== id);
-  localStorage.setItem(key, JSON.stringify(claims));
+  safeSetItem(key, JSON.stringify(claims));
   return claims;
 }
 
@@ -240,24 +274,21 @@ export function getDraftClaim(customUserId?: string): Partial<ClaimRecord> | nul
     const key = getUserStorageKey(STORAGE_KEYS.DRAFT_CLAIM, customUserId);
     const raw = localStorage.getItem(key);
     if (!raw) return null;
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
   } catch {
     return null;
   }
 }
 
 export function saveDraftClaim(draft: Partial<ClaimRecord>, customUserId?: string): void {
-  try {
-    const key = getUserStorageKey(STORAGE_KEYS.DRAFT_CLAIM, customUserId);
-    localStorage.setItem(key, JSON.stringify(draft));
-  } catch (e) {
-    console.warn('Could not save draft claim', e);
-  }
+  const key = getUserStorageKey(STORAGE_KEYS.DRAFT_CLAIM, customUserId);
+  safeSetItem(key, JSON.stringify(draft));
 }
 
 export function clearDraftClaim(customUserId?: string): void {
   const key = getUserStorageKey(STORAGE_KEYS.DRAFT_CLAIM, customUserId);
-  localStorage.removeItem(key);
+  safeRemoveItem(key);
 }
 
 // ---------------- Settings (User Isolated) ----------------
@@ -267,10 +298,11 @@ export function getSettings(customUserId?: string): AppSettings {
     const key = getUserStorageKey(STORAGE_KEYS.SETTINGS, customUserId);
     const raw = localStorage.getItem(key);
     if (!raw) {
-      localStorage.setItem(key, JSON.stringify(DEFAULT_SETTINGS));
+      safeSetItem(key, JSON.stringify(DEFAULT_SETTINGS));
       return DEFAULT_SETTINGS;
     }
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? { ...DEFAULT_SETTINGS, ...parsed } : DEFAULT_SETTINGS;
   } catch {
     return DEFAULT_SETTINGS;
   }
@@ -278,7 +310,7 @@ export function getSettings(customUserId?: string): AppSettings {
 
 export function saveSettings(settings: AppSettings, customUserId?: string): AppSettings {
   const key = getUserStorageKey(STORAGE_KEYS.SETTINGS, customUserId);
-  localStorage.setItem(key, JSON.stringify(settings));
+  safeSetItem(key, JSON.stringify(settings));
   return settings;
 }
 
@@ -313,16 +345,16 @@ export function importAllData(jsonString: string): { success: boolean; message: 
     }
 
     if (Array.isArray(parsed.employees)) {
-      localStorage.setItem(getUserStorageKey(STORAGE_KEYS.EMPLOYEES), JSON.stringify(parsed.employees));
+      safeSetItem(getUserStorageKey(STORAGE_KEYS.EMPLOYEES), JSON.stringify(parsed.employees));
     }
     if (Array.isArray(parsed.claims)) {
-      localStorage.setItem(getUserStorageKey(STORAGE_KEYS.CLAIMS), JSON.stringify(parsed.claims));
+      safeSetItem(getUserStorageKey(STORAGE_KEYS.CLAIMS), JSON.stringify(parsed.claims));
     }
     if (Array.isArray(parsed.templates) && parsed.templates.length > 0) {
-      localStorage.setItem('ot_manager_templates_global_v2', JSON.stringify(parsed.templates));
+      safeSetItem('ot_manager_templates_global_v2', JSON.stringify(parsed.templates));
     }
     if (parsed.settings && typeof parsed.settings === 'object') {
-      localStorage.setItem(getUserStorageKey(STORAGE_KEYS.SETTINGS), JSON.stringify(parsed.settings));
+      safeSetItem(getUserStorageKey(STORAGE_KEYS.SETTINGS), JSON.stringify(parsed.settings));
     }
 
     return { success: true, message: 'All overtime claims, templates, and employee records restored successfully!' };
@@ -333,7 +365,7 @@ export function importAllData(jsonString: string): { success: boolean; message: 
 
 export function resetAllApplicationData(): void {
   Object.values(STORAGE_KEYS).forEach(base => {
-    localStorage.removeItem(base);
-    localStorage.removeItem(getUserStorageKey(base));
+    safeRemoveItem(base);
+    safeRemoveItem(getUserStorageKey(base));
   });
 }

@@ -19,6 +19,7 @@ import { PasswordResetModal } from './components/PasswordResetModal';
 import { AuditLogViewer } from './components/AuditLogViewer';
 import { ClaimRecord } from './types';
 import { initAutomatedUserCreationListener } from './services/automatedDispatchTrigger';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 const TAB_TITLES: Record<NavigationTab, { message: string; subMessage: string }> = {
   dashboard: { message: 'Loading Dashboard...', subMessage: 'Summarizing claims and monthly statistics...' },
@@ -54,8 +55,8 @@ function AppContent() {
     subMessage: 'Switching view...',
   });
 
-  const transitionTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const switchTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const transitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const switchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Automatically adjust initial load time according to real database & auth load time
   useEffect(() => {
@@ -94,6 +95,15 @@ function AppContent() {
       if (safetyFinishTimer) clearTimeout(safetyFinishTimer);
     };
   }, []);
+
+  // Watchdog: guarantee PageTransitionOverlay can NEVER remain stuck visible over New Claim or any view
+  useEffect(() => {
+    if (!pageTransition.isVisible) return;
+    const maxTimer = setTimeout(() => {
+      setPageTransition(prev => (prev.isVisible ? { ...prev, isVisible: false } : prev));
+    }, 950);
+    return () => clearTimeout(maxTimer);
+  }, [pageTransition.isVisible]);
 
   // Virtual keyboard scroll-into-view handler: automatically scroll focused mobile inputs into clear view
   useEffect(() => {
@@ -135,7 +145,7 @@ function AppContent() {
     };
   }, []);
 
-  // Centralized tab transition with real render synchronization
+  // Centralized tab transition without fragile nested rAF blocking
   const transitionToTab = (
     targetTab: NavigationTab,
     onBeforeSwitch?: () => void,
@@ -146,9 +156,11 @@ function AppContent() {
 
     if (transitionTimerRef.current) {
       clearTimeout(transitionTimerRef.current);
+      transitionTimerRef.current = null;
     }
     if (switchTimerRef.current) {
       clearTimeout(switchTimerRef.current);
+      switchTimerRef.current = null;
     }
 
     const info = TAB_TITLES[targetTab] || {
@@ -163,19 +175,21 @@ function AppContent() {
     });
 
     switchTimerRef.current = setTimeout(() => {
-      if (onBeforeSwitch) onBeforeSwitch();
-      if (targetTab === 'designer' && !isSuperAdmin) {
-        setActiveTab('dashboard');
-      } else {
-        setActiveTab(targetTab);
-      }
-
-      requestAnimationFrame(() => {
+      try {
+        if (onBeforeSwitch) onBeforeSwitch();
+        if (targetTab === 'designer' && !isSuperAdmin) {
+          setActiveTab('dashboard');
+        } else {
+          setActiveTab(targetTab);
+        }
+      } catch (err) {
+        console.error('Tab transition pre-switch error:', err);
+      } finally {
         transitionTimerRef.current = setTimeout(() => {
           setPageTransition(prev => ({ ...prev, isVisible: false }));
-        }, 400);
-      });
-    }, 250);
+        }, 320);
+      }
+    }, 200);
   };
 
   // Initialize automated user creation email dispatch trigger for admins
@@ -282,56 +296,65 @@ function AppContent() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-36 sm:pb-32 md:pb-8">
-        {activeTab === 'dashboard' && (
-          <Dashboard
-            onNavigate={(tab) => {
-              if (tab === 'new-claim') handleStartFreshClaim();
-              else transitionToTab(tab);
-            }}
-            onEditClaim={handleEditClaim}
-          />
-        )}
+        <ErrorBoundary
+          resetKey={`${activeTab}:${editingClaim?.id || 'fresh'}`}
+          fallbackTitle={activeTab === 'new-claim' ? 'Unable to load New Claim sheet' : 'Unable to display this section'}
+          onBackHome={() => {
+            setEditingClaim(null);
+            setActiveTab('dashboard');
+          }}
+        >
+          {activeTab === 'dashboard' && (
+            <Dashboard
+              onNavigate={(tab) => {
+                if (tab === 'new-claim') handleStartFreshClaim();
+                else transitionToTab(tab);
+              }}
+              onEditClaim={handleEditClaim}
+            />
+          )}
 
-        {activeTab === 'new-claim' && (
-          <ClaimEditor
-            initialClaim={editingClaim}
-            onClaimSaved={() => {
-              transitionToTab(
-                'history',
-                undefined,
-                'Saving Claim Record...',
-                'Synchronizing claim to history...'
-              );
-            }}
-            onNavigateToDesigner={isSuperAdmin ? () => transitionToTab('designer') : undefined}
-          />
-        )}
+          {activeTab === 'new-claim' && (
+            <ClaimEditor
+              initialClaim={editingClaim}
+              onClaimSaved={() => {
+                transitionToTab(
+                  'history',
+                  undefined,
+                  'Saving Claim Record...',
+                  'Synchronizing claim to history...'
+                );
+              }}
+              onNavigateToDesigner={isSuperAdmin ? () => transitionToTab('designer') : undefined}
+            />
+          )}
 
-        {activeTab === 'calendar' && (
-          <CalendarManager
-            onNavigateToNewClaim={() => {
-              handleStartFreshClaim();
-            }}
-          />
-        )}
+          {activeTab === 'calendar' && (
+            <CalendarManager
+              onNavigateToNewClaim={() => {
+                handleStartFreshClaim();
+              }}
+            />
+          )}
 
-        {activeTab === 'users' && isAdmin && <UserManagement />}
-        {activeTab === 'branches' && <BranchManagement />}
-        {activeTab === 'roles' && isAdmin && <RoleManagement />}
-        {activeTab === 'audit' && isAdmin && <AuditLogViewer />}
+          {activeTab === 'users' && isAdmin && <UserManagement />}
+          {activeTab === 'branches' && <BranchManagement />}
+          {activeTab === 'roles' && isAdmin && <RoleManagement />}
+          {activeTab === 'audit' && isAdmin && <AuditLogViewer />}
 
-        {activeTab === 'employees' && isAdmin && <EmployeeManager />}
+          {activeTab === 'employees' && isAdmin && <EmployeeManager />}
 
-        {activeTab === 'history' && (
-          <ClaimHistory
-            onEditClaim={handleEditClaim}
-            onNavigateToNewClaim={handleStartFreshClaim}
-          />
-        )}
+          {activeTab === 'history' && (
+            <ClaimHistory
+              onEditClaim={handleEditClaim}
+              onNavigateToNewClaim={handleStartFreshClaim}
+            />
+          )}
 
-        {activeTab === 'designer' && isSuperAdmin && <TemplateDesigner />}
+          {activeTab === 'designer' && isSuperAdmin && <TemplateDesigner />}
 
-        {activeTab === 'settings' && <SettingsPage />}
+          {activeTab === 'settings' && <SettingsPage />}
+        </ErrorBoundary>
       </main>
 
       {/* Footer (Desktop only) */}

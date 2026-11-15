@@ -109,9 +109,16 @@ export async function fetchTemplatesFromFirestore(isAdmin = false): Promise<Temp
 
     const templates: TemplateConfig[] = [];
     snap.forEach(docSnap => {
-      const data = docSnap.data() as TemplateConfig;
-      templates.push(data);
-      saveTemplateToLocal(data); // Sync to local storage cache
+      const raw = docSnap.data() as Partial<TemplateConfig> | undefined;
+      if (!raw || typeof raw !== 'object') return;
+      const normalized = sanitizeTemplate({
+        ...DEFAULT_TEMPLATE,
+        ...raw,
+        id: typeof raw.id === 'string' && raw.id.trim() ? raw.id : docSnap.id,
+        name: typeof raw.name === 'string' && raw.name.trim() ? raw.name : (docSnap.id || 'Untitled Template'),
+      });
+      templates.push(normalized);
+      saveTemplateToLocal(normalized); // Sync to local storage cache
     });
 
     // If admin and Out of Pocket template isn't in Firestore yet, automatically seed it
@@ -130,13 +137,14 @@ export async function fetchTemplatesFromFirestore(isAdmin = false): Promise<Temp
     templates.sort((a, b) => {
       if (a.isDefault && !b.isDefault) return -1;
       if (!a.isDefault && b.isDefault) return 1;
-      return a.name.localeCompare(b.name);
+      return (a.name || '').localeCompare(b.name || '');
     });
 
     return templates;
   } catch (err) {
-    handleFirestoreError(err, OperationType.LIST, TEMPLATES_COLLECTION);
-    return getLocalTemplates();
+    console.warn('Could not fetch templates from Firestore, using cached/built-in templates:', err);
+    const cached = getLocalTemplates();
+    return cached.length > 0 ? cached : [...BUILTIN_TEMPLATES];
   }
 }
 
@@ -243,39 +251,55 @@ export async function deleteTemplateFromFirestore(templateId: string): Promise<v
 export function subscribeToTemplates(
   onUpdate: (templates: TemplateConfig[]) => void
 ): () => void {
-  const unsubscribe = onSnapshot(
-    collection(db, TEMPLATES_COLLECTION),
-    snapshot => {
-      const list: TemplateConfig[] = [];
-      snapshot.forEach(docSnap => {
-        const item = docSnap.data() as TemplateConfig;
-        list.push(item);
-        saveTemplateToLocal(item);
-      });
-
-      if (list.length > 0) {
-        // Merge missing built-in templates into client list if not yet synced
-        for (const builtin of BUILTIN_TEMPLATES) {
-          if (!list.some(t => t.id === builtin.id)) {
-            list.push(builtin);
-          }
-        }
-        list.sort((a, b) => {
-          if (a.isDefault && !b.isDefault) return -1;
-          if (!a.isDefault && b.isDefault) return 1;
-          return a.name.localeCompare(b.name);
+  try {
+    const unsubscribe = onSnapshot(
+      collection(db, TEMPLATES_COLLECTION),
+      snapshot => {
+        const list: TemplateConfig[] = [];
+        snapshot.forEach(docSnap => {
+          const raw = docSnap.data() as Partial<TemplateConfig> | undefined;
+          if (!raw || typeof raw !== 'object') return;
+          const item = sanitizeTemplate({
+            ...DEFAULT_TEMPLATE,
+            ...raw,
+            id: typeof raw.id === 'string' && raw.id.trim() ? raw.id : docSnap.id,
+            name: typeof raw.name === 'string' && raw.name.trim() ? raw.name : (docSnap.id || 'Untitled Template'),
+          });
+          list.push(item);
+          saveTemplateToLocal(item);
         });
-        onUpdate(list);
-      } else {
-        onUpdate([...BUILTIN_TEMPLATES]);
-      }
-    },
-    error => {
-      handleFirestoreError(error, OperationType.LIST, TEMPLATES_COLLECTION);
-    }
-  );
 
-  return unsubscribe;
+        if (list.length > 0) {
+          // Merge missing built-in templates into client list if not yet synced
+          for (const builtin of BUILTIN_TEMPLATES) {
+            if (!list.some(t => t.id === builtin.id)) {
+              list.push(builtin);
+            }
+          }
+          list.sort((a, b) => {
+            if (a.isDefault && !b.isDefault) return -1;
+            if (!a.isDefault && b.isDefault) return 1;
+            return (a.name || '').localeCompare(b.name || '');
+          });
+          onUpdate(list);
+        } else {
+          onUpdate([...BUILTIN_TEMPLATES]);
+        }
+      },
+      error => {
+        console.warn('Templates snapshot listener error, falling back to local cache:', error);
+        const cached = getLocalTemplates();
+        onUpdate(cached.length > 0 ? cached : [...BUILTIN_TEMPLATES]);
+      }
+    );
+
+    return unsubscribe;
+  } catch (err) {
+    console.warn('Failed to subscribe to templates, using fallback:', err);
+    const cached = getLocalTemplates();
+    onUpdate(cached.length > 0 ? cached : [...BUILTIN_TEMPLATES]);
+    return () => {};
+  }
 }
 
 /**

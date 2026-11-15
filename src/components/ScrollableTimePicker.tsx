@@ -14,7 +14,7 @@ interface ScrollableTimePickerProps {
 }
 
 export function parse24To12(time24: string): { hour: number; minute: number; period: 'AM' | 'PM' } {
-  if (!time24 || !time24.includes(':')) {
+  if (!time24 || typeof time24 !== 'string' || !time24.includes(':')) {
     return { hour: 8, minute: 30, period: 'AM' };
   }
   const parts = time24.split(':');
@@ -36,7 +36,7 @@ export function format12To24(hour: number, minute: number, period: 'AM' | 'PM'):
 }
 
 export function format24To12Display(time24: string): string {
-  if (!time24) return '';
+  if (!time24 || typeof time24 !== 'string') return '';
   const { hour, minute, period } = parse24To12(time24);
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} ${period}`;
 }

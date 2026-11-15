@@ -16,12 +16,12 @@ export const PageTransitionOverlay: React.FC<PageTransitionOverlayProps> = ({
   const [isFadedIn, setIsFadedIn] = useState(false);
 
   useEffect(() => {
-    let fadeOutTimer: NodeJS.Timeout;
-    let animFrame: number;
+    let fadeOutTimer: ReturnType<typeof setTimeout> | undefined;
+    let animFrame: number | undefined;
 
     if (isVisible) {
       setShouldRender(true);
-      // Ensure the element is mounted with opacity-0 first, then trigger fade-in transition
+      // Ensure the element is mounted cleanly and fade in immediately
       animFrame = requestAnimationFrame(() => {
         setIsFadedIn(true);
       });
@@ -30,12 +30,12 @@ export const PageTransitionOverlay: React.FC<PageTransitionOverlayProps> = ({
       setIsFadedIn(false);
       fadeOutTimer = setTimeout(() => {
         setShouldRender(false);
-      }, 300); // 300ms fade-out transition duration
+      }, 280);
     }
 
     return () => {
-      cancelAnimationFrame(animFrame);
-      clearTimeout(fadeOutTimer);
+      if (animFrame !== undefined) cancelAnimationFrame(animFrame);
+      if (fadeOutTimer !== undefined) clearTimeout(fadeOutTimer);
     };
   }, [isVisible]);
 

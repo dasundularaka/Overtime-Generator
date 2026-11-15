@@ -83,7 +83,7 @@ import { PDFPreviewModal } from './PDFPreviewModal';
 import { ConfirmationModal } from './ConfirmationModal';
 import { useAuth } from '../context/AuthContext';
 import { subscribeToTemplates } from '../services/templateService';
-import { subscribeToHolidays } from '../services/holidayService';
+import { subscribeToHolidays, DEFAULT_ANNUAL_HOLIDAYS } from '../services/holidayService';
 import {
   fetchRoleRatesFromFirestore,
   subscribeToRoleRates,
@@ -91,6 +91,18 @@ import {
   DEFAULT_ROLE_RATES,
 } from '../utils/branchRoleManager';
 import { ScrollableTimePicker, parse24To12, format12To24 } from './ScrollableTimePicker';
+
+function toSafeStr(val: unknown, fallback = ''): string {
+  if (typeof val === 'string') return val;
+  if (typeof val === 'number' && Number.isFinite(val)) return String(val);
+  return fallback;
+}
+
+function toSafeRate(val: unknown): number | '' {
+  if (val === '' || val === null || val === undefined) return '';
+  const num = Number(val);
+  return Number.isFinite(num) ? num : '';
+}
 
 interface ClaimEditorProps {
   initialClaim?: ClaimRecord | null;
@@ -226,7 +238,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     if (userAllowedTemplates.length > 0) {
       if (!selectedTemplateId || !userAllowedTemplates.some(t => t.id === selectedTemplateId)) {
         if (userProfile?.claimType === 'OP' || initialClaim?.claimType === 'OP') {
-          const opTpl = userAllowedTemplates.find(t => t.id.includes('pocket') || t.id.includes('op'));
+          const opTpl = userAllowedTemplates.find(t => {
+            const tid = toSafeStr(t?.id).toLowerCase();
+            return tid.includes('pocket') || tid.includes('op');
+          });
           if (opTpl) {
             setSelectedTemplateId(opTpl.id);
             return;
@@ -264,40 +279,46 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   const [userShiftEndTime, setUserShiftEndTime] = useState<string>(GENERAL_SHIFT_END);
 
   const currentDate = new Date();
-  const [claimMonth, setClaimMonth] = useState<string>(
-    initialClaim?.month || MONTH_NAMES[currentDate.getMonth()]
-  );
-  const [claimYear, setClaimYear] = useState<number>(
-    initialClaim?.year || currentDate.getFullYear()
-  );
+  const initialValidMonth = initialClaim?.month && MONTH_NAMES.includes(initialClaim.month)
+    ? initialClaim.month
+    : MONTH_NAMES[currentDate.getMonth()];
+  const initialValidYear =
+    typeof initialClaim?.year === 'number' && Number.isFinite(initialClaim.year) && initialClaim.year >= 1900 && initialClaim.year <= 2100
+      ? initialClaim.year
+      : currentDate.getFullYear();
+
+  const [claimMonth, setClaimMonth] = useState<string>(initialValidMonth);
+  const [claimYear, setClaimYear] = useState<number>(initialValidYear);
   const [claimDate, setClaimDate] = useState<string>(
-    initialClaim?.claimDate || new Date().toISOString().split('T')[0]
+    toSafeStr(initialClaim?.claimDate) || new Date().toISOString().split('T')[0]
   );
 
   // Rates & Payment State
   const [totalRemuneration, setTotalRemuneration] = useState<number | ''>(
-    initialClaim?.totalRemuneration !== undefined ? initialClaim.totalRemuneration : ''
+    toSafeRate(initialClaim?.totalRemuneration)
   );
   const [hourlyRate, setHourlyRate] = useState<number | ''>(
-    initialClaim?.hourlyRate !== undefined ? initialClaim.hourlyRate : ''
+    toSafeRate(initialClaim?.hourlyRate)
   );
   const [daysPay, setDaysPay] = useState<number | ''>(
-    initialClaim?.daysPay !== undefined ? initialClaim.daysPay : ''
+    toSafeRate(initialClaim?.daysPay)
   );
-  const [hourlyRateNonWorkingDays, setHourlyRateNonWorkingDays] = useState<number | ''>('');
+  const [hourlyRateNonWorkingDays, setHourlyRateNonWorkingDays] = useState<number | ''>(
+    toSafeRate(initialClaim?.hourlyRateNonWorkingDays)
+  );
   const [otPaymentDueB, setOtPaymentDueB] = useState<number | ''>(
-    initialClaim?.otPaymentDueB !== undefined ? initialClaim.otPaymentDueB : ''
+    toSafeRate(initialClaim?.otPaymentDueB)
   );
   const [isSpecialAssignedOt, setIsSpecialAssignedOt] = useState<boolean>(
-    initialClaim?.rows?.some(r => r.isSpecialAssignment) || false
+    Array.isArray(initialClaim?.rows) ? initialClaim.rows.some(r => Boolean(r?.isSpecialAssignment)) : false
   );
   const [isConfirmResetOpen, setIsConfirmResetOpen] = useState(false);
   const [isConfirmSaveClaimOpen, setIsConfirmSaveClaimOpen] = useState(false);
   const [isSavingClaim, setIsSavingClaim] = useState(false);
 
   // Active Draft & Auto-Save State
-  const [activeClaimId, setActiveClaimId] = useState<string>(initialClaim?.id || '');
-  const [activeClaimNumber, setActiveClaimNumber] = useState<string>(initialClaim?.claimNumber || '');
+  const [activeClaimId, setActiveClaimId] = useState<string>(toSafeStr(initialClaim?.id));
+  const [activeClaimNumber, setActiveClaimNumber] = useState<string>(toSafeStr(initialClaim?.claimNumber));
   const [autoSaveDraftEnabled, setAutoSaveDraftEnabled] = useState<boolean>(() => {
     try {
       const stored = localStorage.getItem('ot_autosave_draft_enabled');
@@ -313,13 +334,13 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
   // Default Reasons State (Weekdays Mon-Fri, Saturdays, Other Holidays)
   const [defaultWeekdayReason, setDefaultWeekdayReason] = useState<string>(() => {
-    return userProfile?.defaultWeekdayReason ?? settings.defaultWeekdayReason ?? '';
+    return toSafeStr(userProfile?.defaultWeekdayReason ?? settings.defaultWeekdayReason, '');
   });
   const [defaultSaturdayReason, setDefaultSaturdayReason] = useState<string>(() => {
-    return userProfile?.defaultSaturdayReason ?? settings.defaultSaturdayReason ?? 'Saturday Duty';
+    return toSafeStr(userProfile?.defaultSaturdayReason ?? settings.defaultSaturdayReason, 'Saturday Duty');
   });
   const [defaultHolidayReason, setDefaultHolidayReason] = useState<string>(() => {
-    return userProfile?.defaultHolidayReason ?? settings.defaultHolidayReason ?? '';
+    return toSafeStr(userProfile?.defaultHolidayReason ?? settings.defaultHolidayReason, '');
   });
   const [isDefaultReasonsModalOpen, setIsDefaultReasonsModalOpen] = useState<boolean>(false);
   const [tempWeekdayReason, setTempWeekdayReason] = useState<string>('');
@@ -328,17 +349,17 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   const [reasonsSavedSuccess, setReasonsSavedSuccess] = useState<boolean>(false);
 
   const handleOpenDefaultReasonsModal = () => {
-    setTempWeekdayReason(defaultWeekdayReason);
-    setTempSaturdayReason(defaultSaturdayReason);
-    setTempHolidayReason(defaultHolidayReason);
+    setTempWeekdayReason(toSafeStr(defaultWeekdayReason));
+    setTempSaturdayReason(toSafeStr(defaultSaturdayReason));
+    setTempHolidayReason(toSafeStr(defaultHolidayReason));
     setIsDefaultReasonsModalOpen(true);
   };
 
   const handleSaveAndApplyDefaultReasons = async (applyScope?: 'empty' | 'all') => {
     markUserModified();
-    const finalWeekday = tempWeekdayReason.trim();
-    const finalSaturday = tempSaturdayReason.trim();
-    const finalHoliday = tempHolidayReason.trim();
+    const finalWeekday = toSafeStr(tempWeekdayReason).trim();
+    const finalSaturday = toSafeStr(tempSaturdayReason).trim();
+    const finalHoliday = toSafeStr(tempHolidayReason).trim();
 
     setDefaultWeekdayReason(finalWeekday);
     setDefaultSaturdayReason(finalSaturday);
@@ -459,8 +480,14 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   const [isNoOtModalOpen, setIsNoOtModalOpen] = useState(false);
   const [noOtRowsDetected, setNoOtRowsDetected] = useState<OvertimeRow[]>([]);
 
-  // Holidays Calendar Sync State
-  const [calendarHolidays, setCalendarHolidays] = useState<Holiday[]>([]);
+  // Holidays Calendar Sync State - seed immediately from default annual holidays so mount rows reflect holidays right away
+  const [calendarHolidays, setCalendarHolidays] = useState<Holiday[]>(() =>
+    DEFAULT_ANNUAL_HOLIDAYS.map((h, i) => ({
+      ...h,
+      id: h.date || `hol_${i}`,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    }))
+  );
 
   // Corporate Role Rates Subscription - initialized immediately from local cache
   const [roleRates, setRoleRates] = useState<RoleRate[]>(getLocalRoleRates());
@@ -568,8 +595,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   const dateOccurrences = useMemo(() => {
     const counts = new Map<string, number>();
     for (const r of rows) {
-      if (r.date && r.date.trim()) {
-        counts.set(r.date, (counts.get(r.date) || 0) + 1);
+      const dateStr = toSafeStr(r?.date).trim();
+      if (dateStr) {
+        counts.set(dateStr, (counts.get(dateStr) || 0) + 1);
       }
     }
     return counts;
@@ -595,25 +623,30 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       };
     }
 
+    const safeStartTime = toSafeStr(r.startTime);
+    const safeEndTime = toSafeStr(r.endTime);
+    const safeReason = toSafeStr(r.reason);
+    const safeDate = toSafeStr(r.date);
+
     const isHol = isRowHoliday(r);
-    const dow = r.dayOfWeek || getDayOfWeek(r.date);
+    const dow = r.dayOfWeek || getDayOfWeek(safeDate);
     const isSat = dow === 'Sat';
     const defaultStart = userShiftStartTime || GENERAL_SHIFT_START;
 
-    const hasStartTime = Boolean(r.startTime && r.startTime.trim());
-    const hasEndTime = Boolean(r.endTime && r.endTime.trim());
+    const hasStartTime = Boolean(safeStartTime.trim());
+    const hasEndTime = Boolean(safeEndTime.trim());
     const hasTimes = hasStartTime || hasEndTime;
 
-    const inPeriod = hasStartTime ? parse24To12(r.startTime).period : null;
-    const outPeriod = hasEndTime ? parse24To12(r.endTime).period : null;
+    const inPeriod = hasStartTime ? parse24To12(safeStartTime).period : null;
+    const outPeriod = hasEndTime ? parse24To12(safeEndTime).period : null;
     const hasSameSession = Boolean(hasStartTime && hasEndTime && inPeriod === outPeriod);
 
     // Untouched weekday rows carry the default shift startTime ('08:00') with blank endTime.
     // Only flag Missing Time Out when the user actively entered a custom startTime, or on Saturday / Holiday OT.
-    const hasEnteredStartForOt = hasStartTime && (isSat || (isHol && !!r.isHolidayOverride) || r.startTime !== defaultStart);
+    const hasEnteredStartForOt = hasStartTime && (isSat || (isHol && !!r.isHolidayOverride) || safeStartTime !== defaultStart);
     const isMissingTimeOut = hasEnteredStartForOt && !hasEndTime;
     const isMissingTimeIn = !hasStartTime && hasEndTime;
-    const isZeroDuration = Boolean(hasStartTime && hasEndTime && r.startTime === r.endTime);
+    const isZeroDuration = Boolean(hasStartTime && hasEndTime && safeStartTime === safeEndTime);
 
     const hasClaimableResult =
       (r.totalMinutes || 0) > 0 ||
@@ -621,9 +654,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       (isSat && (r.totalWorkMinutes || 0) >= 360);
 
     const isMissingReason = Boolean(
-      hasStartTime && hasEndTime && hasClaimableResult && (!r.reason || !r.reason.trim())
+      hasStartTime && hasEndTime && hasClaimableResult && !safeReason.trim()
     );
-    const isDuplicateDate = Boolean(r.date && (dateOccurrences.get(r.date) || 0) > 1);
+    const isDuplicateDate = Boolean(safeDate && (dateOccurrences.get(safeDate) || 0) > 1);
     const isHolidayNotOverridden = Boolean(isHol && !r.isHolidayOverride && hasTimes);
     const isSatShortHours = Boolean(isSat && !hasStartTime && !hasEndTime && (r.totalWorkMinutes || 0) > 0 && (r.totalWorkMinutes || 0) < 360);
 
@@ -907,29 +940,27 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   // Respect user's own assigned rates first; fall back to corporate role rates if user rates are empty.
   useEffect(() => {
     if (!isAdmin && isRoleRatesLocked) {
-      const lockedHourly = (targetProfile?.hourlyRate !== undefined && targetProfile.hourlyRate !== '')
-        ? targetProfile.hourlyRate
-        : userRelevantRole?.hourlyRateWorkingDays;
-      if (lockedHourly !== undefined && lockedHourly !== '') {
+      const safeUserHourly = toSafeRate(targetProfile?.hourlyRate);
+      const lockedHourly = safeUserHourly !== '' ? safeUserHourly : toSafeRate(userRelevantRole?.hourlyRateWorkingDays);
+      if (lockedHourly !== '') {
         setHourlyRate(lockedHourly);
       }
 
-      const lockedDaysPay = (targetProfile?.daysPay !== undefined && targetProfile.daysPay !== '')
-        ? targetProfile.daysPay
-        : userRelevantRole?.daysPaymentNonWorkingDays;
-      if (lockedDaysPay !== undefined && lockedDaysPay !== '') {
+      const safeUserDaysPay = toSafeRate(targetProfile?.daysPay);
+      const lockedDaysPay = safeUserDaysPay !== '' ? safeUserDaysPay : toSafeRate(userRelevantRole?.daysPaymentNonWorkingDays);
+      if (lockedDaysPay !== '') {
         setDaysPay(lockedDaysPay);
       }
 
-      const lockedNonWorkingHourly = (targetProfile?.hourlyRateNonWorkingDays !== undefined && targetProfile.hourlyRateNonWorkingDays !== '')
-        ? targetProfile.hourlyRateNonWorkingDays
-        : userRelevantRole?.hourlyRateNonWorkingDays;
-      if (lockedNonWorkingHourly !== undefined && lockedNonWorkingHourly !== '') {
+      const safeUserNonWorking = toSafeRate(targetProfile?.hourlyRateNonWorkingDays);
+      const lockedNonWorkingHourly = safeUserNonWorking !== '' ? safeUserNonWorking : toSafeRate(userRelevantRole?.hourlyRateNonWorkingDays);
+      if (lockedNonWorkingHourly !== '') {
         setHourlyRateNonWorkingDays(lockedNonWorkingHourly);
       }
 
-      if (targetProfile?.totalRemuneration !== undefined && targetProfile.totalRemuneration !== '') {
-        setTotalRemuneration(targetProfile.totalRemuneration);
+      const safeRemuneration = toSafeRate(targetProfile?.totalRemuneration);
+      if (safeRemuneration !== '') {
+        setTotalRemuneration(safeRemuneration);
       }
     }
   }, [isAdmin, isRoleRatesLocked, userRelevantRole, targetProfile]);
@@ -937,7 +968,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   // Sync profile details into form without wiping user-entered rows on async roleRates/allUsers updates
   useEffect(() => {
     const claimKey = initialClaim
-      ? `edit:${initialClaim.id}`
+      ? `edit:${initialClaim.id || 'unknown'}`
       : `new:${selectedUserId || userProfile?.id || ''}`;
     const isNewContext = initializedClaimKeyRef.current !== claimKey;
 
@@ -951,24 +982,32 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       lastSavedHashRef.current = '';
       isSubmittedRef.current = false;
 
-      setSelectedUserId(initialClaim.userId);
-      setEmployeeName(initialClaim.employeeName);
-      setEmployeeNumber(initialClaim.employeeNumber);
-      setDesignation(initialClaim.designation);
-      setBranch(initialClaim.branch);
-      setDepartment(initialClaim.department);
+      const safeMonth = initialClaim.month && MONTH_NAMES.includes(initialClaim.month)
+        ? initialClaim.month
+        : MONTH_NAMES[new Date().getMonth()];
+      const safeYear =
+        typeof initialClaim.year === 'number' && Number.isFinite(initialClaim.year) && initialClaim.year >= 1900 && initialClaim.year <= 2100
+          ? initialClaim.year
+          : new Date().getFullYear();
+
+      setSelectedUserId(toSafeStr(initialClaim.userId, currentUser?.uid || ''));
+      setEmployeeName(toSafeStr(initialClaim.employeeName));
+      setEmployeeNumber(toSafeStr(initialClaim.employeeNumber));
+      setDesignation(toSafeStr(initialClaim.designation));
+      setBranch(toSafeStr(initialClaim.branch, 'Head Office'));
+      setDepartment(toSafeStr(initialClaim.department, 'IT & Infrastructure Operations'));
       setClaimType(initialClaim.claimType || 'OT');
-      setClaimMonth(initialClaim.month);
-      setClaimYear(initialClaim.year);
-      setClaimDate(initialClaim.claimDate);
-      setRows(initialClaim.rows || []);
-      setTotalRemuneration(initialClaim.totalRemuneration !== undefined ? initialClaim.totalRemuneration : '');
-      setHourlyRate(initialClaim.hourlyRate !== undefined ? initialClaim.hourlyRate : '');
-      setDaysPay(initialClaim.daysPay !== undefined ? initialClaim.daysPay : '');
-      setHourlyRateNonWorkingDays(initialClaim.hourlyRateNonWorkingDays !== undefined ? initialClaim.hourlyRateNonWorkingDays : '');
-      setOtPaymentDueB(initialClaim.otPaymentDueB !== undefined ? initialClaim.otPaymentDueB : '');
-      setActiveClaimId(initialClaim.id);
-      setActiveClaimNumber(initialClaim.claimNumber);
+      setClaimMonth(safeMonth);
+      setClaimYear(safeYear);
+      setClaimDate(toSafeStr(initialClaim.claimDate, new Date().toISOString().split('T')[0]));
+      setRows(Array.isArray(initialClaim.rows) ? initialClaim.rows : []);
+      setTotalRemuneration(toSafeRate(initialClaim.totalRemuneration));
+      setHourlyRate(toSafeRate(initialClaim.hourlyRate));
+      setDaysPay(toSafeRate(initialClaim.daysPay));
+      setHourlyRateNonWorkingDays(toSafeRate(initialClaim.hourlyRateNonWorkingDays));
+      setOtPaymentDueB(toSafeRate(initialClaim.otPaymentDueB));
+      setActiveClaimId(toSafeStr(initialClaim.id));
+      setActiveClaimNumber(toSafeStr(initialClaim.claimNumber));
       if (initialClaim.status === 'draft') {
         setLastAutoSaveTime(new Date(initialClaim.updatedAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
       }
@@ -992,39 +1031,39 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     }
 
     if (targetProfile) {
-      setEmployeeName(targetProfile.name || '');
-      setEmployeeNumber(targetProfile.employeeNumber || '');
-      setDesignation(targetProfile.designation || '');
-      setBranch(targetProfile.branch || 'Head Office');
-      setDepartment(targetProfile.department || 'IT & Infrastructure Operations');
+      setEmployeeName(toSafeStr(targetProfile.name));
+      setEmployeeNumber(toSafeStr(targetProfile.employeeNumber));
+      setDesignation(toSafeStr(targetProfile.designation));
+      setBranch(toSafeStr(targetProfile.branch, 'Head Office'));
+      setDepartment(toSafeStr(targetProfile.department, 'IT & Infrastructure Operations'));
       setClaimType(targetProfile.claimType || 'OT');
       setMaxOtLimitHours(
-        targetProfile.maxOtHoursPerDay !== undefined ? targetProfile.maxOtHoursPerDay : 2.0
+        typeof targetProfile.maxOtHoursPerDay === 'number' && Number.isFinite(targetProfile.maxOtHoursPerDay)
+          ? targetProfile.maxOtHoursPerDay
+          : 2.0
       );
-      setUserShiftStartTime(targetProfile.shiftStartTime || GENERAL_SHIFT_START);
-      setUserShiftEndTime(targetProfile.shiftEndTime || GENERAL_SHIFT_END);
+      setUserShiftStartTime(toSafeStr(targetProfile.shiftStartTime, GENERAL_SHIFT_START));
+      setUserShiftEndTime(toSafeStr(targetProfile.shiftEndTime, GENERAL_SHIFT_END));
 
       // Match corporate role rates if user rates are blank or from assigned role
+      const targetRoleTitle = toSafeStr(targetProfile.roleName || targetProfile.designation).toLowerCase().trim();
       const matchedRole = targetProfile.roleId
-        ? roleRates.find(r => r.id === targetProfile.roleId)
-        : roleRates.find(r => r.name.toLowerCase() === (targetProfile.roleName || targetProfile.designation || '').toLowerCase());
+        ? roleRates.find(r => r && r.id === targetProfile.roleId)
+        : roleRates.find(r => r && toSafeStr(r.name).toLowerCase().trim() === targetRoleTitle);
 
-      const finalHourly = targetProfile.hourlyRate !== undefined && targetProfile.hourlyRate !== ''
-        ? targetProfile.hourlyRate
-        : matchedRole ? matchedRole.hourlyRateWorkingDays : '';
+      const userHourly = toSafeRate(targetProfile.hourlyRate);
+      const finalHourly = userHourly !== '' ? userHourly : toSafeRate(matchedRole?.hourlyRateWorkingDays);
 
-      const finalDayPay = targetProfile.daysPay !== undefined && targetProfile.daysPay !== ''
-        ? targetProfile.daysPay
-        : matchedRole ? matchedRole.daysPaymentNonWorkingDays : '';
+      const userDayPay = toSafeRate(targetProfile.daysPay);
+      const finalDayPay = userDayPay !== '' ? userDayPay : toSafeRate(matchedRole?.daysPaymentNonWorkingDays);
 
-      const finalNonWorkingHourly = targetProfile.hourlyRateNonWorkingDays !== undefined && targetProfile.hourlyRateNonWorkingDays !== ''
-        ? targetProfile.hourlyRateNonWorkingDays
-        : matchedRole ? matchedRole.hourlyRateNonWorkingDays : '';
+      const userNonWorkingHourly = toSafeRate(targetProfile.hourlyRateNonWorkingDays);
+      const finalNonWorkingHourly = userNonWorkingHourly !== '' ? userNonWorkingHourly : toSafeRate(matchedRole?.hourlyRateNonWorkingDays);
 
       setHourlyRate(finalHourly);
       setDaysPay(finalDayPay);
       setHourlyRateNonWorkingDays(finalNonWorkingHourly);
-      setTotalRemuneration(targetProfile.totalRemuneration !== undefined ? targetProfile.totalRemuneration : '');
+      setTotalRemuneration(toSafeRate(targetProfile.totalRemuneration));
     }
 
     // Only generate initial clean rows when entering this claim context (not on background roleRates/allUsers updates)
@@ -1035,15 +1074,21 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
   // Generate full month of dates and flag holidays & weekends
   function generateFullMonthRows(targetMonth: string, targetYear: number, specialOt: boolean = isSpecialAssignedOt): OvertimeRow[] {
+    const safeYear = Number.isFinite(targetYear) && targetYear >= 1900 && targetYear <= 2100
+      ? targetYear
+      : new Date().getFullYear();
     const monthIndex = MONTH_NAMES.indexOf(targetMonth);
     const validMonth = monthIndex >= 0 ? monthIndex : new Date().getMonth();
-    const daysInMonth = getDaysInMonth(targetYear, validMonth);
+    const daysInMonth = getDaysInMonth(safeYear, validMonth);
     const mStr = String(validMonth + 1).padStart(2, '0');
+    const safeHolidayReason = toSafeStr(defaultHolidayReason).trim();
+    const safeSaturdayReason = toSafeStr(defaultSaturdayReason).trim();
+    const safeWeekdayReason = toSafeStr(defaultWeekdayReason).trim();
 
     const fullRows: OvertimeRow[] = [];
     for (let day = 1; day <= daysInMonth; day++) {
       const dStr = String(day).padStart(2, '0');
-      const dateStr = `${targetYear}-${mStr}-${dStr}`;
+      const dateStr = `${safeYear}-${mStr}-${dStr}`;
       const dow = getDayOfWeek(dateStr);
       const isSun = dow === 'Sun';
       const isSat = dow === 'Sat';
@@ -1069,10 +1114,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         totalMinutes: 0,
         totalFormatted: '00:00',
         reason: isHol
-          ? (defaultHolidayReason.trim() ? defaultHolidayReason.trim() : (hol?.name || (isSun ? 'Sunday' : 'Holiday')))
+          ? (safeHolidayReason || hol?.name || (isSun ? 'Sunday' : 'Holiday'))
           : (isSat
-              ? (defaultSaturdayReason.trim() ? defaultSaturdayReason.trim() : 'Saturday Duty')
-              : (defaultWeekdayReason.trim() ? defaultWeekdayReason.trim() : '')),
+              ? (safeSaturdayReason || 'Saturday Duty')
+              : safeWeekdayReason),
       });
     }
     return fullRows;
@@ -1193,9 +1238,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   };
 
   const handleYearChange = (newYear: number) => {
+    if (!Number.isFinite(newYear)) return;
     setClaimYear(newYear);
     markUserModified();
-    if (!initialClaim) {
+    if (!initialClaim && newYear >= 1900 && newYear <= 2100) {
       setRows(generateFullMonthRows(claimMonth, newYear, isSpecialAssignedOt));
     }
   };
@@ -1666,6 +1712,24 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             isCapped: false,
           };
         }
+        // Sync newly fetched Firestore holidays onto untouched rows safely (never touching explicitly unmarked/edited rows)
+        const mappedHoliday = holidayMap.get(row.date);
+        if (mappedHoliday && !row.isHoliday && row.isHoliday !== false && !row.endTime) {
+          const safeHolReason = toSafeStr(defaultHolidayReason).trim();
+          return {
+            ...row,
+            isHoliday: true,
+            holidayName: mappedHoliday.name,
+            startTime: '',
+            endTime: '',
+            totalWorkMinutes: 0,
+            rawOtMinutes: 0,
+            totalMinutes: 0,
+            totalFormatted: '',
+            isDaysPayment: false,
+            reason: toSafeStr(row.reason).trim() || safeHolReason || mappedHoliday.name,
+          };
+        }
         if (!row.startTime || !row.endTime) return row;
         const dow = row.dayOfWeek || getDayOfWeek(row.date);
         const isHoliday = isRowHoliday(row);
@@ -1725,6 +1789,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     // Load ALL dates in the month (do NOT exclude holidays or Sundays)
     const monthDates = generateMonthDates(claimYear, monthIndex, holidayDatesSet, false);
     const existingDateMap = new Map(rows.map(r => [r.date, r]));
+    const safeHolReason = toSafeStr(defaultHolidayReason).trim();
+    const safeSatReason = toSafeStr(defaultSaturdayReason).trim();
+    const safeWeekReason = toSafeStr(defaultWeekdayReason).trim();
 
     const newRows: OvertimeRow[] = monthDates.map(({ date, day, isHoliday }) => {
       const existing = existingDateMap.get(date);
@@ -1752,10 +1819,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         totalMinutes: 0,
         totalFormatted: '00:00',
         reason: isHol
-          ? (defaultHolidayReason.trim() ? defaultHolidayReason.trim() : (holidayInfo?.name || (isSun ? 'Sunday' : 'Holiday')))
+          ? (safeHolReason || holidayInfo?.name || (isSun ? 'Sunday' : 'Holiday'))
           : (isSat
-              ? (defaultSaturdayReason.trim() ? defaultSaturdayReason.trim() : "Saturday Duty (Day's Pay)")
-              : (defaultWeekdayReason.trim() ? defaultWeekdayReason.trim() : '')),
+              ? (safeSatReason || "Saturday Duty (Day's Pay)")
+              : safeWeekReason),
       };
     });
 
@@ -1766,10 +1833,12 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     markUserModified();
     const lastRow = rows[rows.length - 1];
     let nextDate = '';
-    if (lastRow && lastRow.date) {
+    if (lastRow && typeof lastRow.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(lastRow.date)) {
       const [y, m, d] = lastRow.date.split('-').map(Number);
       const nextD = new Date(y, m - 1, d + 1);
-      nextDate = nextD.toISOString().split('T')[0];
+      if (!isNaN(nextD.getTime())) {
+        nextDate = `${nextD.getFullYear()}-${String(nextD.getMonth() + 1).padStart(2, '0')}-${String(nextD.getDate()).padStart(2, '0')}`;
+      }
     }
     setRows([...rows, createBlankRow(nextDate)]);
   };
@@ -2056,22 +2125,23 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   // Strictly identify OT-claimed rows for submission & PDF print:
   // Leaves, worked-but-not-OT days (totalMinutes === 0), and unclaimed holidays NEVER print or submit as claimed lines.
   const isClaimedRow = (r: OvertimeRow): boolean => {
-    if (r.isLeave) return false;
+    if (!r || r.isLeave) return false;
     const isHol = isRowHoliday(r);
     if (isHol && !r.isHolidayOverride) return false;
 
     const hasValidOt = (r.totalMinutes || 0) > 0;
+    const specialHoursStr = toSafeStr(r.specialAssignmentHours).trim();
     const hasSpecialHours = Boolean(
-      r.specialAssignmentHours &&
-      r.specialAssignmentHours.trim() !== '' &&
-      r.specialAssignmentHours.trim() !== '0' &&
-      r.specialAssignmentHours.trim() !== '00:00'
+      specialHoursStr !== '' &&
+      specialHoursStr !== '0' &&
+      specialHoursStr !== '00:00'
     );
     const hasOpAmount = Boolean(
       (r.daysPaymentAmount || 0) > 0 &&
-      (!!r.startTime?.trim() || !!r.endTime?.trim() || !!r.reason?.trim())
+      (Boolean(toSafeStr(r.startTime).trim()) || Boolean(toSafeStr(r.endTime).trim()) || Boolean(toSafeStr(r.reason).trim()))
     );
-    const isSat = r.dayOfWeek === 'Sat' || getDayOfWeek(r.date) === 'Sat';
+    const safeDate = toSafeStr(r.date);
+    const isSat = r.dayOfWeek === 'Sat' || getDayOfWeek(safeDate) === 'Sat';
     const isQualifiedSatDayPay = isSat && !!r.isDaysPayment && (r.totalWorkMinutes || 0) >= 360;
 
     return hasValidOt || hasSpecialHours || hasOpAmount || isQualifiedSatDayPay;
@@ -2202,9 +2272,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     try {
       setIsAutoSaving(true);
 
-      const effectiveUid = selectedUserId || currentUser?.uid || userProfile?.id || 'usr';
+      const effectiveUid = toSafeStr(selectedUserId || currentUser?.uid || userProfile?.id, 'usr');
       const cleanUid = effectiveUid.replace(/[^a-zA-Z0-9_-]/g, '_');
-      const deterministicDraftId = 'clm_draft_' + cleanUid + '_' + claimYear + '_' + claimMonth.toLowerCase();
+      const deterministicDraftId = 'clm_draft_' + cleanUid + '_' + claimYear + '_' + toSafeStr(claimMonth).toLowerCase();
 
       // If user is editing an existing claim, keep its ID. Otherwise use activeClaimId or deterministic draft ID.
       const claimIdToUse = activeClaimId || initialClaim?.id || deterministicDraftId;
@@ -2333,9 +2403,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     const handleBeforeUnload = () => {
       const data = latestDraftDataRef.current;
       if (data.autoSaveDraftEnabled && !isSubmittedRef.current && hasUserModifiedRef.current) {
-        const effectiveUid = data.selectedUserId || currentUser?.uid || userProfile?.id || 'usr';
+        const effectiveUid = toSafeStr(data.selectedUserId || currentUser?.uid || userProfile?.id, 'usr');
         const cleanUid = effectiveUid.replace(/[^a-zA-Z0-9_-]/g, '_');
-        const deterministicDraftId = 'clm_draft_' + cleanUid + '_' + data.claimYear + '_' + data.claimMonth.toLowerCase();
+        const deterministicDraftId = 'clm_draft_' + cleanUid + '_' + data.claimYear + '_' + toSafeStr(data.claimMonth).toLowerCase();
         const draft = data.buildClaimRecord('draft');
         draft.id = data.activeClaimId || initialClaim?.id || deterministicDraftId;
         draft.claimNumber = data.activeClaimNumber || initialClaim?.claimNumber || draft.claimNumber;
@@ -2349,9 +2419,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       window.removeEventListener('beforeunload', handleBeforeUnload);
       const data = latestDraftDataRef.current;
       if (data.autoSaveDraftEnabled && !isSubmittedRef.current && hasUserModifiedRef.current) {
-        const effectiveUid = data.selectedUserId || currentUser?.uid || userProfile?.id || 'usr';
+        const effectiveUid = toSafeStr(data.selectedUserId || currentUser?.uid || userProfile?.id, 'usr');
         const cleanUid = effectiveUid.replace(/[^a-zA-Z0-9_-]/g, '_');
-        const deterministicDraftId = 'clm_draft_' + cleanUid + '_' + data.claimYear + '_' + data.claimMonth.toLowerCase();
+        const deterministicDraftId = 'clm_draft_' + cleanUid + '_' + data.claimYear + '_' + toSafeStr(data.claimMonth).toLowerCase();
         const draft = data.buildClaimRecord('draft');
         draft.id = data.activeClaimId || initialClaim?.id || deterministicDraftId;
         draft.claimNumber = data.activeClaimNumber || initialClaim?.claimNumber || draft.claimNumber;
@@ -2388,7 +2458,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
     // If finalizing an in-progress draft, mint a permanent claim ID and remove old draft from draft list
     let draftIdToDelete: string | null = null;
-    if (claim.id.startsWith('clm_draft_')) {
+    if (toSafeStr(claim.id).startsWith('clm_draft_')) {
       draftIdToDelete = claim.id;
       const finalClaimId = 'clm_' + Date.now() + '_' + Math.floor(100 + Math.random() * 900);
       claim.id = finalClaimId;
@@ -2570,7 +2640,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
       // If finalizing an in-progress draft, mint a permanent claim ID and remove old draft from draft list
       let draftIdToDelete: string | null = null;
-      if (claim.id.startsWith('clm_draft_')) {
+      if (toSafeStr(claim.id).startsWith('clm_draft_')) {
         draftIdToDelete = claim.id;
         const finalClaimId = 'clm_' + Date.now() + '_' + Math.floor(100 + Math.random() * 900);
         claim.id = finalClaimId;
@@ -2727,7 +2797,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         </div>
 
         {/* Resumed Draft Alert if user is resuming a draft */}
-        {(initialClaim?.status === 'draft' || (activeClaimId.startsWith('clm_draft_') && hasUserModified) || draftToastMessage) && (
+        {(initialClaim?.status === 'draft' || (toSafeStr(activeClaimId).startsWith('clm_draft_') && hasUserModified) || draftToastMessage) && (
           <div className="mt-3 p-3 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-between gap-2 text-xs text-amber-900">
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4 text-amber-600 shrink-0" />
@@ -2883,7 +2953,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           {/* Claimant Identity (Locked & Verified from Profile) */}
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-600 text-white font-bold text-base shadow-sm shrink-0">
-              {employeeName ? employeeName.charAt(0).toUpperCase() : 'U'}
+              {toSafeStr(employeeName).trim() ? toSafeStr(employeeName).trim().charAt(0).toUpperCase() : 'U'}
             </div>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
@@ -2923,8 +2993,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
               </select>
               <input
                 type="number"
-                value={claimYear}
-                onChange={e => handleYearChange(parseInt(e.target.value, 10) || 2026)}
+                min={2000}
+                max={2100}
+                value={Number.isFinite(claimYear) ? claimYear : new Date().getFullYear()}
+                onChange={e => handleYearChange(parseInt(e.target.value, 10) || new Date().getFullYear())}
                 className="w-16 bg-transparent font-bold text-slate-800 text-xs font-mono text-center focus:outline-hidden border-l border-slate-200 pl-2"
               />
             </div>
@@ -3044,10 +3116,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                 step="0.01"
                 disabled={!canEditRates}
                 readOnly={!canEditRates}
-                value={hourlyRate}
+                value={hourlyRate === '' || !Number.isFinite(Number(hourlyRate)) ? '' : hourlyRate}
                 onChange={e => {
                   if (!canEditRates) return;
-                  setHourlyRate(e.target.value === '' ? '' : parseFloat(e.target.value)); markUserModified();
+                  setHourlyRate(toSafeRate(e.target.value)); markUserModified();
                 }}
                 placeholder="e.g. 1850.00"
                 className={`w-full rounded-lg border py-1.5 pl-9 pr-2.5 font-mono font-bold text-xs ${
@@ -3076,10 +3148,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                 step="0.01"
                 disabled={!canEditRates}
                 readOnly={!canEditRates}
-                value={daysPay}
+                value={daysPay === '' || !Number.isFinite(Number(daysPay)) ? '' : daysPay}
                 onChange={e => {
                   if (!canEditRates) return;
-                  setDaysPay(e.target.value === '' ? '' : parseFloat(e.target.value)); markUserModified();
+                  setDaysPay(toSafeRate(e.target.value)); markUserModified();
                 }}
                 placeholder="e.g. 12500.00"
                 className={`w-full rounded-lg border py-1.5 pl-9 pr-2.5 font-mono font-bold text-xs ${
@@ -3108,10 +3180,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                 step="0.01"
                 disabled={!canEditRates}
                 readOnly={!canEditRates}
-                value={hourlyRateNonWorkingDays}
+                value={hourlyRateNonWorkingDays === '' || !Number.isFinite(Number(hourlyRateNonWorkingDays)) ? '' : hourlyRateNonWorkingDays}
                 onChange={e => {
                   if (!canEditRates) return;
-                  setHourlyRateNonWorkingDays(e.target.value === '' ? '' : parseFloat(e.target.value)); markUserModified();
+                  setHourlyRateNonWorkingDays(toSafeRate(e.target.value)); markUserModified();
                 }}
                 placeholder="e.g. 2312.50"
                 className={`w-full rounded-lg border py-1.5 pl-9 pr-2.5 font-mono font-bold text-xs ${
@@ -3139,7 +3211,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                 step="0.01"
                 disabled={!canEditRates}
                 readOnly={!canEditRates}
-                value={totalRemuneration}
+                value={totalRemuneration === '' || !Number.isFinite(Number(totalRemuneration)) ? '' : totalRemuneration}
                 onChange={e => {
                   if (!canEditRates) return;
                   handleRemunerationChange(e.target.value);
@@ -3576,7 +3648,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                             dateInputRefs.current[row.id] = el;
                           }}
                           type="date"
-                          value={row.date}
+                          value={toSafeStr(row.date)}
                           onChange={e => updateRowField(index, 'date', e.target.value)}
                           className={`font-mono text-xs font-semibold px-2 py-0.5 rounded-lg border bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
                             hasVisualIssue && val.isDuplicateDate ? 'border-rose-500 bg-rose-50/50 text-rose-900 ring-1 ring-rose-400' : 'border-slate-200'
@@ -3701,7 +3773,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
                         <input
                           type="text"
-                          value={row.reason}
+                          value={toSafeStr(row.reason)}
                           onChange={e => updateRowField(index, 'reason', e.target.value)}
                           placeholder="Optional leave note (not printed)..."
                           className="w-full rounded-lg border border-sky-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-sky-500"
@@ -3761,7 +3833,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                             }}
                             type="text"
                             disabled={isHol && !row.isHolidayOverride}
-                            value={row.reason}
+                            value={toSafeStr(row.reason)}
                             onChange={e => updateRowField(index, 'reason', e.target.value)}
                             placeholder={
                               isHol && !row.isHolidayOverride
@@ -4038,7 +4110,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                             if (viewMode === 'table') dateInputRefs.current[row.id] = el;
                           }}
                           type="date"
-                          value={row.date}
+                          value={toSafeStr(row.date)}
                           onChange={e => updateRowField(index, 'date', e.target.value)}
                           className={`w-full min-w-0 rounded-md border bg-white px-1 py-1 text-xs text-slate-800 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
                             hasVisualIssue && val.isDuplicateDate ? 'border-rose-500 bg-rose-50' : 'border-slate-200'
@@ -4125,7 +4197,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                         }}
                         type="text"
                         disabled={!isLeave && isHol && !row.isHolidayOverride}
-                        value={row.reason}
+                        value={toSafeStr(row.reason)}
                         onChange={e => updateRowField(index, 'reason', e.target.value)}
                         placeholder={
                           isLeave
