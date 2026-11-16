@@ -192,46 +192,36 @@ export const CardGridSkeleton: React.FC<{
 };
 
 /**
- * Calendar Grid Skeleton (for CalendarManager monthly schedule)
+ * Calendar Grid Skeleton (for Integrated Calendar monthly schedule)
  */
 export const CalendarGridSkeleton: React.FC = () => {
   return (
-    <div className="space-y-4">
-      {/* Calendar Header Controls Skeleton */}
-      <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-        <Skeleton className="h-5 w-48 rounded-lg" />
-        <div className="flex items-center gap-2">
-          <Skeleton className="h-8 w-16 rounded-xl" />
-          <Skeleton className="h-8 w-24 rounded-xl" />
-        </div>
+    <div className="space-y-5 w-full max-w-2xl mx-auto">
+      {/* Separated Year Changer & Month Changer Skeleton */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+        <Skeleton className="h-10 w-full sm:w-44 rounded-xl" />
+        <Skeleton className="h-10 w-full sm:w-56 rounded-xl" />
       </div>
 
       {/* Weekday Row */}
-      <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
+      <div className="grid grid-cols-7 gap-1.5 sm:gap-2.5">
         {Array.from({ length: 7 }).map((_, idx) => (
-          <Skeleton key={idx} className="h-7 rounded-xl" />
+          <Skeleton key={idx} className="h-7 sm:h-8 rounded-lg" />
         ))}
       </div>
 
-      {/* 35 Calendar Day Cells */}
-      <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
+      {/* 35 Square Calendar Day Cells */}
+      <div className="grid grid-cols-7 gap-1.5 sm:gap-2.5">
         {Array.from({ length: 35 }).map((_, idx) => (
           <div
             key={idx}
-            className="min-h-[75px] sm:min-h-[105px] p-2 rounded-xl border border-slate-200/80 bg-white flex flex-col justify-between"
+            className="aspect-square w-full rounded-xl border border-slate-200/80 bg-white flex items-center justify-center"
           >
-            <div className="flex items-center justify-between">
-              <Skeleton className="h-4 w-5 rounded-md" />
-              {idx % 5 === 0 && <Skeleton className="h-2 w-2 rounded-full" />}
-            </div>
-            {idx % 4 === 0 ? (
-              <Skeleton className="h-5 w-full rounded-md mt-2" />
-            ) : (
-              <div className="h-4" />
-            )}
+            <Skeleton className="h-5 w-5 sm:h-6 sm:w-6 rounded-md" />
           </div>
         ))}
       </div>
     </div>
   );
 };
+

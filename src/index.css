@@ -174,4 +174,33 @@ textarea {
   will-change: clip-path;
 }
 
+/* Infinite one-line horizontal marquee for Integrated Calendar holiday key strip */
+@keyframes marqueeInfinite {
+  0% {
+    transform: translate3d(0%, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.animate-marquee-infinite {
+  display: flex;
+  width: max-content;
+  animation: marqueeInfinite 22s linear infinite;
+  will-change: transform;
+}
+
+.marquee-container:hover .animate-marquee-infinite,
+.marquee-container:focus-within .animate-marquee-infinite {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee-infinite {
+    animation: none;
+    transform: none;
+  }
+}
+
 

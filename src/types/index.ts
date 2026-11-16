@@ -4,7 +4,30 @@ export type TimeFormat = '24h' | '12h';
 export type OTDisplayFormat = 'hhmm' | 'decimal';
 export type UserRole = 'super_admin' | 'admin' | 'user';
 export type ClaimType = 'OT' | 'OP';
-export type HolidayType = 'public' | 'bank' | 'mercantile' | 'special';
+export type HolidayType = 'poya' | 'bank' | 'mercantile' | 'other' | 'public' | 'special' | (string & {});
+
+export type HolidayCategoryColorKey =
+  | 'purple'
+  | 'amber'
+  | 'sky'
+  | 'rose'
+  | 'emerald'
+  | 'indigo'
+  | 'orange'
+  | 'teal'
+  | 'pink'
+  | 'slate';
+
+export interface HolidayCategory {
+  id: string;
+  name: string;
+  shortName?: string;
+  color: HolidayCategoryColorKey | string;
+  isDefault?: boolean;
+  order?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
 
 export interface Holiday {
   id: string; // YYYY-MM-DD or unique id
@@ -319,6 +342,9 @@ export type AuditActionType =
   | 'HOLIDAY_UPDATE'
   | 'HOLIDAY_DELETE'
   | 'HOLIDAY_IMPORT'
+  | 'HOLIDAY_CATEGORY_CREATE'
+  | 'HOLIDAY_CATEGORY_UPDATE'
+  | 'HOLIDAY_CATEGORY_DELETE'
   // Templates
   | 'TEMPLATE_CREATE'
   | 'TEMPLATE_UPDATE'

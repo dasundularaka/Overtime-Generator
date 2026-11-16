@@ -25,7 +25,7 @@ const TAB_TITLES: Record<NavigationTab, { message: string; subMessage: string }>
   dashboard: { message: 'Loading Dashboard...', subMessage: 'Summarizing claims and monthly statistics...' },
   'new-claim': { message: 'Preparing Overtime Claim...', subMessage: 'Loading timesheet calibrator & branch rates...' },
   history: { message: 'Loading Claim History...', subMessage: 'Retrieving records and printable documents...' },
-  calendar: { message: 'Loading Calendar & Holidays...', subMessage: 'Checking gazetted and mercantile poya days...' },
+  calendar: { message: 'Loading Integrated Calendar...', subMessage: 'Checking gazetted, bank, and mercantile holidays...' },
   branches: { message: 'Loading Branch Network...', subMessage: 'Listing active branches and locations...' },
   roles: { message: 'Loading Role Policies...', subMessage: 'Syncing overtime limits and hourly rates...' },
   users: { message: 'Loading User Management...', subMessage: 'Verifying user access and permission roles...' },

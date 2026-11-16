@@ -87,6 +87,11 @@ service cloud.firestore {
     match /departments/{departmentId} {
       allow read, write: if true;
     }
+
+    // Holiday categories and display colors
+    match /holidayCategories/{categoryId} {
+      allow read, write: if true;
+    }
   }
 }
 

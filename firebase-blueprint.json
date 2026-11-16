@@ -292,6 +292,22 @@
         "pfNumber",
         "email"
       ]
+    },
+    "HolidayCategory": {
+      "title": "Holiday Category",
+      "description": "Configurable holiday category and color token managed by Super Admin",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "shortName": { "type": "string" },
+        "color": { "type": "string" },
+        "isDefault": { "type": "boolean" },
+        "order": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "name", "color"]
     }
   },
   "firestore": {
@@ -330,6 +346,12 @@
         "$ref": "#/entities/PfDirectory"
       },
       "description": "PF Number lookup directory for user sign in"
+    },
+    "/holidayCategories/{categoryId}": {
+      "schema": {
+        "$ref": "#/entities/HolidayCategory"
+      },
+      "description": "Configurable holiday categories and colors"
     }
   }
 }
