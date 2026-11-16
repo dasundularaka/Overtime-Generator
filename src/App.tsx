@@ -247,7 +247,7 @@ function AppContent() {
   // Force Password Reset Screen if password matches PF number or first-time setup
   if (userProfile?.mustChangePassword || userProfile?.isFirstLogin || userProfile?.passwordMatchesPf) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 flex flex-col justify-center items-center p-4">
+      <div className="min-h-dvh bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 flex flex-col justify-center items-center p-4">
         <PasswordResetModal
           isOpen={true}
           onPasswordChanged={async () => {
@@ -277,7 +277,7 @@ function AppContent() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+    <div className="min-h-dvh bg-slate-50 flex flex-col font-sans overflow-x-hidden">
       {/* Inter-Pages Transmission with White Background Expanding from Center */}
       <PageTransitionOverlay
         isVisible={pageTransition.isVisible}
@@ -295,7 +295,7 @@ function AppContent() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-36 sm:pb-32 md:pb-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-24 sm:pb-24 md:pb-8">
         <ErrorBoundary
           resetKey={`${activeTab}:${editingClaim?.id || 'fresh'}`}
           fallbackTitle={activeTab === 'new-claim' ? 'Unable to load New Claim sheet' : 'Unable to display this section'}

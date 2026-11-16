@@ -1527,7 +1527,7 @@ service cloud.firestore {
           {/* Canvas Wrapper with Rulers - Fits Screen Container */}
           <div
             ref={containerRef}
-            className="relative overflow-auto p-4 md:p-6 bg-slate-300/80 rounded-2xl border border-slate-300/90 max-h-[82vh] min-h-[580px] w-full flex justify-center items-start shadow-inner"
+            className="relative overflow-auto p-3 sm:p-4 md:p-6 bg-slate-300/80 rounded-2xl border border-slate-300/90 max-h-[75dvh] min-h-[300px] sm:min-h-[420px] lg:min-h-[540px] w-full flex justify-center items-start shadow-inner"
           >
             {/* Horizontal Millimeter Ruler */}
             {showRulers && (

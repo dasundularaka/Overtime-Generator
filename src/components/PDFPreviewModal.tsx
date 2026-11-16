@@ -276,7 +276,7 @@ export const PDFPreviewModal: React.FC<PDFPreviewModalProps> = ({
         className={`relative flex flex-col w-full bg-slate-900 rounded-2xl shadow-2xl border border-slate-700 overflow-hidden transition-all duration-200 ${
           isFullscreen
             ? 'h-full max-w-full rounded-none border-0'
-            : 'max-w-5xl h-[94vh]'
+            : 'max-w-5xl h-[94dvh]'
         }`}
       >
         {/* ======================================================== */}
@@ -290,7 +290,7 @@ export const PDFPreviewModal: React.FC<PDFPreviewModalProps> = ({
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h2 className="text-xs sm:text-sm font-bold text-white tracking-tight truncate max-w-[180px] sm:max-w-md">
+                <h2 className="text-xs sm:text-sm font-bold text-white tracking-tight truncate max-w-[48vw] sm:max-w-md">
                   {filename}
                 </h2>
                 <span className="hidden md:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
@@ -530,10 +530,10 @@ export const PDFPreviewModal: React.FC<PDFPreviewModalProps> = ({
         {/* ======================================================== */}
         <div
           ref={containerRef}
-          className="flex-1 bg-slate-950/90 relative p-3 sm:p-6 overflow-auto flex items-center justify-center min-h-[300px]"
+          className="flex-1 bg-slate-950/90 relative p-3 sm:p-6 overflow-auto flex items-center justify-center min-h-[180px] sm:min-h-[280px]"
         >
           {engineMode === 'canvas' ? (
-            <div className="w-full h-full flex items-center justify-center relative min-h-[350px]">
+            <div className="w-full h-full flex items-center justify-center relative min-h-[180px] sm:min-h-[280px]">
               {/* Spinner during rendering */}
               {loading && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950/70 z-10 backdrop-blur-2xs">

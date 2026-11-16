@@ -196,26 +196,26 @@ export const CardGridSkeleton: React.FC<{
  */
 export const CalendarGridSkeleton: React.FC = () => {
   return (
-    <div className="space-y-5 w-full max-w-2xl mx-auto">
+    <div className="space-y-4 sm:space-y-5 w-full max-w-[min(100%,64dvh)] mx-auto">
       {/* Separated Year Changer & Month Changer Skeleton */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
-        <Skeleton className="h-10 w-full sm:w-44 rounded-xl" />
-        <Skeleton className="h-10 w-full sm:w-56 rounded-xl" />
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3 pb-3.5 border-b border-slate-100">
+        <Skeleton className="h-10 w-full sm:w-40 rounded-xl" />
+        <Skeleton className="h-10 w-full sm:w-52 rounded-xl" />
       </div>
 
       {/* Weekday Row */}
-      <div className="grid grid-cols-7 gap-1.5 sm:gap-2.5">
+      <div className="grid grid-cols-7 gap-1 sm:gap-2">
         {Array.from({ length: 7 }).map((_, idx) => (
           <Skeleton key={idx} className="h-7 sm:h-8 rounded-lg" />
         ))}
       </div>
 
       {/* 35 Square Calendar Day Cells */}
-      <div className="grid grid-cols-7 gap-1.5 sm:gap-2.5">
+      <div className="grid grid-cols-7 gap-1 sm:gap-2">
         {Array.from({ length: 35 }).map((_, idx) => (
           <div
             key={idx}
-            className="aspect-square w-full rounded-xl border border-slate-200/80 bg-white flex items-center justify-center"
+            className="aspect-square w-full rounded-lg sm:rounded-xl border border-slate-200/80 bg-white flex items-center justify-center"
           >
             <Skeleton className="h-5 w-5 sm:h-6 sm:w-6 rounded-md" />
           </div>

@@ -539,9 +539,9 @@ export const SettingsPage: React.FC = () => {
   // For regular staff users: show ONLY Privacy & Data Security!
   if (!isAdmin) {
     return (
-      <div className="space-y-6 pb-16 max-w-4xl mx-auto">
+      <div className="space-y-4 sm:space-y-6 pb-8 w-full max-w-5xl mx-auto">
         {/* Header */}
-        <div className="rounded-2xl bg-white p-5 sm:p-6 shadow-xs border border-slate-200">
+        <div className="rounded-2xl bg-white p-4 sm:p-6 shadow-xs border border-slate-200">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
               <Shield className="w-5 h-5" />
@@ -684,9 +684,9 @@ export const SettingsPage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6 pb-16 max-w-4xl mx-auto">
+    <div className="space-y-4 sm:space-y-6 pb-8 w-full max-w-5xl mx-auto">
       {/* Header */}
-      <div className="rounded-2xl bg-white p-5 sm:p-6 shadow-xs border border-slate-200">
+      <div className="rounded-2xl bg-white p-4 sm:p-6 shadow-xs border border-slate-200">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
             <SettingsIcon className="w-5 h-5" />
@@ -1004,7 +1004,7 @@ export const SettingsPage: React.FC = () => {
                     Super Admin Only
                   </span>
                 </div>
-                <p className="text-xs text-slate-500 mt-0.5 truncate sm:whitespace-normal">
+                <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
                   Manage holiday categories, customize date colors, add categories, and import annual holidays.
                 </p>
               </div>
@@ -1116,7 +1116,7 @@ export const SettingsPage: React.FC = () => {
                                 onClick={() => handleUpdateCategoryColor(cat, option.key)}
                                 title={option.label}
                                 aria-label={`Set ${cat.name} color to ${option.label}`}
-                                className={`w-6 h-6 rounded-md flex items-center justify-center transition cursor-pointer ${option.swatchClass} ${
+                                className={`w-7 h-7 sm:w-6 sm:h-6 rounded-md flex items-center justify-center transition cursor-pointer ${option.swatchClass} ${
                                   isSelected
                                     ? 'ring-2 ring-offset-2 ring-slate-900 scale-110'
                                     : 'opacity-80 hover:opacity-100'
@@ -1143,8 +1143,8 @@ export const SettingsPage: React.FC = () => {
                   <span>Add New Holiday Category</span>
                 </h4>
 
-                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
-                  <div className="sm:col-span-5">
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                  <div className="md:col-span-5">
                     <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                       Category Name
                     </label>
@@ -1157,11 +1157,11 @@ export const SettingsPage: React.FC = () => {
                     />
                   </div>
 
-                  <div className="sm:col-span-5">
+                  <div className="md:col-span-5">
                     <span className="block text-[11px] font-semibold text-slate-700 mb-1.5">
                       Category Color
                     </span>
-                    <div className="flex flex-wrap items-center gap-1.5">
+                    <div className="flex flex-wrap items-center gap-2">
                       {HOLIDAY_COLOR_PALETTE.map((option) => {
                         const isSelected = newCategoryColor === option.key;
                         return (
@@ -1170,7 +1170,7 @@ export const SettingsPage: React.FC = () => {
                             type="button"
                             onClick={() => setNewCategoryColor(option.key)}
                             title={option.label}
-                            className={`w-6 h-6 rounded-md flex items-center justify-center transition cursor-pointer ${option.swatchClass} ${
+                            className={`w-7 h-7 sm:w-6 sm:h-6 rounded-md flex items-center justify-center transition cursor-pointer ${option.swatchClass} ${
                               isSelected
                                 ? 'ring-2 ring-offset-1 ring-slate-900 scale-110'
                                 : 'opacity-75 hover:opacity-100'
@@ -1183,7 +1183,7 @@ export const SettingsPage: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="sm:col-span-2 flex justify-end">
+                  <div className="md:col-span-2 flex justify-end">
                     <button
                       type="submit"
                       disabled={isSavingCategory}
@@ -1219,9 +1219,9 @@ export const SettingsPage: React.FC = () => {
 
                 <form
                   onSubmit={handleQuickAddHoliday}
-                  className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end p-3.5 rounded-xl bg-slate-50 border border-slate-200"
+                  className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end p-3.5 rounded-xl bg-slate-50 border border-slate-200"
                 >
-                  <div className="sm:col-span-3">
+                  <div className="md:col-span-3">
                     <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                       Date
                     </label>
@@ -1232,7 +1232,7 @@ export const SettingsPage: React.FC = () => {
                       className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900"
                     />
                   </div>
-                  <div className="sm:col-span-4">
+                  <div className="md:col-span-4">
                     <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                       Holiday Name
                     </label>
@@ -1244,7 +1244,7 @@ export const SettingsPage: React.FC = () => {
                       className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900"
                     />
                   </div>
-                  <div className="sm:col-span-3">
+                  <div className="md:col-span-3">
                     <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                       Category
                     </label>
@@ -1260,7 +1260,7 @@ export const SettingsPage: React.FC = () => {
                       ))}
                     </select>
                   </div>
-                  <div className="sm:col-span-2">
+                  <div className="md:col-span-2">
                     <button
                       type="submit"
                       disabled={isAddingQuickHoliday}

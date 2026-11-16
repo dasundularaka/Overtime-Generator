@@ -97,7 +97,7 @@ export const AuthScreen: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 flex flex-col justify-center items-center px-4 py-8 sm:py-12">
+    <div className="min-h-dvh bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 flex flex-col justify-center items-center px-4 py-6 sm:py-12">
       {/* App Brand Header */}
       <div className="text-center mb-6 sm:mb-8">
         <div className="inline-flex h-16 w-16 sm:h-20 sm:w-20 items-center justify-center mb-3">

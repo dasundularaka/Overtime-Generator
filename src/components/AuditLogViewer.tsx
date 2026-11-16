@@ -379,7 +379,7 @@ export const AuditLogViewer: React.FC = () => {
       {/* Filter and Control Bar - Perfectly auto-adjusting for desktop & mobile */}
       <div className="rounded-2xl bg-white p-3.5 sm:p-4 shadow-xs border border-slate-200 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 text-xs">
         {/* Search Input */}
-        <div className="relative flex-1 min-w-[240px]">
+        <div className="relative flex-1 min-w-0 w-full">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
           <input
             type="text"

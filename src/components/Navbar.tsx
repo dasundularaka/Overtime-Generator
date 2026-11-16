@@ -544,7 +544,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </span>
                   </div>
 
-                  <div className="p-1.5 space-y-1 max-h-[calc(100vh-140px)] overflow-y-auto">
+                  <div className="p-1.5 space-y-1 max-h-[calc(100dvh-140px)] overflow-y-auto">
                     {dropdownItems.map((item) => {
                       const Icon = item.icon;
                       const isSelected = activeTab === item.id;
@@ -654,7 +654,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       onClick={() => setIsProfileMenuOpen(false)}
                     />
 
-                    <div className="relative w-full max-w-sm sm:max-w-md rounded-3xl bg-slate-900 border border-slate-700/90 shadow-2xl py-4 z-10 animate-scale-in max-h-[92vh] overflow-y-auto">
+                    <div className="relative w-full max-w-sm sm:max-w-md rounded-3xl bg-slate-900 border border-slate-700/90 shadow-2xl py-4 z-10 animate-scale-in max-h-[90dvh] overflow-y-auto">
                       {/* Card Title & Close Button */}
                       <div className="px-5 pb-3 border-b border-slate-800 flex items-center justify-between">
                         <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
@@ -707,17 +707,17 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                       {/* Profile Specifics Matrix */}
                       <div className="px-5 py-3.5 text-xs border-b border-slate-800 space-y-2 text-slate-300">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-slate-400">Branch Office:</span>
-                          <span className="font-semibold text-slate-100 truncate max-w-[200px] text-right">{userProfile.branch}</span>
+                        <div className="flex items-center justify-between gap-2 text-xs">
+                          <span className="text-slate-400 shrink-0">Branch Office:</span>
+                          <span className="font-semibold text-slate-100 truncate max-w-[55vw] sm:max-w-[200px] text-right">{userProfile.branch}</span>
                         </div>
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-slate-400">Designation:</span>
-                          <span className="font-semibold text-slate-100 truncate max-w-[200px] text-right">{userProfile.designation || 'Staff'}</span>
+                        <div className="flex items-center justify-between gap-2 text-xs">
+                          <span className="text-slate-400 shrink-0">Designation:</span>
+                          <span className="font-semibold text-slate-100 truncate max-w-[55vw] sm:max-w-[200px] text-right">{userProfile.designation || 'Staff'}</span>
                         </div>
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-slate-400">Department:</span>
-                          <span className="font-semibold text-slate-100 truncate max-w-[200px] text-right">{userProfile.department}</span>
+                        <div className="flex items-center justify-between gap-2 text-xs">
+                          <span className="text-slate-400 shrink-0">Department:</span>
+                          <span className="font-semibold text-slate-100 truncate max-w-[55vw] sm:max-w-[200px] text-right">{userProfile.department}</span>
                         </div>
                         <div className="flex items-center justify-between text-xs">
                           <span className="text-slate-400">Daily OT Limit:</span>
@@ -837,7 +837,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             className="fixed inset-0"
             onClick={() => setIsMobileMenuOpen(false)}
           />
-          <div className="relative bg-slate-900 border-t border-slate-700/80 rounded-t-3xl p-5 pb-20 shadow-2xl space-y-3 z-10 animate-slide-up">
+          <div className="relative bg-slate-900 border-t border-slate-700/80 rounded-t-3xl p-5 pb-20 shadow-2xl space-y-3 z-10 animate-slide-up max-h-[85dvh] overflow-y-auto">
             {/* Grab handle */}
             <div className="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mb-2" />
 

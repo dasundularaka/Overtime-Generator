@@ -61,7 +61,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-xs animate-fade-in">
-      <div className="relative w-full max-w-md rounded-3xl bg-white p-5 sm:p-6 shadow-2xl border border-slate-200/80 animate-scale-in max-h-[92vh] overflow-y-auto">
+      <div className="relative w-full max-w-md rounded-3xl bg-white p-5 sm:p-6 shadow-2xl border border-slate-200/80 animate-scale-in max-h-[90dvh] overflow-y-auto">
         {/* Close cross button */}
         <button
           onClick={onClose}
@@ -106,7 +106,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
         )}
 
         {/* Action Buttons */}
-        <div className="mt-6 flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+        <div className="mt-6 flex flex-wrap items-center justify-end gap-2.5 sm:gap-3 pt-3 border-t border-slate-100">
           <button
             type="button"
             onClick={onClose}
