@@ -4,7 +4,14 @@ export type TimeFormat = '24h' | '12h';
 export type OTDisplayFormat = 'hhmm' | 'decimal';
 export type UserRole = 'super_admin' | 'admin' | 'user';
 export type ClaimType = 'OT' | 'OP';
+export type FirstDayOfWeek = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 export type HolidayType = 'poya' | 'bank' | 'mercantile' | 'other' | 'public' | 'special' | (string & {});
+
+export interface CalendarDisplaySettings {
+  id: string;
+  firstDayOfWeek: FirstDayOfWeek;
+  updatedAt?: string;
+}
 
 export type HolidayCategoryColorKey =
   | 'purple'
@@ -291,6 +298,7 @@ export interface AppSettings {
   shiftStartTime: string; // "08:00"
   shiftEndTime: string; // "16:45"
   otStepMinutes: number; // 15
+  firstDayOfWeek?: FirstDayOfWeek; // 0 (Sunday) through 6 (Saturday)
   defaultWeekdayReason?: string; // Default reason for weekdays (Mon - Fri)
   defaultSaturdayReason?: string; // Default reason for Saturdays
   defaultHolidayReason?: string; // Default reason for other holidays & Sundays
@@ -354,6 +362,7 @@ export type AuditActionType =
   | 'TEMPLATE_SET_DEFAULT'
   // Settings & System Data
   | 'SETTINGS_UPDATE'
+  | 'CALENDAR_SETTINGS_UPDATE'
   | 'DATA_BACKUP_EXPORT'
   | 'DATA_BACKUP_RESTORE'
   | 'DATA_FACTORY_RESET'

@@ -22,7 +22,8 @@ import {
   resolveHolidayCategory,
   getHolidayColorTheme,
 } from '../services/holidayCategoryService';
-import { Holiday, HolidayCategory, HolidayType } from '../types';
+import { subscribeToCalendarSettings } from '../services/calendarSettingsService';
+import { FirstDayOfWeek, Holiday, HolidayCategory, HolidayType } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { recordAuditLog } from '../utils/auditLogger';
 import { ConfirmationModal } from './ConfirmationModal';
@@ -35,6 +36,7 @@ export const CalendarManager: React.FC = () => {
 
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [categories, setCategories] = useState<HolidayCategory[]>([]);
+  const [firstDayOfWeek, setFirstDayOfWeek] = useState<FirstDayOfWeek>(0);
   const [loading, setLoading] = useState<boolean>(true);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -66,7 +68,7 @@ export const CalendarManager: React.FC = () => {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Subscribe to holidays & dynamic categories
+  // Subscribe to holidays, dynamic categories & calendar display settings
   useEffect(() => {
     setLoading(true);
     const unsubHolidays = subscribeToHolidays((list) => {
@@ -76,9 +78,13 @@ export const CalendarManager: React.FC = () => {
     const unsubCategories = subscribeToHolidayCategories((cats) => {
       setCategories(cats);
     });
+    const unsubCalSettings = subscribeToCalendarSettings((cfg) => {
+      setFirstDayOfWeek(cfg.firstDayOfWeek);
+    });
     return () => {
       unsubHolidays();
       unsubCategories();
+      unsubCalSettings();
     };
   }, []);
 
@@ -152,10 +158,44 @@ export const CalendarManager: React.FC = () => {
     return holidays.filter((h) => h.date.startsWith(prefix));
   }, [holidays, selectedYear, selectedMonth]);
 
+  // Dynamic Week Column Order based on First Day of Week setting
+  const orderedWeekdays = useMemo(() => {
+    return Array.from({ length: 7 }, (_, colIndex) => {
+      const dayIndex = (firstDayOfWeek + colIndex) % 7;
+      return {
+        dayIndex,
+        label: DAYS_SHORT[dayIndex],
+        isSunday: dayIndex === 0,
+        isSaturday: dayIndex === 6,
+      };
+    });
+  }, [firstDayOfWeek]);
+
   // Days Grid Computation
   const calendarDays = useMemo(() => {
     const totalDays = new Date(selectedYear, selectedMonth + 1, 0).getDate();
-    const firstDayIndex = new Date(selectedYear, selectedMonth, 1).getDay(); // 0 = Sun
+    const firstDayActual = new Date(selectedYear, selectedMonth, 1).getDay(); // 0 = Sun
+    const leadingBlankCount = (firstDayActual - firstDayOfWeek + 7) % 7;
+    const totalGridCells = Math.ceil((leadingBlankCount + totalDays) / 7) * 7;
+    const trailingBlankCount = totalGridCells - (leadingBlankCount + totalDays);
+
+    const leadingBlanks = Array.from({ length: leadingBlankCount }, (_, i) => {
+      const dayIndex = (firstDayOfWeek + i) % 7;
+      return {
+        dayIndex,
+        isSunday: dayIndex === 0,
+        isSaturday: dayIndex === 6,
+      };
+    });
+
+    const trailingBlanks = Array.from({ length: trailingBlankCount }, (_, i) => {
+      const dayIndex = (firstDayOfWeek + leadingBlankCount + totalDays + i) % 7;
+      return {
+        dayIndex,
+        isSunday: dayIndex === 0,
+        isSaturday: dayIndex === 6,
+      };
+    });
 
     const days: Array<{
       dayNum: number;
@@ -183,10 +223,11 @@ export const CalendarManager: React.FC = () => {
 
     return {
       totalDays,
-      firstDayIndex,
+      leadingBlanks,
+      trailingBlanks,
       days,
     };
-  }, [selectedYear, selectedMonth, holidays]);
+  }, [selectedYear, selectedMonth, holidays, firstDayOfWeek]);
 
   // Inspected Day Details
   const inspectedDay = useMemo(() => {
@@ -659,26 +700,35 @@ export const CalendarManager: React.FC = () => {
 
               {/* Day of Week Headers */}
               <div className="grid grid-cols-7 gap-1 sm:gap-2 text-center">
-                {DAYS_SHORT.map((day, idx) => (
+                {orderedWeekdays.map((col) => (
                   <div
-                    key={day}
-                    className={`py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-bold uppercase tracking-wider truncate ${
-                      idx === 0 || idx === 6
-                        ? 'text-slate-600 bg-slate-100/70'
-                        : 'text-slate-500 bg-slate-50'
+                    key={col.label}
+                    className={`py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-bold uppercase tracking-wider truncate border ${
+                      col.isSunday
+                        ? 'text-rose-700 bg-rose-50 border-rose-200/80'
+                        : col.isSaturday
+                        ? 'text-slate-700 bg-slate-100 border-slate-200/90'
+                        : 'text-slate-500 bg-slate-50 border-slate-100'
                     }`}
                   >
-                    {day}
+                    {col.label}
                   </div>
                 ))}
               </div>
 
-              {/* Square Calendar Date Cells — holidays shown inside filled colored circles with white date numbers */}
+              {/* Square Calendar Date Cells — soft tint red for Sunday column, soft tint grey for Saturday column */}
               <div className="grid grid-cols-7 gap-1 sm:gap-2">
-                {Array.from({ length: calendarDays.firstDayIndex }).map((_, i) => (
+                {calendarDays.leadingBlanks.map((blank, i) => (
                   <div
-                    key={`blank-${i}`}
-                    className="aspect-square w-full rounded-lg sm:rounded-xl border border-dashed border-slate-200/70 bg-slate-50/40"
+                    key={`leading-blank-${i}`}
+                    aria-hidden="true"
+                    className={`aspect-square w-full rounded-lg sm:rounded-xl border border-dashed ${
+                      blank.isSunday
+                        ? 'border-rose-200/70 bg-rose-50/45'
+                        : blank.isSaturday
+                        ? 'border-slate-200/85 bg-slate-100/60'
+                        : 'border-slate-200/70 bg-slate-50/40'
+                    }`}
                   />
                 ))}
 
@@ -691,6 +741,30 @@ export const CalendarManager: React.FC = () => {
                   const holiday = item.holiday;
                   const resolvedCat = holiday ? resolveHolidayCategory(holiday, categories) : null;
                   const holidayTheme = resolvedCat ? getHolidayColorTheme(resolvedCat.color) : null;
+
+                  const cellSurfaceClass = item.isSunday
+                    ? 'bg-rose-50/80 hover:bg-rose-100/75'
+                    : item.isSaturday
+                    ? 'bg-slate-100/85 hover:bg-slate-200/70'
+                    : 'bg-white hover:bg-slate-50/60';
+
+                  const cellBorderClass = isToday
+                    ? 'border-2 border-slate-900 shadow-2xs'
+                    : item.isSunday
+                    ? 'border border-rose-200/90 hover:border-rose-300'
+                    : item.isSaturday
+                    ? 'border border-slate-200/95 hover:border-slate-300'
+                    : 'border border-slate-200 hover:border-slate-400';
+
+                  const numberTextColorClass = isToday
+                    ? item.isSunday
+                      ? 'text-rose-900 font-extrabold'
+                      : 'text-slate-900 font-extrabold'
+                    : item.isSunday
+                    ? 'text-rose-700 font-bold'
+                    : item.isSaturday
+                    ? 'text-slate-700 font-semibold'
+                    : 'text-slate-700 font-semibold';
 
                   return (
                     <button
@@ -707,11 +781,7 @@ export const CalendarManager: React.FC = () => {
                           ? `${item.dateStr}, ${holiday.name}, ${resolvedCat.name}`
                           : item.dateStr
                       }
-                      className={`aspect-square w-full rounded-lg sm:rounded-xl bg-white flex items-center justify-center transition cursor-pointer relative focus:outline-hidden focus:ring-2 focus:ring-indigo-500 ${
-                        isToday
-                          ? 'border-2 border-slate-900 shadow-2xs hover:bg-slate-50'
-                          : 'border border-slate-200 hover:border-slate-400 hover:bg-slate-50/60'
-                      }`}
+                      className={`aspect-square w-full rounded-lg sm:rounded-xl flex items-center justify-center transition cursor-pointer relative focus:outline-hidden focus:ring-2 focus:ring-indigo-500 ${cellSurfaceClass} ${cellBorderClass}`}
                     >
                       {holidayTheme ? (
                         <span
@@ -721,11 +791,7 @@ export const CalendarManager: React.FC = () => {
                         </span>
                       ) : (
                         <span
-                          className={`tabular-nums leading-none select-none ${
-                            isToday
-                              ? 'text-xs sm:text-sm md:text-base font-extrabold text-slate-900'
-                              : 'text-xs sm:text-sm md:text-base font-semibold text-slate-700'
-                          }`}
+                          className={`tabular-nums leading-none select-none text-xs sm:text-sm md:text-base ${numberTextColorClass}`}
                         >
                           {item.dayNum}
                         </span>
@@ -733,6 +799,20 @@ export const CalendarManager: React.FC = () => {
                     </button>
                   );
                 })}
+
+                {calendarDays.trailingBlanks.map((blank, i) => (
+                  <div
+                    key={`trailing-blank-${i}`}
+                    aria-hidden="true"
+                    className={`aspect-square w-full rounded-lg sm:rounded-xl border border-dashed ${
+                      blank.isSunday
+                        ? 'border-rose-200/70 bg-rose-50/45'
+                        : blank.isSaturday
+                        ? 'border-slate-200/85 bg-slate-100/60'
+                        : 'border-slate-200/70 bg-slate-50/40'
+                    }`}
+                  />
+                ))}
               </div>
             </div>
           )}

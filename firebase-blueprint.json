@@ -308,6 +308,17 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["id", "name", "color"]
+    },
+    "CalendarSettings": {
+      "title": "Calendar Settings",
+      "description": "Global calendar display configuration managed by Super Admin",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "firstDayOfWeek": { "type": "number" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "firstDayOfWeek"]
     }
   },
   "firestore": {
@@ -352,6 +363,12 @@
         "$ref": "#/entities/HolidayCategory"
       },
       "description": "Configurable holiday categories and colors"
+    },
+    "/calendarSettings/{settingId}": {
+      "schema": {
+        "$ref": "#/entities/CalendarSettings"
+      },
+      "description": "Global calendar display settings such as first day of week"
     }
   }
 }

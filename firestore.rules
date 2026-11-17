@@ -92,6 +92,11 @@ service cloud.firestore {
     match /holidayCategories/{categoryId} {
       allow read, write: if true;
     }
+
+    // Calendar display settings (e.g. first day of week)
+    match /calendarSettings/{settingId} {
+      allow read, write: if true;
+    }
   }
 }
 

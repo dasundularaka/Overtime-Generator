@@ -42,6 +42,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   shiftStartTime: '08:00',
   shiftEndTime: '16:45',
   otStepMinutes: 15,
+  firstDayOfWeek: 0,
   defaultWeekdayReason: '',
   defaultSaturdayReason: 'Saturday Duty',
   defaultHolidayReason: '',
