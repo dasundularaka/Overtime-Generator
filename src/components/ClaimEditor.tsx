@@ -104,6 +104,16 @@ function toSafeRate(val: unknown): number | '' {
   return Number.isFinite(num) ? num : '';
 }
 
+function getPreviousCalendarMonth(refDate: Date = new Date()): { month: string; monthIndex: number; year: number } {
+  const prev = new Date(refDate.getFullYear(), refDate.getMonth() - 1, 1);
+  const idx = prev.getMonth();
+  return {
+    month: MONTH_NAMES[idx],
+    monthIndex: idx,
+    year: prev.getFullYear(),
+  };
+}
+
 interface ClaimEditorProps {
   initialClaim?: ClaimRecord | null;
   onClaimSaved?: (claim: ClaimRecord) => void;
@@ -278,14 +288,14 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   const [userShiftStartTime, setUserShiftStartTime] = useState<string>(GENERAL_SHIFT_START);
   const [userShiftEndTime, setUserShiftEndTime] = useState<string>(GENERAL_SHIFT_END);
 
-  const currentDate = new Date();
+  const defaultPeriod = getPreviousCalendarMonth();
   const initialValidMonth = initialClaim?.month && MONTH_NAMES.includes(initialClaim.month)
     ? initialClaim.month
-    : MONTH_NAMES[currentDate.getMonth()];
+    : defaultPeriod.month;
   const initialValidYear =
     typeof initialClaim?.year === 'number' && Number.isFinite(initialClaim.year) && initialClaim.year >= 1900 && initialClaim.year <= 2100
       ? initialClaim.year
-      : currentDate.getFullYear();
+      : defaultPeriod.year;
 
   const [claimMonth, setClaimMonth] = useState<string>(initialValidMonth);
   const [claimYear, setClaimYear] = useState<number>(initialValidYear);
@@ -480,7 +490,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   const [isNoOtModalOpen, setIsNoOtModalOpen] = useState(false);
   const [noOtRowsDetected, setNoOtRowsDetected] = useState<OvertimeRow[]>([]);
 
-  // Holidays Calendar Sync State - seed immediately from default annual holidays so mount rows reflect holidays right away
+  // Holidays Calendar Sync State - seed immediately from default annual holidays, then replace cleanly when Firestore resolves
   const [calendarHolidays, setCalendarHolidays] = useState<Holiday[]>(() =>
     DEFAULT_ANNUAL_HOLIDAYS.map((h, i) => ({
       ...h,
@@ -488,6 +498,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       createdAt: '2026-01-01T00:00:00.000Z',
     }))
   );
+  const [holidaysLoaded, setHolidaysLoaded] = useState<boolean>(false);
 
   // Corporate Role Rates Subscription - initialized immediately from local cache
   const [roleRates, setRoleRates] = useState<RoleRate[]>(getLocalRoleRates());
@@ -552,6 +563,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   useEffect(() => {
     const unsub = subscribeToHolidays((list) => {
       setCalendarHolidays(list);
+      setHolidaysLoaded(true);
     });
     return () => unsub();
   }, []);
@@ -559,7 +571,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   const holidayMap = useMemo(() => {
     const map = new Map<string, Holiday>();
     for (const h of calendarHolidays) {
-      map.set(h.date, h);
+      const dateKey = toSafeStr(h?.date).trim();
+      if (dateKey) {
+        map.set(dateKey, { ...h, date: dateKey });
+      }
     }
     return map;
   }, [calendarHolidays]);
@@ -567,14 +582,15 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   // Helper: Detect if a row is marked as Leave
   const isRowLeave = (r: OvertimeRow): boolean => Boolean(r.isLeave);
 
-  // Helper: Detect if a row is a holiday (strictly respects user's explicit isHoliday flag and Leave status)
+  // Helper: Detect if a row is a holiday (checks Leave, explicit user mark/unmark, Sunday, and synced Calendar holidayMap)
   const isRowHoliday = (r: OvertimeRow): boolean => {
     if (r.isLeave) return false;
-    if (r.isHoliday === false) return false; // Explicit user unmark!
-    if (r.isHoliday === true) return true;
-    const dow = r.dayOfWeek || getDayOfWeek(r.date);
+    if (r.holidayUnmarkedByUser) return false;
+    if (r.holidayMarkedByUser || r.isHoliday === true) return true;
+    const cleanDate = toSafeStr(r.date).trim();
+    const dow = r.dayOfWeek || getDayOfWeek(cleanDate);
     if (dow === 'Sun') return true;
-    return holidayMap.has(r.date);
+    return Boolean(cleanDate && holidayMap.has(cleanDate));
   };
 
   // Helper: Detect other days (Saturdays, Sundays, and public/bank holidays)
@@ -1066,9 +1082,13 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       setTotalRemuneration(toSafeRate(targetProfile.totalRemuneration));
     }
 
-    // Only generate initial clean rows when entering this claim context (not on background roleRates/allUsers updates)
+    // Only reset period to Last Month and generate initial clean rows when entering a fresh new claim context
     if (isNewContext) {
-      setRows(generateFullMonthRows(claimMonth, claimYear, isSpecialAssignedOt));
+      const lastPeriod = getPreviousCalendarMonth();
+      setClaimMonth(lastPeriod.month);
+      setClaimYear(lastPeriod.year);
+      setClaimDate(new Date().toISOString().split('T')[0]);
+      setRows(generateFullMonthRows(lastPeriod.month, lastPeriod.year, isSpecialAssignedOt));
     }
   }, [initialClaim, userProfile, selectedUserId, allUsers, roleRates]);
 
@@ -1076,9 +1096,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   function generateFullMonthRows(targetMonth: string, targetYear: number, specialOt: boolean = isSpecialAssignedOt): OvertimeRow[] {
     const safeYear = Number.isFinite(targetYear) && targetYear >= 1900 && targetYear <= 2100
       ? targetYear
-      : new Date().getFullYear();
+      : getPreviousCalendarMonth().year;
     const monthIndex = MONTH_NAMES.indexOf(targetMonth);
-    const validMonth = monthIndex >= 0 ? monthIndex : new Date().getMonth();
+    const validMonth = monthIndex >= 0 ? monthIndex : getPreviousCalendarMonth().monthIndex;
     const daysInMonth = getDaysInMonth(safeYear, validMonth);
     const mStr = String(validMonth + 1).padStart(2, '0');
     const safeHolidayReason = toSafeStr(defaultHolidayReason).trim();
@@ -1100,7 +1120,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         id: 'row_' + Math.random().toString(36).substring(2, 9),
         date: dateStr,
         dayOfWeek: dow,
-        startTime: isHol ? '' : (userShiftStartTime || GENERAL_SHIFT_START),
+        startTime: (isHol || isSat) ? '' : (userShiftStartTime || GENERAL_SHIFT_START),
         endTime: '',
         breakMinutes: 0,
         isOvernight: false,
@@ -1112,7 +1132,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         totalWorkMinutes: 0,
         rawOtMinutes: 0,
         totalMinutes: 0,
-        totalFormatted: '00:00',
+        totalFormatted: isHol ? '' : '00:00',
         reason: isHol
           ? (safeHolidayReason || hol?.name || (isSun ? 'Sunday' : 'Holiday'))
           : (isSat
@@ -1326,6 +1346,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         target.leaveType = target.leaveType || 'Full Day';
         target.isHoliday = false;
         target.holidayName = undefined;
+        target.holidayMarkedByUser = false;
+        target.holidayUnmarkedByUser = false;
         target.isHolidayOverride = false;
         target.startTime = '';
         target.endTime = '';
@@ -1355,8 +1377,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         target.isLeave = false;
         target.leaveType = undefined;
         target.isHoliday = true;
+        target.holidayMarkedByUser = true;
+        target.holidayUnmarkedByUser = false;
         target.isHolidayOverride = false;
-        const holName = holidayMap.get(target.date)?.name || (isSun ? 'Sunday' : 'Holiday');
+        const holName = holidayMap.get(toSafeStr(target.date).trim())?.name || (isSun ? 'Sunday' : 'Holiday');
         target.holidayName = holName;
         target.startTime = '';
         target.endTime = '';
@@ -1376,6 +1400,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         target.leaveType = undefined;
         target.isHoliday = false;
         target.holidayName = undefined;
+        target.holidayMarkedByUser = false;
+        target.holidayUnmarkedByUser = true;
         target.isHolidayOverride = false;
         if (!target.startTime && !isSat) {
           target.startTime = defaultStart;
@@ -1551,15 +1577,20 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       const target = { ...current, [field]: value };
 
       if (field === 'date') {
-        const newDow = getDayOfWeek(value);
+        const cleanDate = toSafeStr(value).trim();
+        target.date = cleanDate;
+        const newDow = getDayOfWeek(cleanDate);
         target.dayOfWeek = newDow;
-        target.isWeekend = isWeekendDay(value);
-        const checkHol = holidayMap.has(value) || newDow === 'Sun';
+        target.isWeekend = isWeekendDay(cleanDate);
+        target.holidayMarkedByUser = false;
+        target.holidayUnmarkedByUser = false;
+        const holMatch = cleanDate ? holidayMap.get(cleanDate) : undefined;
+        const checkHol = Boolean(holMatch) || newDow === 'Sun';
 
         if (!target.isLeave) {
           if (checkHol) {
             target.isHoliday = true;
-            const holName = holidayMap.get(value)?.name || (newDow === 'Sun' ? 'Sunday' : 'Holiday');
+            const holName = holMatch?.name || (newDow === 'Sun' ? 'Sunday' : 'Holiday');
             target.holidayName = holName;
             if (!target.isHolidayOverride) {
               target.startTime = '';
@@ -1570,10 +1601,13 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             // Changed to normal working day or Saturday (not holiday)
             target.isHoliday = false;
             target.holidayName = undefined;
+            target.isHolidayOverride = false;
             if (newDow === 'Sat') {
+              if (!target.endTime) target.startTime = '';
               target.reason = defaultSaturdayReason.trim() ? defaultSaturdayReason.trim() : 'Saturday Duty';
             } else {
               // Monday through Friday
+              if (!target.startTime) target.startTime = userShiftStartTime || GENERAL_SHIFT_START;
               target.reason = defaultWeekdayReason.trim() ? defaultWeekdayReason.trim() : '';
             }
           }
@@ -1586,7 +1620,9 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           target.isLeave = false;
           target.leaveType = undefined;
           target.isHoliday = true;
-          const holName = holidayMap.get(target.date)?.name || (target.dayOfWeek === 'Sun' ? 'Sunday' : 'Holiday');
+          target.holidayMarkedByUser = true;
+          target.holidayUnmarkedByUser = false;
+          const holName = holidayMap.get(toSafeStr(target.date).trim())?.name || (target.dayOfWeek === 'Sun' ? 'Sunday' : 'Holiday');
           target.holidayName = holName;
           if (!target.isHolidayOverride) {
             target.startTime = '';
@@ -1597,6 +1633,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           // User explicitly unmarks holiday: revert to working day or Saturday
           target.isHoliday = false;
           target.holidayName = undefined;
+          target.holidayMarkedByUser = false;
+          target.holidayUnmarkedByUser = true;
           target.isHolidayOverride = false;
           const dow = target.dayOfWeek || getDayOfWeek(target.date);
           if (dow === 'Sat') {
@@ -1695,10 +1733,16 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     });
   };
 
-  // Re-calculate all rows when user OT limit, shift, or calendar changes
+  // Re-calculate all rows and synchronize Integrated Calendar holidays whenever calendar, shift, or limits update
   useEffect(() => {
+    const safeHolReason = toSafeStr(defaultHolidayReason).trim();
+    const safeSatReason = toSafeStr(defaultSaturdayReason).trim();
+    const safeWeekReason = toSafeStr(defaultWeekdayReason).trim();
+    const defaultStart = userShiftStartTime || GENERAL_SHIFT_START;
+
     setRows(prevRows =>
-      prevRows.map(row => {
+      prevRows.map(rawRow => {
+        let row = rawRow;
         if (row.isLeave) {
           return {
             ...row,
@@ -1712,43 +1756,110 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             isCapped: false,
           };
         }
-        // Sync newly fetched Firestore holidays onto untouched rows safely (never touching explicitly unmarked/edited rows)
-        const mappedHoliday = holidayMap.get(row.date);
-        if (mappedHoliday && !row.isHoliday && row.isHoliday !== false && !row.endTime) {
-          const safeHolReason = toSafeStr(defaultHolidayReason).trim();
+
+        const dateKey = toSafeStr(row.date).trim();
+        const dow = row.dayOfWeek || getDayOfWeek(dateKey);
+        const isSun = dow === 'Sun';
+        const isSat = dow === 'Sat';
+        const mappedHoliday = dateKey ? holidayMap.get(dateKey) : undefined;
+
+        // 1. Apply Firestore Calendar holiday onto any non-leave row unless user explicitly marked it Workday
+        if (mappedHoliday && !row.holidayUnmarkedByUser) {
+          const prevHolidayName = toSafeStr(row.holidayName).trim();
+          const currentReasonTrimmed = toSafeStr(row.reason).trim();
+          const isPlaceholderReason =
+            !currentReasonTrimmed ||
+            currentReasonTrimmed === prevHolidayName ||
+            currentReasonTrimmed === 'Sunday' ||
+            currentReasonTrimmed === 'Holiday' ||
+            currentReasonTrimmed === 'Public Holiday' ||
+            currentReasonTrimmed === 'Saturday Duty' ||
+            currentReasonTrimmed === "Saturday Duty (Day's Pay)" ||
+            (safeSatReason && currentReasonTrimmed === safeSatReason) ||
+            (safeWeekReason && currentReasonTrimmed === safeWeekReason);
+
+          if (!row.endTime && !row.isHolidayOverride) {
+            return {
+              ...row,
+              isHoliday: true,
+              holidayName: mappedHoliday.name,
+              startTime: '',
+              endTime: '',
+              totalWorkMinutes: 0,
+              rawOtMinutes: 0,
+              totalMinutes: 0,
+              totalFormatted: '',
+              isDaysPayment: false,
+              reason: isPlaceholderReason ? (safeHolReason || mappedHoliday.name) : row.reason,
+            };
+          }
+
+          if (!row.isHoliday || prevHolidayName !== mappedHoliday.name) {
+            row = {
+              ...row,
+              isHoliday: true,
+              holidayName: mappedHoliday.name,
+              reason: isPlaceholderReason ? (safeHolReason || mappedHoliday.name) : row.reason,
+            };
+          }
+        } else if (
+          holidaysLoaded &&
+          !mappedHoliday &&
+          !isSun &&
+          row.isHoliday &&
+          !row.holidayMarkedByUser &&
+          !row.isHolidayOverride &&
+          !row.endTime
+        ) {
+          // 2. Holiday was removed from Integrated Calendar after initial mount/draft load -> revert cleanly
+          const prevHolidayName = toSafeStr(row.holidayName).trim();
+          const currentReasonTrimmed = toSafeStr(row.reason).trim();
+          const wasHolidayReason =
+            !currentReasonTrimmed ||
+            currentReasonTrimmed === prevHolidayName ||
+            currentReasonTrimmed === 'Public Holiday' ||
+            currentReasonTrimmed === 'Holiday' ||
+            (safeHolReason && currentReasonTrimmed === safeHolReason);
+
           return {
             ...row,
-            isHoliday: true,
-            holidayName: mappedHoliday.name,
-            startTime: '',
+            isHoliday: false,
+            holidayName: undefined,
+            startTime: isSat ? '' : defaultStart,
             endTime: '',
             totalWorkMinutes: 0,
             rawOtMinutes: 0,
             totalMinutes: 0,
-            totalFormatted: '',
+            totalFormatted: '00:00',
             isDaysPayment: false,
-            reason: toSafeStr(row.reason).trim() || safeHolReason || mappedHoliday.name,
+            reason: wasHolidayReason
+              ? (isSat ? (safeSatReason || 'Saturday Duty') : safeWeekReason)
+              : row.reason,
           };
         }
-        if (!row.startTime || !row.endTime) return row;
-        const dow = row.dayOfWeek || getDayOfWeek(row.date);
+
         const isHoliday = isRowHoliday(row);
-        const isOther = dow === 'Sat' || dow === 'Sun' || isHoliday;
+        const isOther = isSat || isSun || isHoliday;
         const isSpecial = isSpecialAssignedOt || !!row.isSpecialAssignment;
         const isHolOverride = !!row.isHolidayOverride;
 
         if (isHoliday && !isHolOverride) {
-          return {
-            ...row,
-            startTime: '',
-            endTime: '',
-            totalWorkMinutes: 0,
-            rawOtMinutes: 0,
-            totalMinutes: 0,
-            totalFormatted: '',
-            isDaysPayment: false,
-          };
+          if (row.startTime || row.endTime || row.totalMinutes > 0 || row.isDaysPayment) {
+            return {
+              ...row,
+              startTime: '',
+              endTime: '',
+              totalWorkMinutes: 0,
+              rawOtMinutes: 0,
+              totalMinutes: 0,
+              totalFormatted: '',
+              isDaysPayment: false,
+            };
+          }
+          return row;
         }
+
+        if (!row.startTime || !row.endTime) return row;
 
         const calc = calculateShiftOvertime(
           row.startTime,
@@ -1777,29 +1888,43 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         };
       })
     );
-  }, [maxOtLimitHours, otDisplayFormat, holidayMap, userShiftEndTime, userShiftStartTime, isSpecialAssignedOt]);
+  }, [maxOtLimitHours, otDisplayFormat, holidayMap, holidaysLoaded, userShiftEndTime, userShiftStartTime, isSpecialAssignedOt]);
 
-  // Auto-Fill Month: Loads ALL dates in the selected month with holidays & Sundays shown
+  // Auto-Fill Month: Loads ALL dates in the selected month with holidays & Sundays synced
   const handleAutoFillMonth = () => {
     markUserModified();
     const monthIndex = MONTH_NAMES.indexOf(claimMonth);
     if (monthIndex < 0) return;
 
-    const holidayDatesSet = new Set(calendarHolidays.map(h => h.date));
+    const holidayDatesSet = new Set(Array.from(holidayMap.keys()));
     // Load ALL dates in the month (do NOT exclude holidays or Sundays)
     const monthDates = generateMonthDates(claimYear, monthIndex, holidayDatesSet, false);
-    const existingDateMap = new Map(rows.map(r => [r.date, r]));
+    const existingDateMap = new Map(rows.map(r => [toSafeStr(r.date).trim(), r]));
     const safeHolReason = toSafeStr(defaultHolidayReason).trim();
     const safeSatReason = toSafeStr(defaultSaturdayReason).trim();
     const safeWeekReason = toSafeStr(defaultWeekdayReason).trim();
 
     const newRows: OvertimeRow[] = monthDates.map(({ date, day, isHoliday }) => {
       const existing = existingDateMap.get(date);
-      if (existing) return existing;
+      const holidayInfo = holidayMap.get(date);
       const isSat = day === 'Sat';
       const isSun = day === 'Sun';
-      const isHol = isHoliday || isSun || holidayDatesSet.has(date);
-      const holidayInfo = holidayMap.get(date);
+      const isHol = Boolean(isHoliday || isSun || holidayInfo);
+
+      if (existing) {
+        if (!existing.isLeave && !existing.holidayUnmarkedByUser && holidayInfo && !existing.isHoliday && !existing.endTime) {
+          return {
+            ...existing,
+            isHoliday: true,
+            holidayName: holidayInfo.name,
+            startTime: '',
+            endTime: '',
+            totalFormatted: '',
+            reason: toSafeStr(existing.reason).trim() || safeHolReason || holidayInfo.name,
+          };
+        }
+        return existing;
+      }
 
       return {
         id: 'row_' + Math.random().toString(36).substring(2, 9),
@@ -1817,7 +1942,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
         totalWorkMinutes: 0,
         rawOtMinutes: 0,
         totalMinutes: 0,
-        totalFormatted: '00:00',
+        totalFormatted: isHol ? '' : '00:00',
         reason: isHol
           ? (safeHolReason || holidayInfo?.name || (isSun ? 'Sunday' : 'Holiday'))
           : (isSat
