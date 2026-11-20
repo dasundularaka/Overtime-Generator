@@ -1,6 +1,7 @@
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { ClaimRecord, FieldConfig, FontFamily, TemplateConfig } from '../types';
 import { formatMinutesToTime, getDayOfWeek } from './timeCalculations';
+import { OP_TEMPLATE_ID } from './defaultTemplate';
 
 export const MM_TO_PT = 72 / 25.4; // ~2.83464567 points per millimeter
 export const A4_WIDTH_PT = 210 * MM_TO_PT; // ~595.28 pt
@@ -236,6 +237,9 @@ export async function generateOvertimePdf(
     return isNaN(n) ? String(val) : n.toFixed(2);
   };
 
+  const isOutOfPocket = claim.claimType === 'OP' || template.id === OP_TEMPLATE_ID;
+  const opTotalAmount = isOutOfPocket ? Number(claim.totalOtPayment || 0) : 0;
+
   const claimDataMap: Record<string, string> = {
     employeeName: claim.employeeName || '',
     employeeNumber: claim.employeeNumber || '',
@@ -247,27 +251,32 @@ export async function generateOvertimePdf(
     monthYear: `${claim.month} ${claim.year}`,
     claimDate: claim.claimDate || '',
     totalDaysCount: `${claim.otDaysCount || 0} Days`,
-    totalHoursFormatted: claim.totalHoursFormatted ? `${claim.totalHoursFormatted} (${(claim.totalDecimalHours || 0).toFixed(2)}h)` : '',
+    totalHoursFormatted: claim.totalHoursFormatted
+      ? isOutOfPocket
+        ? claim.totalHoursFormatted
+        : `${claim.totalHoursFormatted} (${(claim.totalDecimalHours || 0).toFixed(2)}h)`
+      : '',
     totalHoursOnly: claim.totalHoursFormatted || '',
     claimantSign: claim.employeeName || '',
     claimNumber: claim.claimNumber || '',
-    hourlyRate: formatRate(claim.hourlyRate),
-    daysPay: formatRate(claim.daysPay),
-    hourlyRateNonWorkingDays: formatRate(claim.hourlyRateNonWorkingDays),
-    daysPayCount: String(claim.daysPayCount || 0),
-    daysPayTotal: formatRate(claim.daysPayTotal),
-    totalRemuneration: formatRate(claim.totalRemuneration),
-    otPaymentDueA: formatRate(claim.otPaymentDueA),
-    otPaymentDueB: formatRate(claim.otPaymentDueB),
-    totalOtPayment: formatRate(claim.totalOtPayment),
-    // Out of Pocket Form 10610 Particulars
+    // Form 10756 Overtime-only fields (never populate on OP)
+    hourlyRate: isOutOfPocket ? '' : formatRate(claim.hourlyRate),
+    daysPay: isOutOfPocket ? '' : formatRate(claim.daysPay),
+    hourlyRateNonWorkingDays: isOutOfPocket ? '' : formatRate(claim.hourlyRateNonWorkingDays),
+    daysPayCount: isOutOfPocket ? '' : String(claim.daysPayCount || 0),
+    daysPayTotal: isOutOfPocket ? '' : formatRate(claim.daysPayTotal),
+    totalRemuneration: isOutOfPocket ? '' : formatRate(claim.totalRemuneration),
+    otPaymentDueA: isOutOfPocket ? '' : formatRate(claim.otPaymentDueA),
+    otPaymentDueB: isOutOfPocket ? '' : formatRate(claim.otPaymentDueB),
+    totalOtPayment: isOutOfPocket ? '' : formatRate(claim.totalOtPayment),
+    // Form 10610 Out of Pocket-only fields (never populate on OT)
     year2Digit: String(claim.year || '').slice(-2),
     grade: claim.designation || '',
-    totalAmountRs: (claim.totalOtPayment || claim.daysPayTotal || 0) > 0
-      ? Math.floor(claim.totalOtPayment || claim.daysPayTotal || 0).toLocaleString('en-US')
+    totalAmountRs: isOutOfPocket && opTotalAmount > 0
+      ? Math.floor(opTotalAmount).toLocaleString('en-US')
       : '',
-    totalAmountCts: (claim.totalOtPayment || claim.daysPayTotal || 0) > 0
-      ? String(Math.round(((claim.totalOtPayment || claim.daysPayTotal || 0) % 1) * 100)).padStart(2, '0')
+    totalAmountCts: isOutOfPocket && opTotalAmount > 0
+      ? String(Math.round((opTotalAmount % 1) * 100)).padStart(2, '0')
       : '',
     paymentAuthorisedBy: '',
   };
@@ -400,11 +409,17 @@ export async function generateOvertimePdf(
     const tbl = template.tableConfig;
     const font = await getFont(tbl.fontFamily, tbl.isBold);
 
-    // Strictly print ONLY OT-claimed dates:
-    // Exclude leaves, worked-but-not-OT days (totalMinutes === 0), and unclaimed holidays.
+    // Strictly isolate Form 10610 (OP) vs Form 10756 (OT) row filtering & columns
     const claimedRows = claim.rows.filter(r => {
       if (r.isLeave) return false;
       if (r.isHoliday && !r.isHolidayOverride) return false;
+
+      if (isOutOfPocket) {
+        const hasTimes = Boolean(r.startTime?.trim() && r.endTime?.trim());
+        const hasOpAmount = (r.daysPaymentAmount || 0) > 0;
+        const hasDuration = (r.totalWorkMinutes || r.totalMinutes || 0) > 0;
+        return hasTimes || hasOpAmount || hasDuration;
+      }
 
       const hasValidOt = (r.totalMinutes || 0) > 0;
       const hasSpecialHours = Boolean(
@@ -413,14 +428,10 @@ export async function generateOvertimePdf(
         r.specialAssignmentHours.trim() !== '0' &&
         r.specialAssignmentHours.trim() !== '00:00'
       );
-      const hasOpAmount = Boolean(
-        (r.daysPaymentAmount || 0) > 0 &&
-        (!!r.startTime?.trim() || !!r.endTime?.trim() || !!r.reason?.trim())
-      );
       const isSat = r.dayOfWeek === 'Sat' || (r.date ? getDayOfWeek(r.date) === 'Sat' : false);
       const isQualifiedSatDayPay = isSat && !!r.isDaysPayment && (r.totalWorkMinutes || 0) >= 360;
 
-      return hasValidOt || hasSpecialHours || hasOpAmount || isQualifiedSatDayPay;
+      return hasValidOt || hasSpecialHours || isQualifiedSatDayPay;
     });
     const effectiveRows = claimedRows;
 
@@ -434,68 +445,75 @@ export async function generateOvertimePdf(
     });
 
     const maxRowsToRender = Math.min(sortedRows.length, tbl.maxRows);
-    const isRatesUnlocked = Boolean(claim.isRatesUnlocked || claim.isRatesLocked === false);
+    const isRatesUnlocked = !isOutOfPocket && Boolean(claim.isRatesUnlocked || claim.isRatesLocked === false);
 
     for (let i = 0; i < maxRowsToRender; i++) {
       const row = sortedRows[i];
       const rowYMm = tbl.startY + i * tbl.rowHeight;
-
-      // Columns mapping matching Overtime Sheet: date, day, reason, approvedBy, startTime, endTime, totalHours, otHoursClaimed, specialHoursClaimed
       const cols = tbl.columns;
 
-      const isSat = row.dayOfWeek === 'Sat' || (row.date ? getDayOfWeek(row.date) === 'Sat' : false);
-      const isSun = row.dayOfWeek === 'Sun' || (row.date ? getDayOfWeek(row.date) === 'Sun' : false);
-      const isOtherDay = isSat || isSun || !!row.isHoliday || !!row.isDaysPayment;
-      // Show non-working days OT period (in, out, worked, and OT claimed) like other working days for rates-unlocked users or holiday override
-      const showPeriod = !isOtherDay || isRatesUnlocked || !!row.isHolidayOverride || (row.totalMinutes || 0) > 0;
+      let rowValues: Array<{ col: typeof cols.date | undefined; val: string }> = [];
 
-      // Compute row amount if template has amountRs/amountCts columns (e.g. Out of Pocket Form 10610)
-      let rowAmountRs = '';
-      let rowAmountCts = '';
-      const dayAmt = (row.daysPaymentAmount || 0) > 0
-        ? row.daysPaymentAmount!
-        : ((row.totalMinutes || 0) > 0 && (claim.hourlyRate || 0) > 0)
-        ? ((row.totalMinutes || 0) / 60) * (claim.hourlyRate || 0)
-        : 0;
-      if (dayAmt > 0) {
-        const rInt = Math.floor(dayAmt);
-        const rCts = Math.round((dayAmt - rInt) * 100);
-        rowAmountRs = rInt.toLocaleString('en-US');
-        rowAmountCts = String(rCts).padStart(2, '0');
+      if (isOutOfPocket) {
+        // Isolated Out of Pocket Form 10610 row layout — NEVER applies OT hourly rates, Saturday Day's Pay, or Col A/B
+        let rowAmountRs = '';
+        let rowAmountCts = '';
+        const dayAmt = (row.daysPaymentAmount || 0) > 0 ? Number(row.daysPaymentAmount) : 0;
+        if (dayAmt > 0) {
+          const rInt = Math.floor(dayAmt);
+          const rCts = Math.round((dayAmt - rInt) * 100);
+          rowAmountRs = rInt.toLocaleString('en-US');
+          rowAmountCts = String(rCts).padStart(2, '0');
+        }
+        const workedMins = row.totalWorkMinutes || row.totalMinutes || 0;
+
+        rowValues = [
+          { col: cols.date, val: row.date ? row.date.split('-').slice(1).join('/') : '' },
+          { col: cols.day, val: row.dayOfWeek || '' },
+          { col: cols.reason, val: row.reason || '' },
+          { col: cols.approvedBy, val: row.approvedBy || '' },
+          { col: cols.startTime, val: row.startTime || '' },
+          { col: cols.endTime, val: row.endTime ? `${row.endTime}${row.isOvernight ? '*' : ''}` : '' },
+          {
+            col: cols.totalHours,
+            val: workedMins > 0 ? formatMinutesToTime(workedMins, 'hhmm') : (row.totalFormatted || ''),
+          },
+          { col: cols.amountRs, val: rowAmountRs },
+          { col: cols.amountCts, val: rowAmountCts },
+          { col: cols.approvedByAgm, val: '' },
+        ];
+      } else {
+        // Form 10756 Overtime row layout
+        const isSat = row.dayOfWeek === 'Sat' || (row.date ? getDayOfWeek(row.date) === 'Sat' : false);
+        const isSun = row.dayOfWeek === 'Sun' || (row.date ? getDayOfWeek(row.date) === 'Sun' : false);
+        const isOtherDay = isSat || isSun || !!row.isHoliday || !!row.isDaysPayment;
+        const showPeriod = !isOtherDay || isRatesUnlocked || !!row.isHolidayOverride || (row.totalMinutes || 0) > 0;
+
+        rowValues = [
+          { col: cols.date, val: row.date ? row.date.split('-').slice(1).join('/') : '' },
+          { col: cols.day, val: row.dayOfWeek || '' },
+          { col: cols.reason, val: row.reason || (isOtherDay && !row.startTime ? "Day's Pay Allocation" : '') },
+          { col: cols.approvedBy, val: row.approvedBy || '' },
+          { col: cols.startTime, val: showPeriod ? (row.startTime || '') : '' },
+          { col: cols.endTime, val: showPeriod ? (row.endTime ? `${row.endTime}${row.isOvernight ? '*' : ''}` : '') : '' },
+          {
+            col: cols.totalHours,
+            val: (showPeriod && row.totalWorkMinutes > 0) ? formatMinutesToTime(row.totalWorkMinutes, 'hhmm') : '',
+          },
+          {
+            col: cols.otHoursClaimed || (cols.breakMinutes ? undefined : cols.totalHours),
+            val: (!row.isSpecialAssignment && !row.isHolidayOverride && (row.totalMinutes || 0) > 0 && showPeriod)
+              ? (row.totalFormatted || '')
+              : '',
+          },
+          {
+            col: cols.specialHoursClaimed,
+            val: ((row.isSpecialAssignment || row.isHolidayOverride) && (row.totalMinutes || 0) > 0)
+              ? (row.totalFormatted || '')
+              : (row.specialAssignmentHours || ''),
+          },
+        ];
       }
-
-      const rowValues = [
-        { col: cols.date, val: row.date ? row.date.split('-').slice(1).join('/') : '' },
-        { col: cols.day, val: row.dayOfWeek || '' },
-        { col: cols.reason, val: row.reason || (isOtherDay && !row.startTime ? "Day's Pay Allocation" : '') },
-        { col: cols.approvedBy, val: row.approvedBy || '' },
-        { col: cols.startTime, val: showPeriod ? (row.startTime || '') : '' },
-        { col: cols.endTime, val: showPeriod ? (row.endTime ? `${row.endTime}${row.isOvernight ? '*' : ''}` : '') : '' },
-        {
-          col: cols.totalHours,
-          val: cols.amountRs
-            ? (row.totalFormatted || (row.totalMinutes > 0 ? formatMinutesToTime(row.totalMinutes, 'hhmm') : (showPeriod && row.totalWorkMinutes > 0 ? formatMinutesToTime(row.totalWorkMinutes, 'hhmm') : '')))
-            : ((showPeriod && row.totalWorkMinutes > 0) ? formatMinutesToTime(row.totalWorkMinutes, 'hhmm') : ''),
-        },
-        // Column A: Regular overtime (Working days and Saturdays / non-working days; NOT special OT, NOT holiday override)
-        {
-          col: cols.otHoursClaimed || (cols.breakMinutes ? undefined : cols.totalHours),
-          val: (!row.isSpecialAssignment && !row.isHolidayOverride && (row.totalMinutes || 0) > 0 && showPeriod)
-            ? (row.totalFormatted || '')
-            : '',
-        },
-        // Column B: Special Assigned OT AND Holiday Override OT must be added to Column B
-        {
-          col: cols.specialHoursClaimed,
-          val: ((row.isSpecialAssignment || row.isHolidayOverride) && (row.totalMinutes || 0) > 0)
-            ? (row.totalFormatted || '')
-            : (row.specialAssignmentHours || ''),
-        },
-        // Out of Pocket Amount Columns
-        { col: cols.amountRs, val: rowAmountRs },
-        { col: cols.amountCts, val: rowAmountCts },
-        { col: cols.approvedByAgm, val: '' },
-      ];
 
       for (const { col, val } of rowValues) {
         if (!val || !col) continue;
@@ -528,10 +546,10 @@ export async function generateOvertimePdf(
   const blob = new Blob([pdfBytes as unknown as BlobPart], { type: 'application/pdf' });
   const url = URL.createObjectURL(blob);
 
-  // Clean filename: Overtime_Claim_[EmployeeName]_[Month]_[Year].pdf
   const sanitizedName = (claim.employeeName || 'Claimant').replace(/[^a-zA-Z0-9]/g, '_');
   const sanitizedMonth = (claim.month || 'Month').replace(/[^a-zA-Z0-9]/g, '_');
-  const filename = `Overtime_Claim_${sanitizedName}_${sanitizedMonth}_${claim.year || 2026}.pdf`;
+  const filePrefix = isOutOfPocket ? 'Out_Of_Pocket_Claim' : 'Overtime_Claim';
+  const filename = `${filePrefix}_${sanitizedName}_${sanitizedMonth}_${claim.year || 2026}.pdf`;
 
   return { blob, url, filename };
 }

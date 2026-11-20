@@ -21,6 +21,7 @@ import {
   Check,
 } from 'lucide-react';
 import { RoleRate, ClaimType } from '../types';
+import { getClaimTypeFormMeta } from '../utils/defaultTemplate';
 import {
   fetchRoleRatesFromFirestore,
   subscribeToRoleRates,
@@ -170,19 +171,21 @@ export const RoleManagement: React.FC = () => {
       return;
     }
 
-    if (hourlyRateWorkingDays === '' || Number(hourlyRateWorkingDays) < 0) {
-      setFormError('Please enter a valid Hourly Rate for Working Days.');
-      return;
-    }
+    if (claimType === 'OT') {
+      if (hourlyRateWorkingDays === '' || Number(hourlyRateWorkingDays) < 0) {
+        setFormError('Please enter a valid Hourly Rate for Working Days.');
+        return;
+      }
 
-    if (daysPaymentNonWorkingDays === '' || Number(daysPaymentNonWorkingDays) < 0) {
-      setFormError('Please enter a valid Days Payment for Non-Working Days.');
-      return;
-    }
+      if (daysPaymentNonWorkingDays === '' || Number(daysPaymentNonWorkingDays) < 0) {
+        setFormError('Please enter a valid Days Payment for Non-Working Days.');
+        return;
+      }
 
-    if (hourlyRateNonWorkingDays === '' || Number(hourlyRateNonWorkingDays) < 0) {
-      setFormError('Please enter a valid Hourly Rate for Non-Working Days.');
-      return;
+      if (hourlyRateNonWorkingDays === '' || Number(hourlyRateNonWorkingDays) < 0) {
+        setFormError('Please enter a valid Hourly Rate for Non-Working Days.');
+        return;
+      }
     }
 
     setIsSaving(true);
@@ -192,11 +195,11 @@ export const RoleManagement: React.FC = () => {
         name: cleanName,
         description: description.trim() || undefined,
         claimType: claimType,
-        hourlyRateWorkingDays: Number(hourlyRateWorkingDays),
-        daysPaymentNonWorkingDays: Number(daysPaymentNonWorkingDays),
-        hourlyRateNonWorkingDays: Number(hourlyRateNonWorkingDays),
-        specialHourlyRate: specialHourlyRate !== '' ? Number(specialHourlyRate) : undefined,
-        isRatesLocked: isRatesLocked,
+        hourlyRateWorkingDays: claimType === 'OT' ? Number(hourlyRateWorkingDays) : 0,
+        daysPaymentNonWorkingDays: claimType === 'OT' ? Number(daysPaymentNonWorkingDays) : 0,
+        hourlyRateNonWorkingDays: claimType === 'OT' ? Number(hourlyRateNonWorkingDays) : 0,
+        specialHourlyRate: claimType === 'OT' && specialHourlyRate !== '' ? Number(specialHourlyRate) : undefined,
+        isRatesLocked: claimType === 'OT' ? isRatesLocked : false,
         createdAt: editingRole?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -375,96 +378,121 @@ export const RoleManagement: React.FC = () => {
                 </p>
               )}
 
-              {/* Rate Matrix Card */}
-              <div className="mt-4 pt-3 border-t border-slate-100 space-y-2">
-                <div className="flex items-center justify-between p-2 rounded-xl bg-blue-50/70 border border-blue-100">
-                  <div className="flex items-center gap-1.5 text-[11px] font-medium text-blue-900">
-                    <Clock className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                    <span>Hourly Rate (Working Days):</span>
-                  </div>
-                  <span className="font-mono font-bold text-xs text-blue-950">
-                    Rs. {Number(role.hourlyRateWorkingDays).toFixed(2)}/h
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between p-2 rounded-xl bg-amber-50/70 border border-amber-100">
-                  <div className="flex items-center gap-1.5 text-[11px] font-medium text-amber-900">
-                    <Calendar className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                    <span>Days Payment (Non-Working):</span>
-                  </div>
-                  <span className="font-mono font-bold text-xs text-amber-950">
-                    Rs. {Number(role.daysPaymentNonWorkingDays).toFixed(2)}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between p-2 rounded-xl bg-purple-50/70 border border-purple-100">
-                  <div className="flex items-center gap-1.5 text-[11px] font-medium text-purple-900">
-                    <Banknote className="w-3.5 h-3.5 text-purple-600 shrink-0" />
-                    <span>Hourly Rate (Non-Working):</span>
-                  </div>
-                  <span className="font-mono font-bold text-xs text-purple-950">
-                    Rs. {Number(role.hourlyRateNonWorkingDays).toFixed(2)}/h
-                  </span>
-                </div>
-
-                {role.specialHourlyRate !== undefined && (
-                  <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-200">
-                    <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-700">
-                      <Award className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                      <span>Special Assignment Rate:</span>
+              {role.claimType === 'OP' ? (
+                <div className="mt-4 pt-3 border-t border-slate-100">
+                  <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200 space-y-1">
+                    <div className="flex items-center justify-between text-[11px] font-bold text-amber-900">
+                      <span>Monthly Out of Pocket (Form 10610)</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300">
+                        Isolated Rules
+                      </span>
                     </div>
-                    <span className="font-mono font-bold text-xs text-slate-800">
-                      Rs. {Number(role.specialHourlyRate).toFixed(2)}/h
-                    </span>
+                    <p className="text-[11px] text-amber-800/90 leading-relaxed">
+                      Assigned automatically to Form 10610. Form 10756 overtime rates and rules are not applied to OP roles.
+                    </p>
                   </div>
-                )}
-              </div>
+                </div>
+              ) : (
+                <>
+                  {/* Rate Matrix Card (OT Form 10756 Only) */}
+                  <div className="mt-4 pt-3 border-t border-slate-100 space-y-2">
+                    <div className="flex items-center justify-between p-2 rounded-xl bg-blue-50/70 border border-blue-100">
+                      <div className="flex items-center gap-1.5 text-[11px] font-medium text-blue-900">
+                        <Clock className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                        <span>Hourly Rate (Working Days):</span>
+                      </div>
+                      <span className="font-mono font-bold text-xs text-blue-950">
+                        Rs. {Number(role.hourlyRateWorkingDays).toFixed(2)}/h
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2 rounded-xl bg-amber-50/70 border border-amber-100">
+                      <div className="flex items-center gap-1.5 text-[11px] font-medium text-amber-900">
+                        <Calendar className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                        <span>Days Payment (Non-Working):</span>
+                      </div>
+                      <span className="font-mono font-bold text-xs text-amber-950">
+                        Rs. {Number(role.daysPaymentNonWorkingDays).toFixed(2)}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2 rounded-xl bg-purple-50/70 border border-purple-100">
+                      <div className="flex items-center gap-1.5 text-[11px] font-medium text-purple-900">
+                        <Banknote className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                        <span>Hourly Rate (Non-Working):</span>
+                      </div>
+                      <span className="font-mono font-bold text-xs text-purple-950">
+                        Rs. {Number(role.hourlyRateNonWorkingDays).toFixed(2)}/h
+                      </span>
+                    </div>
+
+                    {role.specialHourlyRate !== undefined && (
+                      <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-200">
+                        <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-700">
+                          <Award className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                          <span>Special Assignment Rate:</span>
+                        </div>
+                        <span className="font-mono font-bold text-xs text-slate-800">
+                          Rs. {Number(role.specialHourlyRate).toFixed(2)}/h
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
 
-            {/* Lock / Unlock Rates Status & Quick Action Button */}
-            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5">
-                {role.isRatesLocked ? (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 text-[11px] font-bold border border-amber-200">
-                    <Lock className="w-3 h-3 text-amber-600 shrink-0" />
-                    <span>Rates Locked</span>
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 text-[11px] font-bold border border-emerald-200">
-                    <Unlock className="w-3 h-3 text-emerald-600 shrink-0" />
-                    <span>Rates Unlocked</span>
-                  </span>
-                )}
-              </div>
+            {role.claimType !== 'OP' ? (
+              /* Lock / Unlock Rates Status & Quick Action Button */
+              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  {role.isRatesLocked ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 text-[11px] font-bold border border-amber-200">
+                      <Lock className="w-3 h-3 text-amber-600 shrink-0" />
+                      <span>Rates Locked</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 text-[11px] font-bold border border-emerald-200">
+                      <Unlock className="w-3 h-3 text-emerald-600 shrink-0" />
+                      <span>Rates Unlocked</span>
+                    </span>
+                  )}
+                </div>
 
-              <button
-                type="button"
-                onClick={() => handleToggleRoleLock(role)}
-                disabled={isTogglingLock === role.id}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border shadow-2xs ${
-                  role.isRatesLocked
-                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600'
-                    : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300'
-                }`}
-                title={
-                  role.isRatesLocked
-                    ? 'Unlock Rates: permit users with this role to edit their rates in New Claim'
-                    : 'Lock Rates: freeze rates so users with this role cannot modify them in New Claim'
-                }
-              >
-                {role.isRatesLocked ? (
-                  <>
-                    <Unlock className="w-3.5 h-3.5" />
-                    <span>Unlock</span>
-                  </>
-                ) : (
-                  <>
-                    <Lock className="w-3.5 h-3.5" />
-                    <span>Lock</span>
-                  </>
-                )}
-              </button>
-            </div>
+                <button
+                  type="button"
+                  onClick={() => handleToggleRoleLock(role)}
+                  disabled={isTogglingLock === role.id}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border shadow-2xs ${
+                    role.isRatesLocked
+                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600'
+                      : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300'
+                  }`}
+                  title={
+                    role.isRatesLocked
+                      ? 'Unlock Rates: permit users with this role to edit their rates in New Claim'
+                      : 'Lock Rates: freeze rates so users with this role cannot modify them in New Claim'
+                  }
+                >
+                  {role.isRatesLocked ? (
+                    <>
+                      <Unlock className="w-3.5 h-3.5" />
+                      <span>Unlock</span>
+                    </>
+                  ) : (
+                    <>
+                      <Lock className="w-3.5 h-3.5" />
+                      <span>Lock</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            ) : (
+              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-amber-800 font-semibold">
+                <span>Auto-Template: Form 10610 (OP)</span>
+                <span>OP Rules Separate</span>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -553,141 +581,160 @@ export const RoleManagement: React.FC = () => {
               </div>
 
               {/* Default Claim Type Assignment */}
-              <div className="p-3 bg-purple-50/50 border border-purple-200 rounded-2xl">
+              <div className="p-3 bg-purple-50/50 border border-purple-200 rounded-2xl space-y-1.5">
                 <div className="flex items-center justify-between mb-1">
                   <label className="block font-bold text-slate-800">
                     Assigned Claim Type <span className="text-rose-500">*</span>
                   </label>
-                  <span className="text-[10px] text-purple-700 font-semibold">Overtime / Out of Pocket</span>
+                  <span className="text-[10px] text-purple-700 font-semibold">
+                    {getClaimTypeFormMeta(claimType).templateName}
+                  </span>
                 </div>
                 <select
                   value={claimType}
                   onChange={e => setClaimType(e.target.value as ClaimType)}
                   className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 font-semibold focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
                 >
-                  <option value="OT">OT (Overtime Claim Sheet)</option>
-                  <option value="OP">OP (Out of Pocket Claim Sheet)</option>
+                  <option value="OT">OT (Overtime Claim Sheet - Form 10756)</option>
+                  <option value="OP">OP (Monthly Out of Pocket Allowance - Form 10610)</option>
                 </select>
+                <p className="text-[10px] text-slate-500">
+                  Each claim type uses strictly separate template rules and calculation logic.
+                </p>
               </div>
 
-              {/* Lock / Unlock Rates Switch for this Role */}
-              <div className={`p-4 rounded-2xl border transition-all ${
-                isRatesLocked
-                  ? 'bg-amber-50 border-amber-300 text-amber-950'
-                  : 'bg-emerald-50 border-emerald-300 text-emerald-950'
-              }`}>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-start gap-2.5">
-                    <div className={`p-2 rounded-xl shrink-0 ${isRatesLocked ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                      {isRatesLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+              {claimType === 'OT' ? (
+                <>
+                  {/* Lock / Unlock Rates Switch for this Role */}
+                  <div className={`p-4 rounded-2xl border transition-all ${
+                    isRatesLocked
+                      ? 'bg-amber-50 border-amber-300 text-amber-950'
+                      : 'bg-emerald-50 border-emerald-300 text-emerald-950'
+                  }`}>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-start gap-2.5">
+                        <div className={`p-2 rounded-xl shrink-0 ${isRatesLocked ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                          {isRatesLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-xs">
+                            Overtime Rates Lock Policy: {isRatesLocked ? 'LOCKED' : 'UNLOCKED'}
+                          </h4>
+                          <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                            {isRatesLocked
+                              ? 'Rates are LOCKED: Users in this role CANNOT edit their overtime rates in the New Claim tab.'
+                              : 'Rates are UNLOCKED: Users in this role CAN edit their overtime rates in the New Claim tab.'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={isRatesLocked}
+                          onChange={e => setIsRatesLocked(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-slate-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+                      </label>
                     </div>
-                    <div>
-                      <h4 className="font-bold text-xs">
-                        Overtime Rates Lock Policy: {isRatesLocked ? 'LOCKED' : 'UNLOCKED'}
-                      </h4>
-                      <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
-                        {isRatesLocked
-                          ? 'Rates are LOCKED: Users in this role CANNOT edit their overtime rates in the New Claim tab.'
-                          : 'Rates are UNLOCKED: Users in this role CAN edit their overtime rates in the New Claim tab.'}
-                      </p>
+                  </div>
+
+                  {/* Overtime Rates Matrix */}
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+                    <span className="font-bold text-slate-900 text-xs block">
+                      Assigned Overtime Rates (Official Form 10756 Matrix)
+                    </span>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Working Days Hourly Rate */}
+                      <div>
+                        <label className="block font-bold text-blue-900 mb-1 text-[11px]">
+                          Hourly Rate in Working Days (Rs.) <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          required
+                          value={hourlyRateWorkingDays}
+                          onChange={e =>
+                            handleWorkingRateChange(e.target.value === '' ? '' : parseFloat(e.target.value))
+                          }
+                          placeholder="e.g. 1850.00"
+                          className="w-full rounded-xl border border-blue-300 bg-blue-50/40 px-3 py-2 font-mono font-bold text-slate-900 text-xs focus:ring-1 focus:ring-blue-500"
+                        />
+                        <span className="text-[10px] text-slate-400 mt-0.5 block">Mon - Fri regular overtime</span>
+                      </div>
+
+                      {/* Non-Working Days Daily Payment */}
+                      <div>
+                        <label className="block font-bold text-amber-900 mb-1 text-[11px]">
+                          Days Payment in Non-Working Days (Rs.) <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          required
+                          value={daysPaymentNonWorkingDays}
+                          onChange={e =>
+                            setDaysPaymentNonWorkingDays(e.target.value === '' ? '' : parseFloat(e.target.value))
+                          }
+                          placeholder="e.g. 12500.00"
+                          className="w-full rounded-xl border border-amber-300 bg-amber-50/40 px-3 py-2 font-mono font-bold text-slate-900 text-xs focus:ring-1 focus:ring-amber-500"
+                        />
+                        <span className="text-[10px] text-slate-400 mt-0.5 block">Weekends / Public holidays full day</span>
+                      </div>
+
+                      {/* Non-Working Days Hourly Rate */}
+                      <div>
+                        <label className="block font-bold text-purple-900 mb-1 text-[11px]">
+                          Hourly Rate in Non-Working Days (Rs.) <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          required
+                          value={hourlyRateNonWorkingDays}
+                          onChange={e =>
+                            setHourlyRateNonWorkingDays(e.target.value === '' ? '' : parseFloat(e.target.value))
+                          }
+                          placeholder="e.g. 2312.50"
+                          className="w-full rounded-xl border border-purple-300 bg-purple-50/40 px-3 py-2 font-mono font-bold text-slate-900 text-xs focus:ring-1 focus:ring-purple-500"
+                        />
+                        <span className="text-[10px] text-slate-400 mt-0.5 block">Saturday / Sunday / Holiday hourly</span>
+                      </div>
+
+                      {/* Special Hourly Rate */}
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1 text-[11px]">
+                          Special Assignment Hourly Rate (Rs.)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={specialHourlyRate}
+                          onChange={e =>
+                            setSpecialHourlyRate(e.target.value === '' ? '' : parseFloat(e.target.value))
+                          }
+                          placeholder="e.g. 2500.00"
+                          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-mono text-slate-800 text-xs focus:ring-1 focus:ring-slate-400"
+                        />
+                        <span className="text-[10px] text-slate-400 mt-0.5 block">Special emergency / outage duties</span>
+                      </div>
                     </div>
                   </div>
-
-                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                    <input
-                      type="checkbox"
-                      checked={isRatesLocked}
-                      onChange={e => setIsRatesLocked(e.target.checked)}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-slate-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
-                  </label>
+                </>
+              ) : (
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl space-y-1.5 text-amber-950">
+                  <div className="flex items-center gap-2 font-bold text-xs text-amber-900">
+                    <FileText className="w-4 h-4 text-amber-700 shrink-0" />
+                    <span>Monthly Out of Pocket Allowance (Form 10610) — Separate Rules</span>
+                  </div>
+                  <p className="text-[11px] text-amber-800 leading-relaxed">
+                    Form 10756 overtime rate matrices and lock rules are hidden and never merged into OP roles. Dedicated OP allowance rates and calculation rules can be configured separately once defined.
+                  </p>
                 </div>
-              </div>
-
-              {/* Overtime Rates Matrix */}
-              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
-                <span className="font-bold text-slate-900 text-xs block">
-                  Assigned Overtime Rates (Official Form 10756 Matrix)
-                </span>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* Working Days Hourly Rate */}
-                  <div>
-                    <label className="block font-bold text-blue-900 mb-1 text-[11px]">
-                      Hourly Rate in Working Days (Rs.) <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      required
-                      value={hourlyRateWorkingDays}
-                      onChange={e =>
-                        handleWorkingRateChange(e.target.value === '' ? '' : parseFloat(e.target.value))
-                      }
-                      placeholder="e.g. 1850.00"
-                      className="w-full rounded-xl border border-blue-300 bg-blue-50/40 px-3 py-2 font-mono font-bold text-slate-900 text-xs focus:ring-1 focus:ring-blue-500"
-                    />
-                    <span className="text-[10px] text-slate-400 mt-0.5 block">Mon - Fri regular overtime</span>
-                  </div>
-
-                  {/* Non-Working Days Daily Payment */}
-                  <div>
-                    <label className="block font-bold text-amber-900 mb-1 text-[11px]">
-                      Days Payment in Non-Working Days (Rs.) <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      required
-                      value={daysPaymentNonWorkingDays}
-                      onChange={e =>
-                        setDaysPaymentNonWorkingDays(e.target.value === '' ? '' : parseFloat(e.target.value))
-                      }
-                      placeholder="e.g. 12500.00"
-                      className="w-full rounded-xl border border-amber-300 bg-amber-50/40 px-3 py-2 font-mono font-bold text-slate-900 text-xs focus:ring-1 focus:ring-amber-500"
-                    />
-                    <span className="text-[10px] text-slate-400 mt-0.5 block">Weekends / Public holidays full day</span>
-                  </div>
-
-                  {/* Non-Working Days Hourly Rate */}
-                  <div>
-                    <label className="block font-bold text-purple-900 mb-1 text-[11px]">
-                      Hourly Rate in Non-Working Days (Rs.) <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      required
-                      value={hourlyRateNonWorkingDays}
-                      onChange={e =>
-                        setHourlyRateNonWorkingDays(e.target.value === '' ? '' : parseFloat(e.target.value))
-                      }
-                      placeholder="e.g. 2312.50"
-                      className="w-full rounded-xl border border-purple-300 bg-purple-50/40 px-3 py-2 font-mono font-bold text-slate-900 text-xs focus:ring-1 focus:ring-purple-500"
-                    />
-                    <span className="text-[10px] text-slate-400 mt-0.5 block">Saturday / Sunday / Holiday hourly</span>
-                  </div>
-
-                  {/* Special Hourly Rate */}
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1 text-[11px]">
-                      Special Assignment Hourly Rate (Rs.)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={specialHourlyRate}
-                      onChange={e =>
-                        setSpecialHourlyRate(e.target.value === '' ? '' : parseFloat(e.target.value))
-                      }
-                      placeholder="e.g. 2500.00"
-                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-mono text-slate-800 text-xs focus:ring-1 focus:ring-slate-400"
-                    />
-                    <span className="text-[10px] text-slate-400 mt-0.5 block">Special emergency / outage duties</span>
-                  </div>
-                </div>
-              </div>
+              )}
 
               <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
                 <button

@@ -922,3 +922,66 @@ export const OUT_OF_POCKET_TEMPLATE: TemplateConfig = {
 
 export const BUILTIN_TEMPLATES: TemplateConfig[] = [DEFAULT_TEMPLATE, OUT_OF_POCKET_TEMPLATE];
 
+export const OT_TEMPLATE_ID = DEFAULT_TEMPLATE.id;
+export const OP_TEMPLATE_ID = OUT_OF_POCKET_TEMPLATE.id;
+
+export function getTemplateIdForClaimType(claimType?: 'OT' | 'OP' | string | null): string {
+  return claimType === 'OP' ? OP_TEMPLATE_ID : OT_TEMPLATE_ID;
+}
+
+export function getAssignedTemplateIdsForClaimType(claimType?: 'OT' | 'OP' | string | null): string[] {
+  return [getTemplateIdForClaimType(claimType)];
+}
+
+export function resolveTemplateForClaimType(
+  claimType: 'OT' | 'OP' | string | undefined | null,
+  templates: TemplateConfig[]
+): TemplateConfig {
+  const isOp = claimType === 'OP';
+  if (isOp) {
+    return (
+      templates.find(t => t.id === OP_TEMPLATE_ID) ||
+      templates.find(t => {
+        const idLower = (t.id || '').toLowerCase();
+        const nameLower = (t.name || '').toLowerCase();
+        return idLower.includes('out-of-pocket') || idLower.includes('10610') || nameLower.includes('out of pocket') || nameLower.includes('10610');
+      }) ||
+      OUT_OF_POCKET_TEMPLATE
+    );
+  }
+
+  return (
+    templates.find(t => t.id === OT_TEMPLATE_ID) ||
+    templates.find(t => {
+      const idLower = (t.id || '').toLowerCase();
+      const nameLower = (t.name || '').toLowerCase();
+      return !idLower.includes('pocket') && !nameLower.includes('pocket') && (t.isDefault || nameLower.includes('overtime') || nameLower.includes('10756'));
+    }) ||
+    DEFAULT_TEMPLATE
+  );
+}
+
+export function getClaimTypeFormMeta(claimType?: 'OT' | 'OP' | string | null): {
+  claimType: 'OT' | 'OP';
+  shortLabel: string;
+  templateId: string;
+  templateName: string;
+  formCode: string;
+} {
+  if (claimType === 'OP') {
+    return {
+      claimType: 'OP',
+      shortLabel: 'OP (Out of Pocket)',
+      templateId: OP_TEMPLATE_ID,
+      templateName: OUT_OF_POCKET_TEMPLATE.name,
+      formCode: 'Form 10610',
+    };
+  }
+  return {
+    claimType: 'OT',
+    shortLabel: 'OT (Overtime)',
+    templateId: OT_TEMPLATE_ID,
+    templateName: DEFAULT_TEMPLATE.name,
+    formCode: 'Form 10756',
+  };
+}

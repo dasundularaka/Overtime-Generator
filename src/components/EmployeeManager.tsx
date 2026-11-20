@@ -20,7 +20,8 @@ import {
 } from 'lucide-react';
 import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
-import { Employee, UserProfile, Branch, RoleRate, Department } from '../types';
+import { Employee, UserProfile, Branch, RoleRate, Department, ClaimType } from '../types';
+import { getAssignedTemplateIdsForClaimType, getClaimTypeFormMeta } from '../utils/defaultTemplate';
 import { useAuth } from '../context/AuthContext';
 import { formatPfNumber } from '../utils/pfHelper';
 import { deleteStoredAccount } from '../utils/localAuthManager';
@@ -76,6 +77,7 @@ export const EmployeeManager: React.FC = () => {
   const [hourlyRateNonWorkingDays, setHourlyRateNonWorkingDays] = useState<number | ''>('');
   const [totalRemuneration, setTotalRemuneration] = useState<number | ''>('');
   const [roleId, setRoleId] = useState<string>('');
+  const [claimType, setClaimType] = useState<ClaimType>('OT');
   const [shiftStartTime, setShiftStartTime] = useState<string>('08:00');
   const [shiftEndTime, setShiftEndTime] = useState<string>('16:45');
 
@@ -155,8 +157,10 @@ export const EmployeeManager: React.FC = () => {
     setEmployeeNumber('');
     const firstRole = roleRates.length > 0 ? roleRates[0] : null;
     const initialDesignation = firstRole ? firstRole.name : 'Staff Member';
+    const initialClaimType: ClaimType = firstRole?.claimType || 'OT';
     setDesignation(initialDesignation);
     setRoleId(firstRole ? firstRole.id : '');
+    setClaimType(initialClaimType);
     const userBranch = userProfile?.branch || (branches.length > 0 ? branches[0].name : 'Head Office - Colombo');
     setBranch(userBranch);
     const foundBranch = branches.find(b => b.name === userBranch);
@@ -166,7 +170,7 @@ export const EmployeeManager: React.FC = () => {
     } else {
       setDepartment(departments.length > 0 ? departments[0].name : 'IT & Infrastructure Operations');
     }
-    if (firstRole) {
+    if (firstRole && initialClaimType === 'OT') {
       setHourlyRate(firstRole.hourlyRateWorkingDays);
       setDaysPay(firstRole.daysPaymentNonWorkingDays);
       setHourlyRateNonWorkingDays(firstRole.hourlyRateNonWorkingDays);
@@ -190,6 +194,7 @@ export const EmployeeManager: React.FC = () => {
     setBranch(emp.branch);
     setBranchCode(emp.branchCode || '');
     setDepartment(emp.department);
+    setClaimType(emp.claimType || 'OT');
     setShiftStartTime(emp.shiftStartTime || '08:00');
     setShiftEndTime(emp.shiftEndTime || '16:45');
     setHourlyRate(emp.hourlyRate !== undefined ? emp.hourlyRate : '');
@@ -207,9 +212,17 @@ export const EmployeeManager: React.FC = () => {
     const found = roleRates.find(r => r.name === selectedName);
     if (found) {
       setRoleId(found.id);
-      setHourlyRate(found.hourlyRateWorkingDays);
-      setDaysPay(found.daysPaymentNonWorkingDays);
-      setHourlyRateNonWorkingDays(found.hourlyRateNonWorkingDays);
+      const nextClaimType: ClaimType = found.claimType || claimType;
+      setClaimType(nextClaimType);
+      if (nextClaimType === 'OT') {
+        setHourlyRate(found.hourlyRateWorkingDays);
+        setDaysPay(found.daysPaymentNonWorkingDays);
+        setHourlyRateNonWorkingDays(found.hourlyRateNonWorkingDays);
+      } else {
+        setHourlyRate('');
+        setDaysPay('');
+        setHourlyRateNonWorkingDays('');
+      }
       if (found.department) {
         setDepartment(found.department);
       }
@@ -252,12 +265,14 @@ export const EmployeeManager: React.FC = () => {
       branchCode: branchCode || undefined,
       department: department.trim(),
       roleId: roleId || undefined,
-      shiftStartTime: shiftStartTime || '08:00',
-      shiftEndTime: shiftEndTime || '16:45',
-      hourlyRate: hourlyRate !== '' ? Number(hourlyRate) : undefined,
-      daysPay: daysPay !== '' ? Number(daysPay) : undefined,
-      hourlyRateNonWorkingDays: hourlyRateNonWorkingDays !== '' ? Number(hourlyRateNonWorkingDays) : undefined,
-      totalRemuneration: totalRemuneration !== '' ? Number(totalRemuneration) : undefined,
+      claimType,
+      assignedTemplateIds: getAssignedTemplateIdsForClaimType(claimType),
+      shiftStartTime: claimType === 'OT' ? (shiftStartTime || '08:00') : undefined,
+      shiftEndTime: claimType === 'OT' ? (shiftEndTime || '16:45') : undefined,
+      hourlyRate: claimType === 'OT' && hourlyRate !== '' ? Number(hourlyRate) : undefined,
+      daysPay: claimType === 'OT' && daysPay !== '' ? Number(daysPay) : undefined,
+      hourlyRateNonWorkingDays: claimType === 'OT' && hourlyRateNonWorkingDays !== '' ? Number(hourlyRateNonWorkingDays) : undefined,
+      totalRemuneration: claimType === 'OT' && totalRemuneration !== '' ? Number(totalRemuneration) : undefined,
       createdAt: editingEmployee?.createdAt || new Date().toISOString(),
       role: editingEmployee?.role || 'user',
       ...(isNew ? {
@@ -611,31 +626,43 @@ export const EmployeeManager: React.FC = () => {
                     </span>
                   )}
                 </div>
-                <div className="text-[11px] text-slate-500 flex items-center justify-between pt-0.5">
-                  <span className="inline-flex items-center gap-1 font-mono text-[10px] font-semibold text-sky-700 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded-md">
-                    <Clock className="w-3 h-3 text-sky-600" />
-                    Shift: {emp.shiftStartTime || '08:00'} - {emp.shiftEndTime || '16:45'}
-                  </span>
-                </div>
-                {(emp.hourlyRate || emp.daysPay || emp.hourlyRateNonWorkingDays) && (
-                  <div className="pt-1.5 flex flex-col gap-1 text-[11px] font-mono text-indigo-700 bg-indigo-50/50 p-2 rounded-xl">
-                    <div className="flex items-center justify-between">
-                      <span>Working Days OT:</span>
-                      <strong>{emp.hourlyRate ? `Rs. ${Number(emp.hourlyRate).toFixed(2)}/h` : 'Default'}</strong>
-                    </div>
-                    {emp.daysPay && (
-                      <div className="flex items-center justify-between">
-                        <span>Non-Working Days Payment:</span>
-                        <strong>Rs. {Number(emp.daysPay).toFixed(2)}</strong>
-                      </div>
-                    )}
-                    {emp.hourlyRateNonWorkingDays && (
-                      <div className="flex items-center justify-between">
-                        <span>Non-Working OT Rate:</span>
-                        <strong>Rs. {Number(emp.hourlyRateNonWorkingDays).toFixed(2)}/h</strong>
-                      </div>
-                    )}
+                {(emp.claimType || 'OT') === 'OP' ? (
+                  <div className="pt-1.5 flex items-center justify-between text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-2 rounded-xl">
+                    <span>OP • Out of Pocket (Form 10610)</span>
+                    <span className="text-[10px] font-semibold text-amber-700">Separate Rules</span>
                   </div>
+                ) : (
+                  <>
+                    <div className="text-[11px] text-slate-500 flex items-center justify-between pt-0.5">
+                      <span className="inline-flex items-center gap-1 font-mono text-[10px] font-semibold text-sky-700 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded-md">
+                        <Clock className="w-3 h-3 text-sky-600" />
+                        Shift: {emp.shiftStartTime || '08:00'} - {emp.shiftEndTime || '16:45'}
+                      </span>
+                      <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-md">
+                        OT • Form 10756
+                      </span>
+                    </div>
+                    {(emp.hourlyRate || emp.daysPay || emp.hourlyRateNonWorkingDays) && (
+                      <div className="pt-1.5 flex flex-col gap-1 text-[11px] font-mono text-indigo-700 bg-indigo-50/50 p-2 rounded-xl">
+                        <div className="flex items-center justify-between">
+                          <span>Working Days OT:</span>
+                          <strong>{emp.hourlyRate ? `Rs. ${Number(emp.hourlyRate).toFixed(2)}/h` : 'Default'}</strong>
+                        </div>
+                        {emp.daysPay && (
+                          <div className="flex items-center justify-between">
+                            <span>Non-Working Days Payment:</span>
+                            <strong>Rs. {Number(emp.daysPay).toFixed(2)}</strong>
+                          </div>
+                        )}
+                        {emp.hourlyRateNonWorkingDays && (
+                          <div className="flex items-center justify-between">
+                            <span>Non-Working OT Rate:</span>
+                            <strong>Rs. {Number(emp.hourlyRateNonWorkingDays).toFixed(2)}/h</strong>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -824,124 +851,161 @@ export const EmployeeManager: React.FC = () => {
                 </span>
               </div>
 
-              {/* Overtime Rates Form 10756 Remuneration */}
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
-                <div className="flex items-center gap-1.5 font-bold text-slate-800 text-[11px]">
-                  <Banknote className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>Assigned Overtime Rates Matrix (Form 10756)</span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <div>
-                    <label className="block font-semibold text-slate-600 text-[10px] mb-1">
-                      Working Day OT (Rs.)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={hourlyRate}
-                      onChange={e => setHourlyRate(e.target.value === '' ? '' : parseFloat(e.target.value))}
-                      placeholder="1850.00"
-                      className="w-full rounded-lg border border-slate-300 px-2 py-1.5 font-mono text-xs bg-white font-bold"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-semibold text-slate-600 text-[10px] mb-1">
-                      Non-Working Day (Rs.)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={daysPay}
-                      onChange={e => setDaysPay(e.target.value === '' ? '' : parseFloat(e.target.value))}
-                      placeholder="12500.00"
-                      className="w-full rounded-lg border border-slate-300 px-2 py-1.5 font-mono text-xs bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-semibold text-slate-600 text-[10px] mb-1">
-                      Non-Working OT (Rs.)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={hourlyRateNonWorkingDays}
-                      onChange={e =>
-                        setHourlyRateNonWorkingDays(e.target.value === '' ? '' : parseFloat(e.target.value))
-                      }
-                      placeholder="2312.50"
-                      className="w-full rounded-lg border border-slate-300 px-2 py-1.5 font-mono text-xs bg-white"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Custom Shift Schedule Assignment */}
-              <div className="p-3 bg-sky-50/70 border border-sky-200 rounded-2xl space-y-2">
+              {/* Claim Type Assignment (Automatically assigns official template; never shows manual template picker) */}
+              <div className="p-3 bg-indigo-50/60 border border-indigo-200 rounded-2xl space-y-2">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 font-bold text-sky-900 text-[11px]">
-                    <Clock className="w-3.5 h-3.5 text-sky-600" />
-                    <span>Custom Shift Working Hours (Start &amp; End Time)</span>
-                  </div>
-                  <span className="font-mono font-bold text-sky-900 text-xs bg-sky-100 border border-sky-300 px-2 py-0.5 rounded-md">
-                    {shiftStartTime} - {shiftEndTime}
+                  <label className="block font-bold text-slate-800">
+                    Assigned Claim Type <span className="text-rose-500">*</span>
+                  </label>
+                  <span className="text-[10px] font-bold text-indigo-700">
+                    {getClaimTypeFormMeta(claimType).templateName}
                   </span>
                 </div>
-                <p className="text-[10px] text-sky-800/80">
-                  Duty hours for this employee. Daily overtime calculations apply after shift end time.
+                <select
+                  value={claimType}
+                  onChange={e => setClaimType(e.target.value as ClaimType)}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 font-semibold focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                >
+                  <option value="OT">OT — Overtime Claim (Form 10756)</option>
+                  <option value="OP">OP — Monthly Out of Pocket Allowance (Form 10610)</option>
+                </select>
+                <p className="text-[10px] text-slate-500">
+                  Selecting {claimType} automatically binds {getClaimTypeFormMeta(claimType).templateName} with isolated rules.
                 </p>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-[10px] font-bold text-sky-900 mb-1">
-                      Start Time
-                    </label>
-                    <input
-                      type="time"
-                      value={shiftStartTime}
-                      onChange={e => setShiftStartTime(e.target.value)}
-                      className="w-full rounded-lg border border-sky-300 bg-white px-2 py-1.5 font-mono text-xs text-slate-800"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-sky-900 mb-1">
-                      End Time
-                    </label>
-                    <input
-                      type="time"
-                      value={shiftEndTime}
-                      onChange={e => setShiftEndTime(e.target.value)}
-                      className="w-full rounded-lg border border-sky-300 bg-white px-2 py-1.5 font-mono text-xs text-slate-800"
-                    />
-                  </div>
-                </div>
-                <div className="flex items-center gap-1 flex-wrap pt-0.5">
-                  <span className="text-[9px] font-semibold text-sky-700 mr-1">Presets:</span>
-                  {[
-                    { label: 'General (08:00 - 16:45)', start: '08:00', end: '16:45' },
-                    { label: 'Morning (07:30 - 16:15)', start: '07:30', end: '16:15' },
-                    { label: 'Regular (08:30 - 17:15)', start: '08:30', end: '17:15' },
-                    { label: 'Late (09:00 - 17:45)', start: '09:00', end: '17:45' },
-                  ].map(preset => {
-                    const isCurrent = shiftStartTime === preset.start && shiftEndTime === preset.end;
-                    return (
-                      <button
-                        key={preset.label}
-                        type="button"
-                        onClick={() => {
-                          setShiftStartTime(preset.start);
-                          setShiftEndTime(preset.end);
-                        }}
-                        className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition cursor-pointer ${
-                          isCurrent
-                            ? 'bg-sky-700 text-white'
-                            : 'bg-white border border-sky-300 text-sky-900 hover:bg-sky-100'
-                        }`}
-                      >
-                        {preset.label}
-                      </button>
-                    );
-                  })}
-                </div>
               </div>
+
+              {claimType === 'OT' ? (
+                <>
+                  {/* Overtime Rates Form 10756 Remuneration */}
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+                    <div className="flex items-center gap-1.5 font-bold text-slate-800 text-[11px]">
+                      <Banknote className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Assigned Overtime Rates Matrix (Form 10756)</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <div>
+                        <label className="block font-semibold text-slate-600 text-[10px] mb-1">
+                          Working Day OT (Rs.)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={hourlyRate}
+                          onChange={e => setHourlyRate(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                          placeholder="1850.00"
+                          className="w-full rounded-lg border border-slate-300 px-2 py-1.5 font-mono text-xs bg-white font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-semibold text-slate-600 text-[10px] mb-1">
+                          Non-Working Day (Rs.)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={daysPay}
+                          onChange={e => setDaysPay(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                          placeholder="12500.00"
+                          className="w-full rounded-lg border border-slate-300 px-2 py-1.5 font-mono text-xs bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-semibold text-slate-600 text-[10px] mb-1">
+                          Non-Working OT (Rs.)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={hourlyRateNonWorkingDays}
+                          onChange={e =>
+                            setHourlyRateNonWorkingDays(e.target.value === '' ? '' : parseFloat(e.target.value))
+                          }
+                          placeholder="2312.50"
+                          className="w-full rounded-lg border border-slate-300 px-2 py-1.5 font-mono text-xs bg-white"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Custom Shift Schedule Assignment */}
+                  <div className="p-3 bg-sky-50/70 border border-sky-200 rounded-2xl space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 font-bold text-sky-900 text-[11px]">
+                        <Clock className="w-3.5 h-3.5 text-sky-600" />
+                        <span>Custom Shift Working Hours (Start &amp; End Time)</span>
+                      </div>
+                      <span className="font-mono font-bold text-sky-900 text-xs bg-sky-100 border border-sky-300 px-2 py-0.5 rounded-md">
+                        {shiftStartTime} - {shiftEndTime}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-sky-800/80">
+                      Duty hours for this employee. Daily overtime calculations apply after shift end time.
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] font-bold text-sky-900 mb-1">
+                          Start Time
+                        </label>
+                        <input
+                          type="time"
+                          value={shiftStartTime}
+                          onChange={e => setShiftStartTime(e.target.value)}
+                          className="w-full rounded-lg border border-sky-300 bg-white px-2 py-1.5 font-mono text-xs text-slate-800"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-sky-900 mb-1">
+                          End Time
+                        </label>
+                        <input
+                          type="time"
+                          value={shiftEndTime}
+                          onChange={e => setShiftEndTime(e.target.value)}
+                          className="w-full rounded-lg border border-sky-300 bg-white px-2 py-1.5 font-mono text-xs text-slate-800"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-wrap pt-0.5">
+                      <span className="text-[9px] font-semibold text-sky-700 mr-1">Presets:</span>
+                      {[
+                        { label: 'General (08:00 - 16:45)', start: '08:00', end: '16:45' },
+                        { label: 'Morning (07:30 - 16:15)', start: '07:30', end: '16:15' },
+                        { label: 'Regular (08:30 - 17:15)', start: '08:30', end: '17:15' },
+                        { label: 'Late (09:00 - 17:45)', start: '09:00', end: '17:45' },
+                      ].map(preset => {
+                        const isCurrent = shiftStartTime === preset.start && shiftEndTime === preset.end;
+                        return (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            onClick={() => {
+                              setShiftStartTime(preset.start);
+                              setShiftEndTime(preset.end);
+                            }}
+                            className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition cursor-pointer ${
+                              isCurrent
+                                ? 'bg-sky-700 text-white'
+                                : 'bg-white border border-sky-300 text-sky-900 hover:bg-sky-100'
+                            }`}
+                          >
+                            {preset.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl space-y-1.5 text-[11px] text-amber-900">
+                  <div className="font-bold flex items-center gap-1.5">
+                    <Banknote className="w-3.5 h-3.5 text-amber-700" />
+                    <span>Monthly Out of Pocket Allowance (Form 10610)</span>
+                  </div>
+                  <p className="text-amber-800 leading-relaxed">
+                    Form 10756 overtime rates and shift cutoffs are disabled for OP staff. Separate OP rules and calculations apply exclusively to this template.
+                  </p>
+                </div>
+              )}
 
               <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
                 <button

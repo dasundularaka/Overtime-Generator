@@ -39,6 +39,7 @@ import {
 } from '../utils/localAuthManager';
 import { recordAuditLog } from '../utils/auditLogger';
 import { setCachedGoogleToken } from '../services/googleWorkspaceService';
+import { getAssignedTemplateIdsForClaimType } from '../utils/defaultTemplate';
 
 interface AuthContextType {
   currentUser: FirebaseUser | null;
@@ -177,6 +178,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         name: 'Super Administrator',
         role: 'super_admin',
         claimType: 'OT',
+        assignedTemplateIds: getAssignedTemplateIdsForClaimType('OT'),
         employeeNumber: 'PF100000',
         pfNumber: 'PF100000',
         photoURL: user.photoURL || undefined,
@@ -403,6 +405,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         email: cleanEmail,
         role: 'user',
         claimType: 'OT',
+        assignedTemplateIds: getAssignedTemplateIdsForClaimType('OT'),
         employeeNumber: cleanPf,
         pfNumber: cleanPf,
         initialPassword: cleanPf,

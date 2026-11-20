@@ -1,5 +1,5 @@
 import { AppSettings, ClaimRecord, Employee, TemplateConfig, UserProfile } from '../types';
-import { DEFAULT_TEMPLATE, OUT_OF_POCKET_TEMPLATE, BUILTIN_TEMPLATES } from './defaultTemplate';
+import { DEFAULT_TEMPLATE, OUT_OF_POCKET_TEMPLATE, BUILTIN_TEMPLATES, resolveTemplateForClaimType } from './defaultTemplate';
 import { getActiveSession } from './localAuthManager';
 
 /**
@@ -149,14 +149,17 @@ export function getTemplates(activeProfile?: UserProfile | null): TemplateConfig
       return allTemplates;
     }
 
-    // If regular user: strictly restrict to assignedTemplateIds only!
+    // Regular users automatically receive the template mapped to their Claim Type (OT -> Form 10756, OP -> Form 10610)
+    if (session?.claimType === 'OT' || session?.claimType === 'OP') {
+      return [resolveTemplateForClaimType(session.claimType, allTemplates)];
+    }
+
+    // Fallback to assignedTemplateIds if present on legacy records
     if (Array.isArray(session?.assignedTemplateIds) && session.assignedTemplateIds.length > 0) {
       return allTemplates.filter(t => session.assignedTemplateIds!.includes(t.id));
     }
 
-    // If user has NO assigned templates configured by admin:
-    // Do NOT show unassigned templates to users!
-    return [];
+    return session ? [resolveTemplateForClaimType('OT', allTemplates)] : [];
   } catch (err) {
     console.error('Failed to read templates', err);
     return [DEFAULT_TEMPLATE];

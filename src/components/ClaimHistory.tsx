@@ -27,6 +27,7 @@ import { handleFirestoreError, OperationType } from '../firebase/errors';
 import { sanitizeFirestoreData } from '../utils/firestoreUtils';
 import { ClaimRecord, TemplateConfig, Branch } from '../types';
 import { getActiveTemplate, deleteClaim } from '../utils/storage';
+import { resolveTemplateForClaimType } from '../utils/defaultTemplate';
 import { recordAuditLog } from '../utils/auditLogger';
 import { generateOvertimePdf, printPdfDocument } from '../utils/pdfGenerator';
 import { PDFPreviewModal } from './PDFPreviewModal';
@@ -70,6 +71,9 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
 
   const resolveTemplate = (claim?: ClaimRecord | null): TemplateConfig => {
     if (!claim) return templates[0] || getActiveTemplate();
+    if (claim.claimType === 'OT' || claim.claimType === 'OP') {
+      return resolveTemplateForClaimType(claim.claimType, templates);
+    }
     return (
       templates.find(t => t.id === claim.templateId) ||
       templates.find(t => t.isDefault) ||
