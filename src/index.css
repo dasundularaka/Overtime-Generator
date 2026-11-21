@@ -201,6 +201,33 @@ textarea {
     animation: none;
     transform: none;
   }
+  .animate-notification-pop {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
 }
+
+/* Modern pushed notification entrance animation (compositor-only transform & opacity) */
+@keyframes notificationPopIn {
+  0% {
+    opacity: 0;
+    transform: translate3d(24px, -10px, 0) scale(0.95);
+  }
+  65% {
+    opacity: 1;
+    transform: translate3d(-2px, 2px, 0) scale(1.01);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.animate-notification-pop {
+  animation: notificationPopIn 0.36s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+
 
 

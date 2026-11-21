@@ -260,3 +260,88 @@ Overtime Claim Management Team`;
     messageId: sendData.id,
   };
 }
+
+export interface NotificationEmailDispatchPayload {
+  to: string;
+  recipientName?: string;
+  heading: string;
+  body: string;
+  priority: 'high' | 'medium' | 'low';
+  imageUrl?: string;
+  senderName: string;
+  senderBranch?: string;
+  appUrl?: string;
+}
+
+/**
+ * Dispatches an official system notification email via Gmail API.
+ */
+export async function sendNotificationEmailViaGmail(
+  payload: NotificationEmailDispatchPayload
+): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  const token = await ensureGoogleAccessToken();
+  const recipient = payload.to.trim();
+  const priorityLabel =
+    payload.priority === 'high' ? 'HIGH PRIORITY' : payload.priority === 'medium' ? 'MEDIUM PRIORITY' : 'LOW PRIORITY';
+  const appUrl = payload.appUrl || (typeof window !== 'undefined' ? window.location.origin : 'https://otclaim.vercel.app/');
+  const subject = `[${priorityLabel}] ${payload.heading.trim()}`;
+
+  const bodyLines = [
+    `Dear ${payload.recipientName || 'Team Member'},`,
+    '',
+    `Priority: ${priorityLabel}`,
+    `Heading: ${payload.heading.trim()}`,
+    `From: ${payload.senderName}${payload.senderBranch ? ` (${payload.senderBranch})` : ''}`,
+    '',
+    payload.body.trim(),
+    '',
+    ...(payload.imageUrl && payload.imageUrl.startsWith('http')
+      ? [`Attached Image: ${payload.imageUrl}`, '']
+      : payload.imageUrl
+      ? ['An attached image is included in this notification inside the OT Claim portal.', '']
+      : []),
+    `Open Notification Portal: ${appUrl}`,
+    '',
+    'Best regards,',
+    'OT Claim Notification System',
+  ].join('\n');
+
+  const utf8Subject = `=?utf-8?B?${btoa(unescape(encodeURIComponent(subject)))}?=`;
+
+  const emailLines = [
+    'From: "OT Claim Notifications" <me>',
+    `To: ${recipient}`,
+    `Subject: ${utf8Subject}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset=UTF-8',
+    'Content-Transfer-Encoding: 7bit',
+    '',
+    bodyLines,
+  ].join('\r\n');
+
+  const base64UrlMessage = btoa(unescape(encodeURIComponent(emailLines)))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+
+  const sendResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ raw: base64UrlMessage }),
+  });
+
+  if (!sendResponse.ok) {
+    const errText = await sendResponse.text();
+    throw new Error(`Gmail notification dispatch failed (${sendResponse.status}): ${errText}`);
+  }
+
+  const sendData = await sendResponse.json();
+  return {
+    success: true,
+    messageId: sendData.id,
+  };
+}
+

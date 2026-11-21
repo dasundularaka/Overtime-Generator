@@ -21,6 +21,8 @@ import { ClaimRecord } from './types';
 import { initAutomatedUserCreationListener } from './services/automatedDispatchTrigger';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { OTAUpdateBanner } from './components/OTAUpdateBanner';
+import { NotificationCenter } from './components/NotificationCenter';
+import { LiveNotificationToast } from './components/LiveNotificationToast';
 import {
   consumeRestoredTabAfterOta,
   initOtaUpdater,
@@ -38,6 +40,7 @@ const TAB_TITLES: Record<NavigationTab, { message: string; subMessage: string }>
   audit: { message: 'Loading Audit Trail...', subMessage: 'Fetching security logs and activity records...' },
   employees: { message: 'Loading Employee Registry...', subMessage: 'Synchronizing staff records...' },
   designer: { message: 'Loading Template Calibration Designer...', subMessage: 'Loading precision millimeter canvas...' },
+  notifications: { message: 'Loading Notifications...', subMessage: 'Syncing broadcast alerts & incoming messages...' },
   settings: { message: 'Loading System Settings...', subMessage: 'Loading shift hours and system preferences...' },
 };
 
@@ -364,6 +367,8 @@ function AppContent() {
 
           {activeTab === 'designer' && isSuperAdmin && <TemplateDesigner />}
 
+          {activeTab === 'notifications' && <NotificationCenter />}
+
           {activeTab === 'settings' && <SettingsPage />}
         </ErrorBoundary>
       </main>
@@ -379,6 +384,9 @@ function AppContent() {
           </div>
         </div>
       </footer>
+
+      {/* Real-time App Pushed Notifications */}
+      <LiveNotificationToast />
 
       {/* Offline Status Toast */}
       <OfflineIndicator />

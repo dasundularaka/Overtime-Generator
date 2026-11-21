@@ -371,6 +371,9 @@ export type AuditActionType =
   | 'GOOGLE_WORKSPACE_DISCONNECT'
   | 'EMAIL_DISPATCH'
   | 'CLOUD_FUNCTION_EMAIL_DISPATCH'
+  // Notifications
+  | 'NOTIFICATION_SEND'
+  | 'NOTIFICATION_DELETE'
   // Backward compatibility aliases
   | 'PASSWORD_RESET'
   | 'PASSWORD_CHANGE'
@@ -389,7 +392,7 @@ export interface AuditLogEntry {
   userDepartment?: string;
   userRole?: UserRole;
   // Target Information
-  targetType: 'user' | 'claim' | 'template' | 'holiday' | 'settings' | 'auth' | 'branch' | 'role' | 'department' | 'backup';
+  targetType: 'user' | 'claim' | 'template' | 'holiday' | 'settings' | 'auth' | 'branch' | 'role' | 'department' | 'backup' | 'notification';
   targetId?: string;
   targetDescription: string;
   // Before vs After changes comparison
@@ -399,4 +402,43 @@ export interface AuditLogEntry {
   // Additional metadata & changed fields
   details?: Record<string, any>;
   ipOrDevice?: string;
+}
+
+// ---------------- Notification System ----------------
+
+export type NotificationPriority = 'high' | 'medium' | 'low';
+export type NotificationTargetScope = 'all' | 'branch' | 'users';
+
+export interface NotificationReadReceipt {
+  userId: string;
+  userName?: string;
+  userPfNumber?: string;
+  userBranch?: string;
+  readAt: string; // ISO 8601
+}
+
+export interface AppNotification {
+  id: string;
+  heading: string;
+  body: string;
+  priority: NotificationPriority;
+  imageUrl?: string;
+  targetScope: NotificationTargetScope;
+  targetLabel: string;
+  targetBranch?: string;
+  targetBranchCode?: string;
+  targetUserIds: string[];
+  recipientCount?: number;
+  sendViaApp: boolean;
+  sendViaEmail: boolean;
+  emailDispatchStatus?: 'not_requested' | 'sent' | 'partial' | 'failed';
+  emailDispatchedCount?: number;
+  senderId: string;
+  senderName: string;
+  senderEmail?: string;
+  senderRole: UserRole;
+  senderBranch: string;
+  readBy: string[];
+  readReceipts?: Record<string, NotificationReadReceipt>;
+  createdAt: string;
 }

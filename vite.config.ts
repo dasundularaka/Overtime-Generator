@@ -43,7 +43,41 @@ function otaVersionManifestPlugin(version: string, buildTime: string, commitSha:
   };
 }
 
-export default defineConfig(() => {
+function safeDevPwaHmrPlugin(): Plugin {
+  return {
+    name: 'safe-dev-pwa-hmr',
+    apply: 'serve',
+    enforce: 'pre',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const cleanUrl = (req.url || '').split('?')[0];
+        if (cleanUrl === '/@vite-plugin-pwa/pwa-entry-point-loaded') {
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/javascript');
+          res.setHeader('Cache-Control', 'no-store');
+          res.end('export default function registerDevSW() {}\n');
+          return;
+        }
+        next();
+      });
+    },
+    resolveId(id) {
+      if (
+        id === '/@vite-plugin-pwa/pwa-entry-point-loaded' ||
+        id === 'virtual:pwa-entry-point-loaded'
+      ) {
+        return '\0safe-dev-pwa-entry';
+      }
+    },
+    load(id) {
+      if (id === '\0safe-dev-pwa-entry') {
+        return 'export default function registerDevSW() {}\n';
+      }
+    },
+  };
+}
+
+export default defineConfig(({ mode }) => {
   return {
     define: {
       __APP_VERSION__: JSON.stringify(APP_VERSION),
@@ -53,6 +87,7 @@ export default defineConfig(() => {
     plugins: [
       react(),
       tailwindcss(),
+      safeDevPwaHmrPlugin(),
       otaVersionManifestPlugin(APP_VERSION, BUILD_TIME, COMMIT_SHA),
       VitePWA({
         registerType: 'autoUpdate',
@@ -103,7 +138,7 @@ export default defineConfig(() => {
             },
           ],
         },
-        injectRegister: process.env.NODE_ENV === 'production' ? 'auto' : null,
+        injectRegister: mode === 'production' ? 'auto' : null,
         devOptions: {
           enabled: false,
         },

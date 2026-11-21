@@ -126,6 +126,53 @@ service cloud.firestore {
       allow create, update: if isValidConfigId(configId) && isValidAppRelease(request.resource.data);
       allow delete: if false;
     }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll([
+          'id', 'heading', 'body', 'priority', 'targetScope',
+          'targetUserIds', 'sendViaApp', 'sendViaEmail',
+          'senderId', 'senderName', 'senderRole', 'senderBranch',
+          'readBy', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'heading', 'body', 'priority', 'imageUrl',
+          'targetScope', 'targetLabel', 'targetBranch', 'targetBranchCode',
+          'targetUserIds', 'recipientCount', 'sendViaApp', 'sendViaEmail',
+          'emailDispatchStatus', 'emailDispatchedCount',
+          'senderId', 'senderName', 'senderEmail', 'senderRole', 'senderBranch',
+          'readBy', 'readReceipts', 'createdAt'
+        ])
+        && data.id is string && data.id.size() > 0 && data.id.size() <= 128
+        && data.heading is string && data.heading.size() > 0 && data.heading.size() <= 160
+        && data.body is string && data.body.size() > 0 && data.body.size() <= 4000
+        && data.priority in ['high', 'medium', 'low']
+        && data.targetScope in ['all', 'branch', 'users']
+        && data.targetUserIds is list && data.targetUserIds.size() <= 1000
+        && data.sendViaApp is bool
+        && data.sendViaEmail is bool
+        && data.senderId is string && data.senderId.size() > 0 && data.senderId.size() <= 128
+        && data.senderName is string && data.senderName.size() > 0 && data.senderName.size() <= 120
+        && data.senderRole in ['super_admin', 'admin', 'user']
+        && data.senderBranch is string && data.senderBranch.size() <= 120
+        && data.readBy is list && data.readBy.size() <= 1000
+        && (!('readReceipts' in data) || (data.readReceipts is map && data.readReceipts.size() <= 1000))
+        && data.createdAt is string && data.createdAt.size() > 0 && data.createdAt.size() <= 64
+        && (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 500000))
+        && (!('targetLabel' in data) || (data.targetLabel is string && data.targetLabel.size() <= 200))
+        && (!('targetBranch' in data) || (data.targetBranch is string && data.targetBranch.size() <= 120))
+        && (!('targetBranchCode' in data) || (data.targetBranchCode is string && data.targetBranchCode.size() <= 40))
+        && (!('recipientCount' in data) || (data.recipientCount is int || data.recipientCount is float))
+        && (!('emailDispatchStatus' in data) || (data.emailDispatchStatus in ['not_requested', 'sent', 'partial', 'failed']))
+        && (!('emailDispatchedCount' in data) || (data.emailDispatchedCount is int || data.emailDispatchedCount is float))
+        && (!('senderEmail' in data) || (data.senderEmail is string && data.senderEmail.size() <= 160));
+    }
+
+    // Notifications collection: validated writes, read/update/delete supported for staff & admins
+    match /notifications/{notificationId} {
+      allow get, list: if true;
+      allow create, update: if isValidConfigId(notificationId) && isValidNotification(request.resource.data);
+      allow delete: if isValidConfigId(notificationId);
+    }
   }
 }
 

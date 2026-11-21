@@ -360,7 +360,23 @@ export function initOtaUpdater(): () => void {
     }
   });
 
-  // 2. Register Service Worker in production builds
+  // 2. In dev preview, clean up any stale dev Service Workers from earlier sessions
+  if (!import.meta.env.PROD && typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+    navigator.serviceWorker
+      .getRegistrations()
+      .then((registrations) => {
+        registrations.forEach((reg) => {
+          const scriptUrl =
+            reg.active?.scriptURL || reg.waiting?.scriptURL || reg.installing?.scriptURL || '';
+          if (scriptUrl.includes('dev-sw') || scriptUrl.includes('sw.js')) {
+            reg.unregister().catch(() => {});
+          }
+        });
+      })
+      .catch(() => {});
+  }
+
+  // 2b. Register Service Worker in production builds
   if (import.meta.env.PROD && typeof window !== 'undefined' && 'serviceWorker' in navigator) {
     try {
       const updateSW = registerSW({

@@ -336,6 +336,52 @@
         "updatedBy": { "type": "string", "maxLength": 120 }
       },
       "required": ["id", "version", "updatedAt"]
+    },
+    "Notification": {
+      "title": "System Notification",
+      "description": "Targeted notification broadcast by Super Admin or Branch Admin via in-app push and optional email",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "heading": { "type": "string", "maxLength": 160 },
+        "body": { "type": "string", "maxLength": 4000 },
+        "priority": { "type": "string", "enum": ["high", "medium", "low"] },
+        "imageUrl": { "type": "string", "maxLength": 500000 },
+        "targetScope": { "type": "string", "enum": ["all", "branch", "users"] },
+        "targetLabel": { "type": "string", "maxLength": 200 },
+        "targetBranch": { "type": "string", "maxLength": 120 },
+        "targetBranchCode": { "type": "string", "maxLength": 40 },
+        "targetUserIds": { "type": "array" },
+        "recipientCount": { "type": "number" },
+        "sendViaApp": { "type": "boolean" },
+        "sendViaEmail": { "type": "boolean" },
+        "emailDispatchStatus": { "type": "string", "enum": ["not_requested", "sent", "partial", "failed"] },
+        "emailDispatchedCount": { "type": "number" },
+        "senderId": { "type": "string", "maxLength": 128 },
+        "senderName": { "type": "string", "maxLength": 120 },
+        "senderEmail": { "type": "string", "maxLength": 160 },
+        "senderRole": { "type": "string", "enum": ["super_admin", "admin", "user"] },
+        "senderBranch": { "type": "string", "maxLength": 120 },
+        "readBy": { "type": "array" },
+        "readReceipts": { "type": "object" },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": [
+        "id",
+        "heading",
+        "body",
+        "priority",
+        "targetScope",
+        "targetUserIds",
+        "sendViaApp",
+        "sendViaEmail",
+        "senderId",
+        "senderName",
+        "senderRole",
+        "senderBranch",
+        "readBy",
+        "createdAt"
+      ]
     }
   },
   "firestore": {
@@ -392,6 +438,12 @@
         "$ref": "#/entities/AppRelease"
       },
       "description": "Global OTA release metadata for real-time version sync across open browser tabs"
+    },
+    "/notifications/{notificationId}": {
+      "schema": {
+        "$ref": "#/entities/Notification"
+      },
+      "description": "Branch-scoped and organization-wide notifications sent by Super Admins and Branch Admins"
     }
   }
 }

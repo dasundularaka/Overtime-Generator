@@ -22,11 +22,17 @@ import {
   Sparkles,
   Building2,
   Briefcase,
+  Bell,
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { useAuth } from '../context/AuthContext';
 import { ConfirmationModal } from './ConfirmationModal';
 import { ClockLogo } from './ClockLogo';
+import {
+  isNotificationForUser,
+  isNotificationUnreadForUser,
+  subscribeToNotifications,
+} from '../services/notificationService';
 
 export type NavigationTab =
   | 'dashboard'
@@ -38,6 +44,7 @@ export type NavigationTab =
   | 'employees'
   | 'history'
   | 'designer'
+  | 'notifications'
   | 'settings'
   | 'audit';
 
@@ -289,12 +296,29 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
 
   // Desktop Dropdown State
   const [isAdminDropdownOpen, setIsAdminDropdownOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const adminDropdownRef = useRef<HTMLDivElement>(null);
   const profileDropdownRef = useRef<HTMLDivElement>(null);
+
+  const notifUid = userProfile?.id || currentUser?.uid || '';
+
+  useEffect(() => {
+    if (!notifUid) {
+      setUnreadNotifCount(0);
+      return;
+    }
+    const unsub = subscribeToNotifications((list) => {
+      const count = list.filter(
+        (n) => isNotificationForUser(n, userProfile, notifUid) && isNotificationUnreadForUser(n, notifUid)
+      ).length;
+      setUnreadNotifCount(count);
+    });
+    return () => unsub();
+  }, [notifUid, userProfile]);
 
   // Close dropdowns on outside click or escape
   useEffect(() => {
@@ -398,6 +422,14 @@ export const Navbar: React.FC<NavbarProps> = ({
       color: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/30',
     },
     {
+      id: 'notifications' as NavigationTab,
+      label: 'Notifications',
+      description: 'Broadcast branch/staff alerts & view received notifications',
+      icon: Bell,
+      badge: unreadNotifCount > 0 ? `${unreadNotifCount} New` : 'Alerts',
+      color: 'text-rose-400 bg-rose-500/10 border-rose-500/30',
+    },
+    {
       id: 'settings' as NavigationTab,
       label: 'System Settings',
       description: 'Default template, print offsets & view options',
@@ -409,6 +441,14 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   // Operations dropdown items (Standard Non-Admin Users)
   const userMenuItems = [
+    {
+      id: 'notifications' as NavigationTab,
+      label: 'Notifications',
+      description: 'View announcements and updates from administrators',
+      icon: Bell,
+      badge: unreadNotifCount > 0 ? `${unreadNotifCount} New` : 'Inbox',
+      color: 'text-rose-400 bg-rose-500/10 border-rose-500/30',
+    },
     {
       id: 'branches' as NavigationTab,
       label: 'Branch Network',
@@ -510,6 +550,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                 )}
                 <span className="hidden xl:inline">{isAdmin ? 'Administration' : 'More Tools'}</span>
                 <span className="inline xl:hidden">{isAdmin ? 'Admin' : 'More'}</span>
+                {unreadNotifCount > 0 && !currentDropdownItem && (
+                  <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold tabular-nums">
+                    {unreadNotifCount > 99 ? '99+' : unreadNotifCount}
+                  </span>
+                )}
                 {currentDropdownItem && (
                   <span
                     className={`text-[10px] font-bold px-1.5 py-0.2 rounded-md hidden xl:inline-block ${
@@ -820,7 +865,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             label: isAdmin ? 'Admin' : 'More',
             icon: isAdmin ? ShieldCheck : MoreHorizontal,
             isActive: isMoreTabActive || isMobileMenuOpen,
-            badge: isAdmin,
+            badge: isAdmin || unreadNotifCount > 0,
             onClick: () => {
               setIsMobileMenuOpen(!isMobileMenuOpen);
             },
@@ -922,6 +967,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                         },
                       ]
                     : []),
+                  {
+                    id: 'notifications' as NavigationTab,
+                    label: 'Notifications',
+                    desc: unreadNotifCount > 0 ? `${unreadNotifCount} unread alert${unreadNotifCount === 1 ? '' : 's'}` : 'Alerts & broadcasts',
+                    icon: Bell,
+                    color: 'text-rose-400',
+                    activeBg: 'bg-rose-900/40 border-rose-500 text-rose-200',
+                  },
                   {
                     id: 'branches' as NavigationTab,
                     label: 'Branches',
