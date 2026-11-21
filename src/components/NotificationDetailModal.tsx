@@ -269,7 +269,7 @@ export const NotificationDetailModal: React.FC<NotificationDetailModalProps> = (
                   <span className="inline-flex items-center gap-1">
                     <Mail className="w-3.5 h-3.5 text-blue-600" />
                     <span>
-                      Email
+                      Email (Make)
                       {typeof notification.emailDispatchedCount === 'number' &&
                       notification.emailDispatchedCount > 0
                         ? ` (${notification.emailDispatchedCount} sent)`

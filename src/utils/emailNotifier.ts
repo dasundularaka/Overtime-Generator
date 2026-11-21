@@ -1,8 +1,4 @@
-import {
-  sendWelcomeEmailViaGmail,
-  hasGoogleWorkspaceToken,
-  ensureGoogleAccessToken,
-} from '../services/googleWorkspaceService';
+import { sendWelcomeEmailViaMake } from '../services/makeEmailService';
 
 export interface WelcomeEmailData {
   email: string;
@@ -10,6 +6,12 @@ export interface WelcomeEmailData {
   pfNumber: string;
   initialPassword?: string;
   loginUrl?: string;
+  role?: string;
+  branch?: string;
+  department?: string;
+  claimType?: string;
+  senderName?: string;
+  senderEmail?: string;
 }
 
 export interface EmailDispatchResult {
@@ -18,7 +20,7 @@ export interface EmailDispatchResult {
   body: string;
   mailtoUrl: string;
   message: string;
-  dispatchedVia?: 'gmail_api' | 'client_mailto';
+  dispatchedVia?: 'make_webhook' | 'client_mailto';
   messageId?: string;
   error?: string;
 }
@@ -32,7 +34,11 @@ const DEFAULT_LOGIN_URL = 'https://otclaim.vercel.app/';
 export function generateUserWelcomeEmail(data: WelcomeEmailData): EmailDispatchResult {
   const cleanPf = data.pfNumber.trim().toUpperCase();
   const pass = data.initialPassword || cleanPf;
-  const webLink = data.loginUrl || DEFAULT_LOGIN_URL;
+  const webLink =
+    data.loginUrl ||
+    (typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin
+      : DEFAULT_LOGIN_URL);
   const recipient = data.email.trim();
 
   const subject = `OT Claim - Your Login Credentials [${cleanPf}]`;
@@ -71,45 +77,53 @@ Overtime Claim Management Team`;
 }
 
 /**
- * Dispatches the welcome email for a newly created user.
- * Automatically attempts to dispatch via Gmail API if Google Workspace is connected.
+ * Dispatches the welcome email for a newly created user through Make webhook automation
+ * (no Gmail login required), falling back to a mailto draft only if disabled or unreachable.
  */
 export async function sendUserWelcomeEmail(
   data: WelcomeEmailData,
-  forceGmail = false
+  autoDispatch = true
 ): Promise<EmailDispatchResult> {
   const result = generateUserWelcomeEmail(data);
 
-  // If forceGmail or Google token is present, dispatch automatically via Gmail API
-  if (forceGmail || hasGoogleWorkspaceToken()) {
+  if (autoDispatch) {
     try {
-      if (forceGmail && !hasGoogleWorkspaceToken()) {
-        await ensureGoogleAccessToken();
-      }
-
-      const gmailResult = await sendWelcomeEmailViaGmail({
+      const makeResult = await sendWelcomeEmailViaMake({
         to: data.email,
         name: data.name,
         pfNumber: data.pfNumber,
         initialPassword: data.initialPassword,
         loginUrl: data.loginUrl,
+        role: data.role,
+        branch: data.branch,
+        department: data.department,
+        claimType: data.claimType,
+        senderName: data.senderName,
+        senderEmail: data.senderEmail,
       });
 
-      if (gmailResult.success) {
+      if (makeResult.success) {
         return {
           ...result,
-          dispatchedVia: 'gmail_api',
-          messageId: gmailResult.messageId,
-          message: `Welcome credentials email automatically dispatched to ${data.email} via Gmail!`,
+          dispatchedVia: 'make_webhook',
+          messageId: makeResult.messageId,
+          message: `Welcome credentials email automatically dispatched to ${data.email} via Make!`,
         };
       }
-    } catch (err: any) {
-      console.warn('Gmail API dispatch attempt encountered error, falling back:', err);
+
       return {
         ...result,
         dispatchedVia: 'client_mailto',
-        error: err.message || 'Gmail dispatch failed',
-        message: `Gmail auto-dispatch unavailable (${err.message || 'auth required'}). Mailto ready.`,
+        error: makeResult.error || 'Make webhook dispatch failed.',
+        message: `Make auto-dispatch failed (${makeResult.error || 'network error'}). Mailto draft ready.`,
+      };
+    } catch (err: any) {
+      console.warn('Make webhook dispatch attempt encountered error, falling back:', err);
+      return {
+        ...result,
+        dispatchedVia: 'client_mailto',
+        error: err?.message || 'Make webhook dispatch failed',
+        message: `Make auto-dispatch unavailable (${err?.message || 'network error'}). Mailto ready.`,
       };
     }
   }

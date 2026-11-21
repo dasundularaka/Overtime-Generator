@@ -22,10 +22,7 @@ import {
 } from '../types';
 import { sanitizeFirestoreData } from '../utils/firestoreUtils';
 import { recordAuditLog } from '../utils/auditLogger';
-import {
-  ensureGoogleAccessToken,
-  sendNotificationEmailViaGmail,
-} from './googleWorkspaceService';
+import { sendNotificationEmailViaMake } from './makeEmailService';
 
 const NOTIFICATIONS_COLLECTION = 'notifications';
 const LOCAL_NOTIFICATIONS_CACHE_KEY = 'ot_notifications_cache_v1';
@@ -404,38 +401,44 @@ export async function sendNotification(
       notificationRecord.emailDispatchStatus = 'failed';
       emailError = 'No selected recipients have valid email addresses.';
     } else {
-      try {
-        await ensureGoogleAccessToken();
-        for (const recipient of recipientsWithEmail) {
-          try {
-            await sendNotificationEmailViaGmail({
+      const BATCH_SIZE = 5;
+      for (let i = 0; i < recipientsWithEmail.length; i += BATCH_SIZE) {
+        const batch = recipientsWithEmail.slice(i, i + BATCH_SIZE);
+        const batchResults = await Promise.all(
+          batch.map((recipient) =>
+            sendNotificationEmailViaMake({
               to: recipient.email,
               recipientName: recipient.name,
+              notificationId: id,
               heading: notificationRecord.heading,
               body: notificationRecord.body,
               priority: notificationRecord.priority,
+              targetLabel: notificationRecord.targetLabel,
               imageUrl: notificationRecord.imageUrl,
               senderName: notificationRecord.senderName,
+              senderEmail: notificationRecord.senderEmail,
               senderBranch: notificationRecord.senderBranch,
-            });
+            })
+          )
+        );
+
+        batchResults.forEach((res) => {
+          if (res.success) {
             emailSentCount += 1;
-          } catch (err: any) {
+          } else {
             emailFailedCount += 1;
-            if (!emailError) emailError = err?.message || 'Email dispatch failed';
+            if (!emailError && res.error) emailError = res.error;
           }
-        }
-        notificationRecord.emailDispatchedCount = emailSentCount;
-        notificationRecord.emailDispatchStatus =
-          emailSentCount > 0 && emailFailedCount === 0
-            ? 'sent'
-            : emailSentCount > 0
-            ? 'partial'
-            : 'failed';
-      } catch (authErr: any) {
-        notificationRecord.emailDispatchStatus = 'failed';
-        emailFailedCount = recipientsWithEmail.length;
-        emailError = authErr?.message || 'Google Workspace authorization required for email dispatch.';
+        });
       }
+
+      notificationRecord.emailDispatchedCount = emailSentCount;
+      notificationRecord.emailDispatchStatus =
+        emailSentCount > 0 && emailFailedCount === 0
+          ? 'sent'
+          : emailSentCount > 0
+          ? 'partial'
+          : 'failed';
     }
   }
 
@@ -459,6 +462,9 @@ export async function sendNotification(
       targetLabel,
       sendViaApp: notificationRecord.sendViaApp,
       sendViaEmail: notificationRecord.sendViaEmail,
+      emailProvider: input.sendViaEmail ? 'make_webhook' : undefined,
+      emailSentCount: input.sendViaEmail ? emailSentCount : 0,
+      emailFailedCount: input.sendViaEmail ? emailFailedCount : 0,
       recipientCount: resolvedRecipients.length,
     },
   });

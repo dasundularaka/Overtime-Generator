@@ -49,7 +49,6 @@ import {
 import { NotificationDetailModal } from './NotificationDetailModal';
 import { ConfirmationModal } from './ConfirmationModal';
 import { Skeleton } from './Skeleton';
-import { hasGoogleWorkspaceToken } from '../services/googleWorkspaceService';
 
 interface SearchableTargetBranchDropdownProps {
   branches: Branch[];
@@ -1555,11 +1554,9 @@ export const NotificationCenter: React.FC = () => {
                     />
                     <Mail className="w-4 h-4 text-blue-600 shrink-0" />
                     <div className="min-w-0">
-                      <span className="block text-xs font-bold">Email (Gmail)</span>
+                      <span className="block text-xs font-bold">Email (Automated)</span>
                       <span className="block text-[10px] text-slate-500">
-                        {hasGoogleWorkspaceToken()
-                          ? 'Gmail connected for instant email send'
-                          : 'Prompts Google sign-in if selected'}
+                        Dispatches instantly via Make email automation
                       </span>
                     </div>
                   </label>

@@ -84,12 +84,18 @@ import {
   subscribeOtaState,
 } from '../services/otaUpdateService';
 
+import {
+  getMakeWebhookDisplayInfo,
+  sendTestEmailViaMake,
+} from '../services/makeEmailService';
+
 type AdminSettingsCategoryId =
   | 'defaults'
   | 'formatting'
   | 'printer'
   | 'calendar'
   | 'ota'
+  | 'email_automation'
   | 'workspace'
   | 'privacy';
 
@@ -157,9 +163,27 @@ export const SettingsPage: React.FC = () => {
   const [isCheckingOta, setIsCheckingOta] = useState(false);
   const [otaFeedback, setOtaFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // Automated Email (Make Webhook) Test State
+  const makeWebhookInfo = getMakeWebhookDisplayInfo();
+  const [testEmailRecipient, setTestEmailRecipient] = useState(
+    userProfile?.email || currentUser?.email || ''
+  );
+  const [isSendingTestEmail, setIsSendingTestEmail] = useState(false);
+  const [makeEmailFeedback, setMakeEmailFeedback] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
+
   useEffect(() => {
     setIsGoogleConnected(hasGoogleWorkspaceToken());
   }, []);
+
+  useEffect(() => {
+    const fallbackEmail = userProfile?.email || currentUser?.email || '';
+    if (!testEmailRecipient && fallbackEmail) {
+      setTestEmailRecipient(fallbackEmail);
+    }
+  }, [userProfile?.email, currentUser?.email, testEmailRecipient]);
 
   useEffect(() => {
     return subscribeOtaState(setOtaState);
@@ -711,15 +735,26 @@ export const SettingsPage: React.FC = () => {
         ]
       : []),
     {
-      id: 'workspace',
-      title: 'Google Workspace',
-      subtitle: 'Google Drive & Gmail Sync',
+      id: 'email_automation',
+      title: 'Automated Email (Make)',
+      subtitle: 'Webhook Delivery Without Gmail',
       description:
-        'Manage Drive interactive PDF report previews and automated Gmail welcome credential dispatch.',
+        'Automated delivery for broadcast notifications, welcome credentials, and password updates via Make.',
+      icon: Mail,
+      iconBgClass: 'bg-indigo-50',
+      iconTextClass: 'text-indigo-600',
+      metaText: `Connected · ${makeWebhookInfo.host}`,
+    },
+    {
+      id: 'workspace',
+      title: 'Google Drive Preview',
+      subtitle: 'Interactive PDF Cloud Viewer',
+      description:
+        'Connect Google Workspace Drive access for interactive in-site A4 claim PDF report previews.',
       icon: Globe,
       iconBgClass: 'bg-blue-50',
       iconTextClass: 'text-blue-600',
-      metaText: isGoogleConnected ? 'Connected · Drive & Gmail active' : 'Not Connected',
+      metaText: isGoogleConnected ? 'Connected · Drive preview active' : 'Not Connected',
     },
     {
       id: 'privacy',
@@ -1814,7 +1849,148 @@ export const SettingsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Submenu Tab 5: Google Workspace Integration */}
+      {/* Submenu Tab: Automated Email (Make Webhook) */}
+      {activeCategory === 'email_automation' && (
+        <div className="rounded-2xl bg-white p-5 sm:p-6 shadow-xs border border-slate-200 space-y-5 animate-fade-in">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+            <div className="flex items-center gap-2">
+              <Mail className="w-5 h-5 text-indigo-600 shrink-0" />
+              <h2 className="text-sm font-bold text-indigo-700 uppercase tracking-wider">
+                Automated Email Delivery (Make Webhook)
+              </h2>
+            </div>
+            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <span>Active · No Gmail Required</span>
+            </span>
+          </div>
+
+          <p className="text-xs text-slate-600 leading-relaxed">
+            All automated system emails—including <strong>Broadcast Notification Emails</strong>,{' '}
+            <strong>New User Welcome Credentials</strong>, and <strong>Password Reset Notices</strong>—are dispatched directly through your configured Make webhook without requiring Gmail sign-in or Google OAuth popups.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Active Make Endpoint
+              </div>
+              <div className="font-mono font-bold text-slate-900 break-all">
+                {makeWebhookInfo.maskedUrl}
+              </div>
+              <div className="text-[11px] text-slate-500">
+                Region Host: <span className="font-semibold text-slate-700">{makeWebhookInfo.host}</span>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                JSON Payload Fields Mapped
+              </div>
+              <div className="text-[11px] text-slate-700 font-mono leading-relaxed">
+                event, to, recipientName, subject, text, html, heading, message, priority, pfNumber, initialPassword
+              </div>
+              <div className="text-[11px] text-slate-500">
+                Dispatched individually per recipient for direct 2-module Make Email/SMTP scenarios.
+              </div>
+            </div>
+          </div>
+
+          {makeEmailFeedback && (
+            <div
+              className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
+                makeEmailFeedback.type === 'success'
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  : 'bg-rose-50 border-rose-200 text-rose-800'
+              }`}
+            >
+              {makeEmailFeedback.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              ) : (
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+              )}
+              <span>{makeEmailFeedback.text}</span>
+            </div>
+          )}
+
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (isSendingTestEmail) return;
+              setIsSendingTestEmail(true);
+              setMakeEmailFeedback(null);
+              try {
+                const res = await sendTestEmailViaMake({
+                  to: testEmailRecipient,
+                  recipientName: userProfile?.name || 'Administrator',
+                  senderName: userProfile?.name || currentUser?.email || 'Administrator',
+                  senderEmail: userProfile?.email || currentUser?.email || '',
+                });
+                if (res.success) {
+                  setMakeEmailFeedback({
+                    type: 'success',
+                    text: `Test payload accepted by ${res.webhookHost} (${res.responseText || 'Accepted'}). Check your inbox or Make scenario execution log.`,
+                  });
+                  await recordAuditLog({
+                    action: 'EMAIL_DISPATCH',
+                    actionLabel: 'Sent Make Webhook Test Email',
+                    targetType: 'settings',
+                    targetDescription: `Test dispatch to ${testEmailRecipient}`,
+                    details: {
+                      recipientEmail: testEmailRecipient,
+                      provider: 'make_webhook',
+                      messageId: res.messageId,
+                    },
+                  });
+                } else {
+                  setMakeEmailFeedback({
+                    type: 'error',
+                    text: res.error || 'Make webhook test failed.',
+                  });
+                }
+              } catch (err: any) {
+                setMakeEmailFeedback({
+                  type: 'error',
+                  text: err?.message || 'Unable to reach Make webhook.',
+                });
+              } finally {
+                setIsSendingTestEmail(false);
+              }
+            }}
+            className="p-4 rounded-xl border border-indigo-200 bg-indigo-50/50 space-y-3"
+          >
+            <div>
+              <h3 className="text-xs font-bold text-indigo-950">
+                Verify Make Scenario With a Test Email
+              </h3>
+              <p className="text-[11px] text-indigo-800/80 mt-0.5">
+                Triggers a live <code className="font-mono bg-white/80 px-1 py-0.5 rounded">test_email</code> webhook event so you can test email delivery or map fields in Make.
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2.5">
+              <input
+                type="email"
+                required
+                value={testEmailRecipient}
+                onChange={(e) => setTestEmailRecipient(e.target.value)}
+                placeholder="recipient@company.com"
+                className="flex-1 rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              />
+              <button
+                type="submit"
+                disabled={isSendingTestEmail}
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs transition cursor-pointer whitespace-nowrap disabled:opacity-60"
+              >
+                <Mail className="w-3.5 h-3.5" />
+                <span>{isSendingTestEmail ? 'Sending Test...' : 'Send Test Email'}</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Submenu Tab 5: Google Drive Preview Integration */}
       {activeCategory === 'workspace' && (
         <div className="rounded-2xl bg-white p-5 sm:p-6 shadow-xs border border-slate-200 space-y-4 animate-fade-in">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
@@ -1828,7 +2004,7 @@ export const SettingsPage: React.FC = () => {
                 <path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00" />
               </svg>
               <h2 className="text-sm font-bold text-blue-700 uppercase tracking-wider">
-                Google Workspace Integration (Drive &amp; Gmail)
+                Google Workspace Integration (Drive PDF Preview)
               </h2>
             </div>
             <span
@@ -1841,7 +2017,7 @@ export const SettingsPage: React.FC = () => {
           </div>
 
           <p className="text-xs text-slate-600 leading-relaxed">
-            Google Workspace integration provides an <strong>in-site Google Drive facility</strong> for interactive claim report previews with cloud synchronization, and enables <strong>automatic Gmail dispatch</strong> for user account credentials.
+            Google Drive integration provides an <strong>in-site Google Drive viewer</strong> for interactive A4 claim PDF report previews. Automated system emails no longer require Gmail and are routed independently through Make.
           </p>
 
           {googleWorkspaceMessage && (
@@ -1850,37 +2026,19 @@ export const SettingsPage: React.FC = () => {
             </div>
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-            <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 flex flex-col justify-between">
-              <div>
-                <h3 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                  <HardDrive className="w-4 h-4 text-blue-600" />
-                  <span>Google Drive Preview Facility</span>
-                </h3>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Uploads generated A4 PDF claim forms to Google Drive to render interactive, high-fidelity in-site previews with zoom, print, and export capabilities.
-                </p>
-              </div>
-              <div className="mt-3 flex items-center gap-1.5 text-xs text-emerald-700 font-medium">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Scope: drive.file enabled</span>
-              </div>
+          <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 flex flex-col justify-between">
+            <div>
+              <h3 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                <HardDrive className="w-4 h-4 text-blue-600" />
+                <span>Google Drive Preview Facility</span>
+              </h3>
+              <p className="text-[11px] text-slate-500 mt-1">
+                Uploads generated A4 PDF claim forms to Google Drive to render interactive, high-fidelity in-site previews with zoom, print, and export capabilities.
+              </p>
             </div>
-
-            <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 flex flex-col justify-between">
-              <div>
-                <h3 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                  <Mail className="w-4 h-4 text-red-500" />
-                  <span>Gmail Automatic Dispatch</span>
-                </h3>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Automatically dispatches welcome emails containing PF usernames, temporary passwords, and system login URLs when administrators create user accounts.
-                </p>
-              </div>
-              <div className="mt-3 flex items-center gap-1.5 text-xs text-emerald-700 font-medium">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Scope: gmail.send enabled</span>
-              </div>
+            <div className="mt-3 flex items-center gap-1.5 text-xs text-emerald-700 font-medium">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>Scope: drive.file enabled</span>
             </div>
           </div>
 
@@ -1896,17 +2054,17 @@ export const SettingsPage: React.FC = () => {
                     await connectGoogleWorkspace();
                     setIsGoogleConnected(true);
                     setGoogleWorkspaceMessage(
-                      'Google Workspace successfully connected! Drive preview and Gmail dispatch are now active.'
+                      'Google Drive preview successfully connected!'
                     );
                     setTimeout(() => setGoogleWorkspaceMessage(null), 4000);
 
                     recordAuditLog({
                       action: 'GOOGLE_WORKSPACE_CONNECT',
-                      actionLabel: 'Connected Google Workspace Account',
+                      actionLabel: 'Connected Google Drive Preview Account',
                       targetType: 'settings',
-                      targetDescription: 'Authorized Drive Preview & Gmail Dispatch',
+                      targetDescription: 'Authorized Drive PDF Preview',
                       beforeState: { googleConnected: false },
-                      afterState: { googleConnected: true, scopes: 'drive.file, gmail.send' },
+                      afterState: { googleConnected: true, scopes: 'drive.file' },
                     });
                   } catch (err: any) {
                     setGoogleWorkspaceMessage('Connection note: ' + err.message);
@@ -1916,27 +2074,27 @@ export const SettingsPage: React.FC = () => {
                 }}
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition cursor-pointer whitespace-nowrap"
               >
-                <span>{isConnectingGoogle ? 'Connecting...' : 'Connect Google Workspace Account'}</span>
+                <span>{isConnectingGoogle ? 'Connecting...' : 'Connect Google Drive Account'}</span>
               </button>
             ) : (
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs text-emerald-700 font-semibold flex items-center gap-1">
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>Active session authorized for Drive &amp; Gmail</span>
+                  <span>Active session authorized for Google Drive preview</span>
                 </span>
                 <button
                   type="button"
                   onClick={() => {
                     setCachedGoogleToken(null);
                     setIsGoogleConnected(false);
-                    setGoogleWorkspaceMessage('Disconnected Google Workspace session.');
+                    setGoogleWorkspaceMessage('Disconnected Google Drive session.');
                     setTimeout(() => setGoogleWorkspaceMessage(null), 3000);
 
                     recordAuditLog({
                       action: 'GOOGLE_WORKSPACE_DISCONNECT',
-                      actionLabel: 'Disconnected Google Workspace Account',
+                      actionLabel: 'Disconnected Google Drive Account',
                       targetType: 'settings',
-                      targetDescription: 'Revoked active Google Workspace session token',
+                      targetDescription: 'Revoked active Google Drive session token',
                       beforeState: { googleConnected: true },
                       afterState: { googleConnected: false },
                     });

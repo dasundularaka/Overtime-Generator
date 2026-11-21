@@ -37,6 +37,11 @@ import { SearchableBranchSelect } from './SearchableBranchSelect';
 import { sanitizeFirestoreData } from '../utils/firestoreUtils';
 import { adminChangeUserPassword, adminSendUserPasswordResetEmail, adminCreateUserInAuth } from '../utils/adminAuthHelper';
 import { sendUserWelcomeEmail, EmailDispatchResult } from '../utils/emailNotifier';
+import {
+  claimWelcomeDispatchLock,
+  releaseWelcomeDispatchLock,
+  sendPasswordResetNotificationViaMake,
+} from '../services/makeEmailService';
 import { generateStandardPfNumber, formatPfNumber, isValidPfNumber } from '../utils/pfHelper';
 import { upsertStoredAccount, deleteStoredAccount } from '../utils/localAuthManager';
 import { deleteEmployee } from '../utils/storage';
@@ -104,8 +109,9 @@ export const UserManagement: React.FC = () => {
   const [isDeletingUser, setIsDeletingUser] = useState(false);
   const [isConfirmSaveModalOpen, setIsConfirmSaveModalOpen] = useState(false);
   const [isSavingUser, setIsSavingUser] = useState(false);
-  const [dispatchEmailViaGmail, setDispatchEmailViaGmail] = useState(true);
-  const [isResendingGmail, setIsResendingGmail] = useState(false);
+  const [dispatchEmailViaMake, setDispatchEmailViaMake] = useState(true);
+  const [isResendingEmail, setIsResendingEmail] = useState(false);
+  const [notifyUserOnPasswordReset, setNotifyUserOnPasswordReset] = useState(true);
 
   const [formError, setFormError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
@@ -225,7 +231,7 @@ export const UserManagement: React.FC = () => {
     setDefaultWeekdayReason('');
     setDefaultSaturdayReason('Saturday Duty');
     setDefaultHolidayReason('');
-    setDispatchEmailViaGmail(true);
+    setDispatchEmailViaMake(true);
     setFormError(null);
     setIsModalOpen(true);
   };
@@ -610,6 +616,7 @@ export const UserManagement: React.FC = () => {
           shiftEndTime: isOtClaimType ? (shiftEndTime || '16:45') : undefined,
           assignedTemplateIds: autoAssignedTemplateIds,
           isRatesLocked: isOtClaimType ? isRatesLocked : false,
+          ...(dispatchEmailViaMake ? { welcomeEmailDispatched: false } : {}),
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
@@ -625,6 +632,10 @@ export const UserManagement: React.FC = () => {
         }
         if (isOtClaimType && totalRemuneration !== '' && !isNaN(Number(totalRemuneration))) {
           newProfile.totalRemuneration = Number(totalRemuneration);
+        }
+
+        if (dispatchEmailViaMake) {
+          claimWelcomeDispatchLock(targetUid);
         }
 
         const cleanNewProfile = sanitizeFirestoreData(newProfile);
@@ -676,25 +687,47 @@ export const UserManagement: React.FC = () => {
           },
         });
 
-        // 5. Send Welcome Credentials Email via Gmail
-        if (dispatchEmailViaGmail) {
-          const emailDispatch = await sendUserWelcomeEmail(
-            {
-              email: cleanEmail,
-              name: name.trim(),
-              pfNumber: cleanPf,
-              initialPassword: cleanPf,
-              loginUrl: typeof window !== 'undefined' ? window.location.origin : 'https://otclaim.vercel.app/',
-            },
-            true // Automatic dispatch via Gmail API
-          );
+        // 5. Send Welcome Credentials Email via Make Webhook Automation
+        if (dispatchEmailViaMake) {
+          let dispatchedOk = false;
+          try {
+            const emailDispatch = await sendUserWelcomeEmail(
+              {
+                email: cleanEmail,
+                name: name.trim(),
+                pfNumber: cleanPf,
+                initialPassword: cleanPf,
+                loginUrl: typeof window !== 'undefined' ? window.location.origin : 'https://otclaim.vercel.app/',
+                role,
+                branch: branch.trim(),
+                department: department.trim(),
+                claimType,
+              },
+              true
+            );
 
-          setWelcomeEmailResult(emailDispatch);
-          setIsEmailModalOpen(true);
-          if (emailDispatch.dispatchedVia === 'gmail_api') {
-            setActionSuccess(`New user ${name} (${cleanPf}) created! Welcome email automatically dispatched via Gmail.`);
-          } else {
-            setActionSuccess(`New user ${name} created with PF Number ${cleanPf}! Credentials notification ready.`);
+            dispatchedOk = emailDispatch.dispatchedVia === 'make_webhook';
+            if (dispatchedOk) {
+              try {
+                await updateDoc(doc(db, 'users', targetUid), {
+                  welcomeEmailDispatched: true,
+                  welcomeEmailDispatchedAt: new Date().toISOString(),
+                  welcomeEmailMessageId: emailDispatch.messageId || null,
+                });
+              } catch (metaErr) {
+                console.warn('Could not update welcomeEmailDispatched metadata:', metaErr);
+              }
+            }
+
+            setWelcomeEmailResult(emailDispatch);
+            setIsEmailModalOpen(true);
+            if (dispatchedOk) {
+              setActionSuccess(`New user ${name} (${cleanPf}) created! Welcome email automatically dispatched via Make.`);
+            } else {
+              setActionSuccess(`New user ${name} created with PF Number ${cleanPf}! Credentials notification ready.`);
+            }
+          } finally {
+            releaseWelcomeDispatchLock(targetUid, dispatchedOk);
           }
         } else {
           setActionSuccess(`New user ${name} created with PF Number ${cleanPf}!`);
@@ -931,7 +964,26 @@ export const UserManagement: React.FC = () => {
           isFirstLogin: true,
           passwordHash: passToSet,
         });
-        setPasswordSuccess(`Password for ${passwordModalUser.name} has been set to PF Number (${passToSet}). User will be prompted to set a new password upon login.`);
+
+        let makeEmailNote = '';
+        if (notifyUserOnPasswordReset && passwordModalUser.email?.includes('@')) {
+          const resetEmailRes = await sendPasswordResetNotificationViaMake({
+            to: passwordModalUser.email,
+            name: passwordModalUser.name,
+            pfNumber: cleanPf,
+            newPassword: passToSet,
+            resetMode: pendingPasswordTarget.type === 'employeeNumber' ? 'pf_default' : 'custom',
+          });
+          if (resetEmailRes.success) {
+            makeEmailNote = ' An email notice was automatically dispatched via Make.';
+          }
+        }
+
+        setPasswordSuccess(
+          pendingPasswordTarget.type === 'employeeNumber'
+            ? `Password for ${passwordModalUser.name} has been set to PF Number (${passToSet}). User will be prompted to set a new password upon login.${makeEmailNote}`
+            : `Custom password applied for ${passwordModalUser.name}. User will be prompted to update it upon login.${makeEmailNote}`
+        );
 
         // Record administrative audit log
         await recordAuditLog({
@@ -1958,7 +2010,7 @@ export const UserManagement: React.FC = () => {
                 </div>
               )}
 
-              {/* Automatic Gmail Notification Dispatch Option */}
+              {/* Automatic Make Email Credentials Dispatch Option */}
               {!editingUser && (
                 <div className="p-3.5 bg-gradient-to-r from-blue-50/90 to-indigo-50/60 border border-blue-200 rounded-2xl flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
@@ -1967,18 +2019,18 @@ export const UserManagement: React.FC = () => {
                     </div>
                     <div>
                       <h4 className="text-xs font-bold text-slate-900">
-                        Automatic Gmail Credentials Dispatch
+                        Automatic Welcome Email Dispatch (Make)
                       </h4>
                       <p className="text-[11px] text-slate-500 leading-snug">
-                        Automatically dispatch welcome email with PF login credentials to <strong className="text-slate-700">{email || 'employee email'}</strong> via Gmail upon user creation.
+                        Automatically dispatch welcome email with PF login credentials to <strong className="text-slate-700">{email || 'employee email'}</strong> via Make upon user creation.
                       </p>
                     </div>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer shrink-0">
                     <input
                       type="checkbox"
-                      checked={dispatchEmailViaGmail}
-                      onChange={e => setDispatchEmailViaGmail(e.target.checked)}
+                      checked={dispatchEmailViaMake}
+                      onChange={e => setDispatchEmailViaMake(e.target.checked)}
                       className="sr-only peer"
                     />
                     <div className="w-11 h-6 bg-slate-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
@@ -2042,16 +2094,16 @@ export const UserManagement: React.FC = () => {
           editingUser
             ? `Are you sure you want to save modifications to the profile of "${name}"?`
             : `Are you sure you want to create and provision this new user account for "${name}" (${email})${
-                dispatchEmailViaGmail
-                  ? ' and automatically dispatch welcome credentials via Gmail?'
+                dispatchEmailViaMake
+                  ? ' and automatically dispatch welcome credentials via Make?'
                   : '?'
               }`
         }
         confirmText={
           editingUser
             ? 'Save Changes'
-            : dispatchEmailViaGmail
-            ? 'Create & Send Email via Gmail'
+            : dispatchEmailViaMake
+            ? 'Create & Send Email'
             : 'Create User'
         }
         cancelText="Review Form"
@@ -2075,8 +2127,8 @@ export const UserManagement: React.FC = () => {
           ...(!editingUser
             ? [
                 {
-                  label: 'Dispatch Welcome Email via Gmail',
-                  value: dispatchEmailViaGmail ? `Yes — Automatic to ${email}` : 'No',
+                  label: 'Automated Welcome Email (Make)',
+                  value: dispatchEmailViaMake ? `Yes — Automatic to ${email}` : 'No',
                 },
               ]
             : []),
@@ -2125,6 +2177,26 @@ export const UserManagement: React.FC = () => {
             )}
 
             <div className="space-y-4 text-xs">
+              <label className="flex items-center justify-between gap-3 p-3 rounded-xl bg-blue-50/70 border border-blue-200 cursor-pointer">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Mail className="w-4 h-4 text-blue-600 shrink-0" />
+                  <div>
+                    <span className="block font-bold text-slate-800 text-xs">
+                      Notify Employee Automatically (Make Email)
+                    </span>
+                    <span className="block text-[10px] text-slate-500">
+                      Send updated credentials email when applying a password reset
+                    </span>
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={notifyUserOnPasswordReset}
+                  onChange={e => setNotifyUserOnPasswordReset(e.target.checked)}
+                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 shrink-0"
+                />
+              </label>
+
               {/* Option 1: Quick set to PF Number */}
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
                 <div className="flex items-center justify-between">
@@ -2321,20 +2393,20 @@ export const UserManagement: React.FC = () => {
             </div>
 
             <div className="mt-4 space-y-3">
-              {welcomeEmailResult.dispatchedVia === 'gmail_api' ? (
+              {welcomeEmailResult.dispatchedVia === 'make_webhook' ? (
                 <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 flex items-start gap-2.5">
                   <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
                   <div>
-                    <p className="font-bold text-emerald-950 flex items-center gap-1.5">
-                      <span>Dispatched Automatically via Gmail</span>
+                    <p className="font-bold text-emerald-950 flex items-center gap-1.5 flex-wrap">
+                      <span>Dispatched Automatically via Make</span>
                       {welcomeEmailResult.messageId && (
                         <span className="text-[10px] bg-emerald-200/80 text-emerald-900 font-mono px-1.5 py-0.5 rounded">
-                          ID: {welcomeEmailResult.messageId.slice(0, 10)}...
+                          ID: {welcomeEmailResult.messageId.slice(0, 12)}
                         </span>
                       )}
                     </p>
                     <p className="text-[11px] text-emerald-800 mt-0.5">
-                      The official welcome credentials email has been dispatched directly through the Gmail API to the employee's registered inbox.
+                      The official welcome credentials email was automatically triggered via Make webhook automation to the employee&apos;s inbox without requiring Gmail.
                     </p>
                   </div>
                 </div>
@@ -2345,15 +2417,17 @@ export const UserManagement: React.FC = () => {
                     <div>
                       <p className="font-bold">Login Details Prepared:</p>
                       <p className="text-[11px] text-blue-800 mt-0.5">
-                        User can log in at <strong className="underline">https://otclaim.vercel.app/</strong> using their <strong>PF Number</strong> and initial password.
+                        {welcomeEmailResult.error
+                          ? `${welcomeEmailResult.error} You can retry sending via Make or use your email client below.`
+                          : 'User can log in using their PF Number and initial password.'}
                       </p>
                     </div>
                   </div>
                   <button
                     type="button"
-                    disabled={isResendingGmail}
+                    disabled={isResendingEmail}
                     onClick={async () => {
-                      setIsResendingGmail(true);
+                      setIsResendingEmail(true);
                       try {
                         const res = await sendUserWelcomeEmail(
                           {
@@ -2361,25 +2435,25 @@ export const UserManagement: React.FC = () => {
                             name,
                             pfNumber: employeeNumber,
                             initialPassword: employeeNumber,
-                            loginUrl: 'https://otclaim.vercel.app/',
+                            loginUrl: typeof window !== 'undefined' ? window.location.origin : 'https://otclaim.vercel.app/',
                           },
                           true
                         );
                         setWelcomeEmailResult(res);
-                        if (res.dispatchedVia === 'gmail_api') {
-                          setActionSuccess('Credentials email dispatched via Gmail!');
+                        if (res.dispatchedVia === 'make_webhook') {
+                          setActionSuccess('Credentials email dispatched automatically via Make!');
                           setTimeout(() => setActionSuccess(null), 3000);
                         }
                       } catch (err: any) {
-                        setFormError('Gmail dispatch note: ' + err.message);
+                        setFormError('Email dispatch note: ' + err.message);
                       } finally {
-                        setIsResendingGmail(false);
+                        setIsResendingEmail(false);
                       }
                     }}
                     className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-[11px] shadow-2xs shrink-0 cursor-pointer"
                   >
                     <Mail className="w-3 h-3" />
-                    <span>{isResendingGmail ? 'Sending...' : 'Send via Gmail'}</span>
+                    <span>{isResendingEmail ? 'Sending...' : 'Retry via Make'}</span>
                   </button>
                 </div>
               )}
