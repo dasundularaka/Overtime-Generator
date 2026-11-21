@@ -1,0 +1,36 @@
+name: Notify Open Tabs of Vercel OTA Release
+
+on:
+  deployment_status:
+  workflow_dispatch:
+    inputs:
+      release_notes:
+        description: 'Optional release note for connected clients'
+        required: false
+        default: 'Production update deployed'
+
+jobs:
+  publish-ota-signal:
+    # Runs automatically the moment Vercel marks a Production deployment as succeeded
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.deployment_status.state == 'success' &&
+       github.event.deployment.environment == 'Production')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Publish OTA release version to Firebase Firestore
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          DEPLOYMENT_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url || '' }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          RELEASE_NOTES: ${{ github.event.inputs.release_notes || 'Automatic Vercel production release' }}
+        run: node scripts/publish-ota-release.mjs

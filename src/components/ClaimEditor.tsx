@@ -48,6 +48,7 @@ import {
 import { db } from '../firebase/config';
 import { handleFirestoreError, OperationType } from '../firebase/errors';
 import { sanitizeFirestoreData } from '../utils/firestoreUtils';
+import { setOtaUnsavedWork } from '../services/otaUpdateService';
 import {
   ClaimRecord,
   OvertimeRow,
@@ -438,6 +439,14 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     }
     setHasUnsavedChanges(true);
   };
+
+  // Prevent automatic OTA swap while user has unsaved edits in the timesheet
+  useEffect(() => {
+    setOtaUnsavedWork(hasUnsavedChanges);
+    return () => {
+      setOtaUnsavedWork(false);
+    };
+  }, [hasUnsavedChanges]);
 
   const handleToggleAutoSave = (enabled: boolean) => {
     setAutoSaveDraftEnabled(enabled);

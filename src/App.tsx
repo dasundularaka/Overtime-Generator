@@ -20,6 +20,12 @@ import { AuditLogViewer } from './components/AuditLogViewer';
 import { ClaimRecord } from './types';
 import { initAutomatedUserCreationListener } from './services/automatedDispatchTrigger';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { OTAUpdateBanner } from './components/OTAUpdateBanner';
+import {
+  consumeRestoredTabAfterOta,
+  initOtaUpdater,
+  registerOtaTabProvider,
+} from './services/otaUpdateService';
 
 const TAB_TITLES: Record<NavigationTab, { message: string; subMessage: string }> = {
   dashboard: { message: 'Loading Dashboard...', subMessage: 'Summarizing claims and monthly statistics...' },
@@ -37,8 +43,19 @@ const TAB_TITLES: Record<NavigationTab, { message: string; subMessage: string }>
 
 function AppContent() {
   const { currentUser, userProfile, isSuperAdmin, isAdmin, loading, isLoggingOut, refreshUserProfile } = useAuth();
-  const [activeTab, setActiveTab] = useState<NavigationTab>('dashboard');
+  const [activeTab, setActiveTab] = useState<NavigationTab>(() => {
+    const restored = consumeRestoredTabAfterOta();
+    if (restored && restored in TAB_TITLES) {
+      return restored as NavigationTab;
+    }
+    return 'dashboard';
+  });
   const [editingClaim, setEditingClaim] = useState<ClaimRecord | null>(null);
+
+  // Register current active tab so OTA reloads restore the exact view seamlessly
+  useEffect(() => {
+    return registerOtaTabProvider(() => activeTab);
+  }, [activeTab]);
 
   // Real initial load tracking based on real auth/database load duration
   const [isInitialReady, setIsInitialReady] = useState(false);
@@ -370,9 +387,14 @@ function AppContent() {
 }
 
 export default function App() {
+  useEffect(() => {
+    return initOtaUpdater();
+  }, []);
+
   return (
     <AuthProvider>
       <AppContent />
+      <OTAUpdateBanner />
     </AuthProvider>
   );
 }

@@ -97,6 +97,35 @@ service cloud.firestore {
     match /calendarSettings/{settingId} {
       allow read, write: if true;
     }
+
+    function isValidConfigId(id) {
+      return id is string && id.size() <= 64 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidAppRelease(data) {
+      return data.keys().hasAll(['id', 'version', 'updatedAt'])
+        && data.keys().hasOnly([
+          'id', 'version', 'buildTime', 'commitSha', 'releaseNotes',
+          'forceImmediate', 'broadcastId', 'updatedAt', 'updatedBy'
+        ])
+        && data.id is string && data.id.size() > 0 && data.id.size() <= 64
+        && data.version is string && data.version.size() > 0 && data.version.size() <= 128
+        && data.updatedAt is string && data.updatedAt.size() > 0 && data.updatedAt.size() <= 64
+        && (!('buildTime' in data) || (data.buildTime is string && data.buildTime.size() <= 64))
+        && (!('commitSha' in data) || (data.commitSha is string && data.commitSha.size() <= 64))
+        && (!('releaseNotes' in data) || (data.releaseNotes is string && data.releaseNotes.size() <= 300))
+        && (!('forceImmediate' in data) || (data.forceImmediate is bool))
+        && (!('broadcastId' in data) || (data.broadcastId is string && data.broadcastId.size() <= 64))
+        && (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() <= 120));
+    }
+
+    // Global OTA release signal metadata (non-sensitive build version & notes)
+    match /systemConfig/{configId} {
+      allow get: if isValidConfigId(configId);
+      allow list: if false;
+      allow create, update: if isValidConfigId(configId) && isValidAppRelease(request.resource.data);
+      allow delete: if false;
+    }
   }
 }
 

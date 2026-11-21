@@ -319,6 +319,23 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["id", "firstDayOfWeek"]
+    },
+    "AppRelease": {
+      "title": "OTA App Release Signal",
+      "description": "Latest deployed Vercel build metadata used to push instant over-the-air updates to connected browser tabs",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "version": { "type": "string", "maxLength": 128 },
+        "buildTime": { "type": "string", "maxLength": 64 },
+        "commitSha": { "type": "string", "maxLength": 64 },
+        "releaseNotes": { "type": "string", "maxLength": 300 },
+        "forceImmediate": { "type": "boolean" },
+        "broadcastId": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 },
+        "updatedBy": { "type": "string", "maxLength": 120 }
+      },
+      "required": ["id", "version", "updatedAt"]
     }
   },
   "firestore": {
@@ -369,6 +386,12 @@
         "$ref": "#/entities/CalendarSettings"
       },
       "description": "Global calendar display settings such as first day of week"
+    },
+    "/systemConfig/{configId}": {
+      "schema": {
+        "$ref": "#/entities/AppRelease"
+      },
+      "description": "Global OTA release metadata for real-time version sync across open browser tabs"
     }
   }
 }
