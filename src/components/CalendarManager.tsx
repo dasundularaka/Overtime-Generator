@@ -912,8 +912,8 @@ export const CalendarManager: React.FC = () => {
 
       {/* Inspected Day Details Modal */}
       {inspectedDay && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs">
-          <div className="w-full max-w-md max-h-[90dvh] overflow-y-auto rounded-2xl bg-white p-5 sm:p-6 shadow-2xl border border-slate-200 animate-scale-in">
+        <div className="fixed inset-0 z-[60] modal-backdrop-safe flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md modal-panel-safe max-h-[90dvh] overflow-y-auto rounded-2xl bg-white p-5 sm:p-6 shadow-2xl border border-slate-200 animate-scale-in">
             <div className="flex items-start justify-between pb-4 border-b border-slate-100">
               <div>
                 <span className="text-[11px] uppercase font-bold tracking-wider text-slate-400 block">
@@ -1033,8 +1033,8 @@ export const CalendarManager: React.FC = () => {
 
       {/* Super Admin Only Add / Edit Holiday Modal */}
       {isModalOpen && canEditCalendar && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs">
-          <div className="w-full max-w-md max-h-[90dvh] overflow-y-auto rounded-2xl bg-white p-5 sm:p-6 shadow-2xl border border-slate-200 animate-scale-in">
+        <div className="fixed inset-0 z-[60] modal-backdrop-safe flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md modal-panel-safe max-h-[90dvh] overflow-y-auto rounded-2xl bg-white p-5 sm:p-6 shadow-2xl border border-slate-200 animate-scale-in">
             <h2 className="text-base font-bold text-slate-900 mb-1">
               {editingHoliday ? 'Edit Calendar Holiday' : 'Add Calendar Holiday'}
             </h2>

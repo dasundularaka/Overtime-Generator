@@ -630,8 +630,8 @@ export const BranchManagement: React.FC = () => {
       {/* BRANCH DETAILS POPUP MODAL (All Details Relevant to Branch) */}
       {/* ======================================================== */}
       {selectedBranch && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs animate-fade-in">
-          <div className="relative w-full max-w-lg max-h-[92dvh] overflow-y-auto rounded-2xl bg-white shadow-2xl border border-slate-200 animate-scale-in">
+        <div className="fixed inset-0 z-[60] modal-backdrop-safe flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs animate-fade-in">
+          <div className="relative w-full max-w-lg modal-panel-safe max-h-[92dvh] overflow-y-auto rounded-2xl bg-white shadow-2xl border border-slate-200 animate-scale-in">
             {/* Modal Header */}
             <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white p-5 flex items-start justify-between">
               <div className="space-y-1">
@@ -654,7 +654,7 @@ export const BranchManagement: React.FC = () => {
             </div>
 
             {/* Modal Body */}
-            <div className="p-5 sm:p-6 space-y-4 text-xs max-h-[75vh] overflow-y-auto">
+            <div className="p-5 sm:p-6 space-y-4 text-xs">
               {/* Directions Button Section (User Request: Show directions button with embedded link) */}
               <div className="rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50 p-4 border border-blue-200 space-y-3">
                 <div className="flex items-center justify-between">
@@ -839,8 +839,8 @@ export const BranchManagement: React.FC = () => {
       {/* ADMIN ADD / EDIT MODAL (With Google Maps Location Link) */}
       {/* ======================================================== */}
       {isModalOpen && isAdmin && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs">
-          <div className="relative w-full max-w-lg max-h-[92dvh] overflow-y-auto rounded-2xl bg-white p-5 sm:p-6 shadow-2xl border border-slate-200">
+        <div className="fixed inset-0 z-[60] modal-backdrop-safe flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs">
+          <div className="relative w-full max-w-lg modal-panel-safe max-h-[92dvh] overflow-y-auto rounded-2xl bg-white p-5 sm:p-6 shadow-2xl border border-slate-200">
             <div className="flex items-center justify-between pb-4 border-b border-slate-100">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 rounded-xl bg-indigo-50 text-indigo-700">

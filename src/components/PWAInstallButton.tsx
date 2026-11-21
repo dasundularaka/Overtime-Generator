@@ -38,8 +38,8 @@ export const PWAInstallButton: React.FC = () => {
         </button>
 
         {showIOSGuide && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-            <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+          <div className="fixed inset-0 z-[60] modal-backdrop-safe flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs">
+            <div className="w-full max-w-sm modal-panel-safe overflow-y-auto rounded-2xl bg-white p-5 sm:p-6 shadow-2xl dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
               <h3 className="text-lg font-bold text-slate-900 dark:text-white">Install on iPhone / iPad</h3>
               <div className="mt-3 space-y-2 text-sm text-slate-600 dark:text-slate-300">
                 <p className="flex items-center gap-2">

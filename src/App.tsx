@@ -315,7 +315,7 @@ function AppContent() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-[calc(10rem+env(safe-area-inset-bottom,0px))] md:pb-12">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6 mobile-nav-clearance">
         <ErrorBoundary
           resetKey={`${activeTab}:${editingClaim?.id || 'fresh'}`}
           fallbackTitle={activeTab === 'new-claim' ? 'Unable to load New Claim sheet' : 'Unable to display this section'}
@@ -371,6 +371,8 @@ function AppContent() {
 
           {activeTab === 'settings' && <SettingsPage />}
         </ErrorBoundary>
+        {/* Guaranteed mobile scroll clearance spacer above curved bottom navigation bar */}
+        <div className="md:hidden h-28 w-full shrink-0 pointer-events-none" aria-hidden="true" />
       </main>
 
       {/* Footer (Desktop only) */}

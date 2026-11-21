@@ -3029,8 +3029,8 @@ service cloud.firestore {
 
       {/* MODAL: Create New Template */}
       {isNewModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-3 sm:p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full max-h-[92dvh] overflow-y-auto p-5 sm:p-6 shadow-2xl border border-slate-200 animate-fadeIn">
+        <div className="fixed inset-0 z-[60] modal-backdrop-safe flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-3 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full modal-panel-safe max-h-[92dvh] overflow-y-auto p-5 sm:p-6 shadow-2xl border border-slate-200 animate-fadeIn">
             <h3 className="text-lg font-bold text-slate-900 mb-1">Create New Overtime Template</h3>
             <p className="text-xs text-slate-500 mb-4">
               Create a custom A4 template configuration with custom field coordinates.
@@ -3100,8 +3100,8 @@ service cloud.firestore {
 
       {/* MODAL: Firebase Security Rules Helper & One-Click Copy */}
       {showRulesModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 animate-fadeIn max-h-[90vh] flex flex-col">
+        <div className="fixed inset-0 z-[60] modal-backdrop-safe flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full modal-panel-safe p-5 sm:p-6 shadow-2xl border border-slate-200 animate-fadeIn max-h-[90dvh] flex flex-col">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <Code className="w-5 h-5 text-indigo-600" />

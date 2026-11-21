@@ -15,6 +15,41 @@
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
+  .mobile-nav-clearance {
+    padding-bottom: 3rem;
+  }
+
+  .claim-sticky-bar {
+    bottom: 1rem;
+  }
+
+  .claim-scroll-btn {
+    bottom: 2rem;
+  }
+
+  @media (max-width: 767px) {
+    .mobile-nav-clearance {
+      padding-bottom: calc(11rem + env(safe-area-inset-bottom, 0px));
+    }
+
+    .modal-backdrop-safe {
+      padding: 0.75rem 0.75rem calc(6.75rem + env(safe-area-inset-bottom, 0px)) 0.75rem !important;
+      align-items: center !important;
+    }
+
+    .modal-panel-safe {
+      max-height: calc(100dvh - 8rem - env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    .claim-sticky-bar {
+      bottom: calc(6.75rem + env(safe-area-inset-bottom, 0px));
+    }
+
+    .claim-scroll-btn {
+      bottom: calc(7.25rem + env(safe-area-inset-bottom, 0px));
+    }
+  }
+
   .animate-fade-in {
     animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
@@ -205,22 +240,22 @@ textarea {
     animation: none;
     transform: none;
   }
-  .animate-notification-pop {
+  .animate-dynamic-island-dot {
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
   }
 }
 
-/* Modern pushed notification entrance animation (compositor-only transform & opacity) */
-@keyframes notificationPopIn {
+/* Dynamic Island top-center dot pop-in animation (compositor-only transform & opacity) */
+@keyframes dynamicIslandDotIn {
   0% {
     opacity: 0;
-    transform: translate3d(24px, -10px, 0) scale(0.95);
+    transform: translate3d(0, -14px, 0) scale(0.45);
   }
-  65% {
+  70% {
     opacity: 1;
-    transform: translate3d(-2px, 2px, 0) scale(1.01);
+    transform: translate3d(0, 2px, 0) scale(1.06);
   }
   100% {
     opacity: 1;
@@ -228,8 +263,8 @@ textarea {
   }
 }
 
-.animate-notification-pop {
-  animation: notificationPopIn 0.36s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+.animate-dynamic-island-dot {
+  animation: dynamicIslandDotIn 0.24s cubic-bezier(0.22, 1, 0.36, 1) forwards;
   will-change: transform, opacity;
 }
 

@@ -4944,7 +4944,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             bottomSentinelRef.current?.scrollIntoView({ behavior: 'smooth' });
             setIsScrolledToBottom(true);
           }}
-          className="fixed bottom-[calc(6.75rem+env(safe-area-inset-bottom,0px))] md:bottom-8 right-6 z-30 w-11 h-11 rounded-full bg-slate-900/90 hover:bg-indigo-600 text-white shadow-2xl backdrop-blur-md transition-all duration-300 hover:scale-110 active:scale-95 cursor-pointer border border-slate-700/60 flex items-center justify-center ring-4 ring-indigo-500/20 group"
+          className="fixed claim-scroll-btn right-6 z-30 w-11 h-11 rounded-full bg-slate-900/90 hover:bg-indigo-600 text-white shadow-2xl backdrop-blur-md transition-all duration-300 hover:scale-110 active:scale-95 cursor-pointer border border-slate-700/60 flex items-center justify-center ring-4 ring-indigo-500/20 group"
           title="Scroll down"
           aria-label="Scroll down"
         >
@@ -4953,7 +4953,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       )}
 
       {/* Bottom Action Bar: Preview, Save, Download - Only visible when scrolling bottom down */}
-      <div className={`rounded-2xl bg-white p-4 sm:p-5 shadow-xl border border-slate-200 flex-col sm:flex-row items-center justify-between gap-4 sticky bottom-[calc(6.25rem+env(safe-area-inset-bottom,0px))] md:bottom-4 z-30 backdrop-blur-md bg-white/95 transition-all duration-300 ${
+      <div className={`rounded-2xl bg-white p-4 sm:p-5 shadow-xl border border-slate-200 flex-col sm:flex-row items-center justify-between gap-4 sticky claim-sticky-bar z-30 backdrop-blur-md bg-white/95 transition-all duration-300 ${
         isScrolledToBottom && !isKeyboardOpen
           ? 'flex opacity-100 translate-y-0 pointer-events-auto'
           : 'hidden opacity-0 translate-y-8 pointer-events-none'
@@ -5199,8 +5199,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
       {/* Default Reasons Configuration Modal */}
       {isDefaultReasonsModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
+        <div className="fixed inset-0 z-[60] modal-backdrop-safe flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="relative w-full max-w-lg modal-panel-safe bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92dvh]">
             {/* Modal Header */}
             <div className="px-6 py-5 bg-gradient-to-r from-amber-500/10 via-slate-50 to-indigo-500/10 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2.5">

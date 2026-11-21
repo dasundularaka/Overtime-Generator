@@ -271,12 +271,12 @@ export const PDFPreviewModal: React.FC<PDFPreviewModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-1 sm:p-4 backdrop-blur-xs animate-fade-in">
+    <div className={`fixed inset-0 z-[60] ${isFullscreen ? '' : 'modal-backdrop-safe'} flex items-center justify-center bg-black/80 p-1 sm:p-4 backdrop-blur-xs animate-fade-in`}>
       <div
         className={`relative flex flex-col w-full bg-slate-900 rounded-2xl shadow-2xl border border-slate-700 overflow-hidden transition-all duration-200 ${
           isFullscreen
             ? 'h-full max-w-full rounded-none border-0'
-            : 'max-w-5xl h-[94dvh]'
+            : 'max-w-5xl h-[94dvh] modal-panel-safe'
         }`}
       >
         {/* ======================================================== */}

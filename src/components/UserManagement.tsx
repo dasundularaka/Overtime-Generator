@@ -1463,8 +1463,8 @@ export const UserManagement: React.FC = () => {
 
       {/* Add / Edit User Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-          <div className="relative w-full max-w-lg rounded-3xl bg-white p-6 sm:p-7 shadow-2xl border border-slate-200 max-h-[90vh] flex flex-col">
+        <div className="fixed inset-0 z-[60] modal-backdrop-safe flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs">
+          <div className="relative w-full max-w-lg rounded-3xl bg-white p-5 sm:p-7 shadow-2xl border border-slate-200 modal-panel-safe max-h-[90dvh] flex flex-col">
             <button
               onClick={() => setIsModalOpen(false)}
               className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-700 rounded-lg"
@@ -2085,8 +2085,8 @@ export const UserManagement: React.FC = () => {
 
       {/* Admin Change Password Modal */}
       {passwordModalUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-          <div className="relative w-full max-w-lg rounded-3xl bg-white p-6 sm:p-7 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto flex flex-col">
+        <div className="fixed inset-0 z-[60] modal-backdrop-safe flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs">
+          <div className="relative w-full max-w-lg rounded-3xl bg-white p-5 sm:p-7 shadow-2xl border border-slate-200 modal-panel-safe max-h-[90dvh] overflow-y-auto flex flex-col">
             <button
               onClick={() => setPasswordModalUser(null)}
               className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
@@ -2295,8 +2295,8 @@ export const UserManagement: React.FC = () => {
 
       {/* Welcome Credentials Email Dispatched Modal */}
       {isEmailModalOpen && welcomeEmailResult && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs">
-          <div className="w-full max-w-lg max-h-[92dvh] overflow-y-auto rounded-3xl bg-white p-5 sm:p-6 shadow-2xl border border-slate-200 animate-scale-in">
+        <div className="fixed inset-0 z-[60] modal-backdrop-safe flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs">
+          <div className="w-full max-w-lg modal-panel-safe max-h-[92dvh] overflow-y-auto rounded-3xl bg-white p-5 sm:p-6 shadow-2xl border border-slate-200 animate-scale-in">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2.5">
                 <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">

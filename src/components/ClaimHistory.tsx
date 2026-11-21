@@ -1481,8 +1481,8 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
       {/* Opens on clicking card thumbnail, shows all data */}
       {/* ======================================================== */}
       {selectedMobileClaim && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-fade-in md:hidden">
-          <div className="relative w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden animate-scale-in max-h-[92vh] flex flex-col">
+        <div className="fixed inset-0 z-[60] modal-backdrop-safe flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs animate-fade-in md:hidden">
+          <div className="relative w-full max-w-lg modal-panel-safe rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden animate-scale-in max-h-[92dvh] flex flex-col">
             {/* Modal Header with Gradient */}
             <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-5 flex items-start justify-between shrink-0">
               <div className="space-y-1">
@@ -1777,8 +1777,8 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
       )}
 
       {viewingClaim && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-          <div className="relative w-full max-w-4xl rounded-2xl bg-white p-6 shadow-2xl border border-slate-200 max-h-[90vh] flex flex-col">
+        <div className="fixed inset-0 z-[60] modal-backdrop-safe flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs">
+          <div className="relative w-full max-w-4xl modal-panel-safe rounded-2xl bg-white p-4 sm:p-6 shadow-2xl border border-slate-200 max-h-[90dvh] flex flex-col">
             <div className="flex items-center justify-between pb-4 border-b border-slate-200">
               <div>
                 <div className="flex items-center gap-2">

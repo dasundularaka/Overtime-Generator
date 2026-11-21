@@ -192,7 +192,7 @@ const SearchableTargetBranchDropdown: React.FC<SearchableTargetBranchDropdownPro
 
       {isOpen && (
         <div
-          className="fixed inset-0 z-[95] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/45 backdrop-blur-xs animate-fade-in"
+          className="fixed inset-0 z-[95] modal-backdrop-safe flex items-center justify-center p-3 sm:p-4 bg-slate-950/45 backdrop-blur-xs animate-fade-in"
           onClick={(e) => {
             e.stopPropagation();
             setIsOpen(false);
@@ -200,7 +200,7 @@ const SearchableTargetBranchDropdown: React.FC<SearchableTargetBranchDropdownPro
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden animate-scale-in max-h-[82dvh] sm:max-h-[72dvh] flex flex-col"
+            className="w-full sm:max-w-md rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden animate-scale-in modal-panel-safe max-h-[82dvh] sm:max-h-[72dvh] flex flex-col"
           >
             <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between gap-2 shrink-0">
               <div className="flex items-center gap-2">
@@ -411,7 +411,7 @@ const SearchableTargetUsersDropdown: React.FC<SearchableTargetUsersDropdownProps
 
       {isOpen && (
         <div
-          className="fixed inset-0 z-[95] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/45 backdrop-blur-xs animate-fade-in"
+          className="fixed inset-0 z-[95] modal-backdrop-safe flex items-center justify-center p-3 sm:p-4 bg-slate-950/45 backdrop-blur-xs animate-fade-in"
           onClick={(e) => {
             e.stopPropagation();
             setIsOpen(false);
@@ -419,7 +419,7 @@ const SearchableTargetUsersDropdown: React.FC<SearchableTargetUsersDropdownProps
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden animate-scale-in max-h-[82dvh] sm:max-h-[72dvh] flex flex-col"
+            className="w-full sm:max-w-md rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden animate-scale-in modal-panel-safe max-h-[82dvh] sm:max-h-[72dvh] flex flex-col"
           >
             <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between gap-2 shrink-0">
               <div className="flex items-center gap-2 min-w-0">
@@ -1281,14 +1281,14 @@ export const NotificationCenter: React.FC = () => {
       {/* Centered Responsive Broadcast a Notification Submitting Panel Modal */}
       {isAdmin && isBroadcastOpen && (
         <div
-          className="fixed inset-0 z-[75] flex items-end sm:items-center justify-center p-0 sm:p-4 md:p-6 bg-slate-950/65 backdrop-blur-xs animate-fade-in"
+          className="fixed inset-0 z-[60] modal-backdrop-safe flex items-center justify-center p-3 sm:p-4 md:p-6 bg-slate-950/65 backdrop-blur-xs animate-fade-in"
           onClick={() => !isSending && setIsBroadcastOpen(false)}
           role="dialog"
           aria-modal="true"
           aria-labelledby="broadcast-modal-title"
         >
           <div
-            className="relative w-full sm:w-[min(94vw,44rem)] max-h-[94dvh] sm:max-h-[90dvh] rounded-t-2xl sm:rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden animate-scale-in flex flex-col"
+            className="relative w-full sm:w-[min(94vw,44rem)] modal-panel-safe max-h-[90dvh] rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden animate-scale-in flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Pinned Modal Header */}

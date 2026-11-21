@@ -161,14 +161,14 @@ export const NotificationDetailModal: React.FC<NotificationDetailModalProps> = (
 
   return (
     <div
-      className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center p-0 sm:p-4 md:p-6 bg-slate-950/65 backdrop-blur-xs animate-fade-in"
+      className="fixed inset-0 z-[60] modal-backdrop-safe flex items-center justify-center p-3 sm:p-4 md:p-6 bg-slate-950/65 backdrop-blur-xs animate-fade-in"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-labelledby="notification-detail-heading"
     >
       <div
-        className="relative w-full sm:w-[min(94vw,44rem)] max-h-[94dvh] sm:max-h-[90dvh] rounded-t-2xl sm:rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden animate-scale-in flex flex-col"
+        className="relative w-full sm:w-[min(94vw,44rem)] modal-panel-safe max-h-[90dvh] rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden animate-scale-in flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Top Accent Line matching Priority */}

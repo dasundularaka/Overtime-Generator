@@ -789,8 +789,8 @@ export const AuditLogViewer: React.FC = () => {
       {/* BEFORE VS AFTER CHANGE COMPARE MODAL - Auto-Adjusting & Gradual Matrix    */}
       {/* ========================================================================= */}
       {selectedLogForDetails && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
-          <div className="w-full max-w-4xl bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[92vh]">
+        <div className="fixed inset-0 z-[60] modal-backdrop-safe flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
+          <div className="w-full max-w-4xl modal-panel-safe bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[92dvh]">
             {/* Modal Header */}
             <div className="px-5 sm:px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
               <div className="flex items-center gap-2.5">

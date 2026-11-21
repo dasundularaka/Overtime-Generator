@@ -230,11 +230,11 @@ export const ScrollableTimePicker: React.FC<ScrollableTimePickerProps> = ({
       {/* Modern Scrollable Time Picker Centered Modal Dialog (Pops up in the middle) */}
       {isOpen && (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fade-in"
+          className="fixed inset-0 z-[100] modal-backdrop-safe flex items-center justify-center bg-black/40 backdrop-blur-xs p-3 sm:p-4 animate-fade-in"
           onClick={() => setIsOpen(false)}
         >
           <div
-            className="relative w-full max-w-[320px] bg-white rounded-3xl border border-slate-200 shadow-2xl p-4 space-y-3.5 animate-scale-in text-slate-800"
+            className="relative w-full max-w-[320px] modal-panel-safe overflow-y-auto bg-white rounded-3xl border border-slate-200 shadow-2xl p-4 space-y-3.5 animate-scale-in text-slate-800"
             onClick={e => e.stopPropagation()}
           >
             {/* Header Preview & Info */}

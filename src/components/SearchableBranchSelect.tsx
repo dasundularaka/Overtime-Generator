@@ -200,11 +200,11 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
       {/* Searchable Dropdown Popover (Centered modal auto-adjusted for all screen sizes) */}
       {isOpen && (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fade-in"
+          className="fixed inset-0 z-[100] modal-backdrop-safe flex items-center justify-center bg-black/40 backdrop-blur-xs p-3 sm:p-4 animate-fade-in"
           onClick={() => setIsOpen(false)}
         >
           <div
-            className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden ring-1 ring-slate-900/10 animate-scale-in"
+            className="relative w-full max-w-md modal-panel-safe bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col ring-1 ring-slate-900/10 animate-scale-in"
             onClick={e => e.stopPropagation()}
           >
             {/* Modal Header */}

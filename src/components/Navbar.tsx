@@ -78,7 +78,6 @@ const MobileCurvedNavBar: React.FC<MobileCurvedNavBarProps> = ({ items }) => {
   const itemWidth = navWidth / numItems;
   const targetX = (activeIndex + 0.5) * itemWidth;
   const [valleyX, setValleyX] = useState<number>(targetX);
-  const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
 
   // Measure exact container width dynamically on load, resize, and orientation change
   useEffect(() => {
@@ -118,73 +117,6 @@ const MobileCurvedNavBar: React.FC<MobileCurvedNavBarProps> = ({ items }) => {
     const newTarget = (activeIndex + 0.5) * (navWidth / numItems);
     setValleyX(newTarget);
   }, [navWidth, activeIndex, numItems]);
-
-  // Detect virtual keyboard popup to ensure navigation stays fixed at bottom and doesn't jump
-  useEffect(() => {
-    const handleFocusIn = (e: FocusEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (
-        target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.tagName === 'SELECT' ||
-          target.isContentEditable)
-      ) {
-        setIsKeyboardOpen(true);
-      }
-    };
-
-    const handleFocusOut = () => {
-      setTimeout(() => {
-        const active = document.activeElement as HTMLElement | null;
-        const isInputFocused =
-          active &&
-          (active.tagName === 'INPUT' ||
-            active.tagName === 'TEXTAREA' ||
-            active.tagName === 'SELECT' ||
-            active.isContentEditable);
-        if (!isInputFocused) {
-          setIsKeyboardOpen(false);
-        }
-      }, 120);
-    };
-
-    const handleViewportResize = () => {
-      if (window.visualViewport) {
-        const windowHeight = window.innerHeight;
-        const viewportHeight = window.visualViewport.height;
-        // If visual viewport shrinks by > 120px, the mobile keyboard is open
-        if (windowHeight - viewportHeight > 120) {
-          setIsKeyboardOpen(true);
-        } else {
-          const active = document.activeElement as HTMLElement | null;
-          const isInputFocused =
-            active &&
-            (active.tagName === 'INPUT' ||
-              active.tagName === 'TEXTAREA' ||
-              active.tagName === 'SELECT' ||
-              active.isContentEditable);
-          if (!isInputFocused) {
-            setIsKeyboardOpen(false);
-          }
-        }
-      }
-    };
-
-    window.addEventListener('focusin', handleFocusIn);
-    window.addEventListener('focusout', handleFocusOut);
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', handleViewportResize);
-    }
-
-    return () => {
-      window.removeEventListener('focusin', handleFocusIn);
-      window.removeEventListener('focusout', handleFocusOut);
-      if (window.visualViewport) {
-        window.visualViewport.removeEventListener('resize', handleViewportResize);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     let animId: number;
@@ -231,9 +163,7 @@ const MobileCurvedNavBar: React.FC<MobileCurvedNavBarProps> = ({ items }) => {
   return (
     <nav
       ref={navRef}
-      className={`md:hidden fixed bottom-0 left-0 right-0 z-40 h-[calc(4rem+env(safe-area-inset-bottom,0px))] pb-[env(safe-area-inset-bottom,0px)] overflow-visible flex items-center justify-around pointer-events-auto transition-transform duration-200 ease-in-out ${
-        isKeyboardOpen ? 'translate-y-28 opacity-0 pointer-events-none' : 'translate-y-0 opacity-100'
-      }`}
+      className="md:hidden fixed bottom-0 left-0 right-0 z-[70] h-[calc(4rem+env(safe-area-inset-bottom,0px))] pb-[env(safe-area-inset-bottom,0px)] overflow-visible flex items-center justify-around pointer-events-auto"
     >
       {/* Safe-area base backing for iOS/Android gesture bars */}
       <div
@@ -478,6 +408,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const isMoreTabActive = isDropdownActive;
 
   return (
+    <>
     <header className="sticky top-0 z-40 bg-slate-900 text-white shadow-md border-b border-slate-800">
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 gap-2">
@@ -695,115 +626,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                   />
                 </button>
 
-                {/* Profile Details Modal Card - Centered on screen, auto-adjusting to screen size */}
-                {isProfileMenuOpen && (
-                  <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-950/70 backdrop-blur-xs animate-fade-in">
-                    {/* Backdrop click to close */}
-                    <div
-                      className="fixed inset-0"
-                      onClick={() => setIsProfileMenuOpen(false)}
-                    />
-
-                    <div className="relative w-full max-w-sm sm:max-w-md rounded-3xl bg-slate-900 border border-slate-700/90 shadow-2xl py-4 z-10 animate-scale-in max-h-[90dvh] overflow-y-auto">
-                      {/* Card Title & Close Button */}
-                      <div className="px-5 pb-3 border-b border-slate-800 flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                          Employee Profile &amp; Account
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setIsProfileMenuOpen(false)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-
-                      {/* User Info Header */}
-                      <div className="px-5 py-4 border-b border-slate-800">
-                        <div className="flex items-center gap-3.5">
-                          {userProfile.photoURL ? (
-                            <img
-                              src={userProfile.photoURL}
-                              alt={userProfile.name}
-                              className="h-12 w-12 rounded-2xl object-cover border border-slate-600 shrink-0 shadow-md"
-                              referrerPolicy="no-referrer"
-                            />
-                          ) : (
-                            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 font-bold text-white text-base shrink-0 shadow-md">
-                              {userProfile.name?.slice(0, 2).toUpperCase() || 'U'}
-                            </div>
-                          )}
-                          <div className="min-w-0 flex-1">
-                            <h4 className="font-bold text-sm sm:text-base text-white truncate">{userProfile.name}</h4>
-                            <p className="text-xs text-slate-400 truncate">{userProfile.email}</p>
-                            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                              <span className="font-mono text-[10px] font-bold text-indigo-300 bg-indigo-500/20 px-2 py-0.5 rounded-md border border-indigo-500/30">
-                                {userProfile.employeeNumber || userProfile.pfNumber}
-                              </span>
-                              <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-md border ${
-                                isSuperAdmin
-                                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                                  : isAdmin
-                                  ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
-                                  : 'bg-blue-500/20 text-blue-300 border-blue-500/30'
-                              }`}>
-                                {isSuperAdmin ? 'Super Admin' : isAdmin ? 'Administrator' : 'Standard User'}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Profile Specifics Matrix */}
-                      <div className="px-5 py-3.5 text-xs border-b border-slate-800 space-y-2 text-slate-300">
-                        <div className="flex items-center justify-between gap-2 text-xs">
-                          <span className="text-slate-400 shrink-0">Branch Office:</span>
-                          <span className="font-semibold text-slate-100 truncate max-w-[55vw] sm:max-w-[200px] text-right">{userProfile.branch}</span>
-                        </div>
-                        <div className="flex items-center justify-between gap-2 text-xs">
-                          <span className="text-slate-400 shrink-0">Designation:</span>
-                          <span className="font-semibold text-slate-100 truncate max-w-[55vw] sm:max-w-[200px] text-right">{userProfile.designation || 'Staff'}</span>
-                        </div>
-                        <div className="flex items-center justify-between gap-2 text-xs">
-                          <span className="text-slate-400 shrink-0">Department:</span>
-                          <span className="font-semibold text-slate-100 truncate max-w-[55vw] sm:max-w-[200px] text-right">{userProfile.department}</span>
-                        </div>
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-slate-400">Daily OT Limit:</span>
-                          <span className="font-semibold text-emerald-400">
-                            {userProfile.maxOtHoursPerDay !== undefined ? `${userProfile.maxOtHoursPerDay} hrs max/day` : '2.0 hrs max/day'} &bull; {userProfile.claimType || 'OT'} Sheet
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Action Shortcuts */}
-                      <div className="p-3 space-y-1.5 text-xs">
-                        <button
-                          onClick={() => {
-                            setIsProfileMenuOpen(false);
-                            onSelectTab('settings');
-                          }}
-                          className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-200 hover:text-white hover:bg-slate-800/80 transition text-left cursor-pointer border border-transparent hover:border-slate-700"
-                        >
-                          <Settings className="w-4 h-4 text-slate-400" />
-                          <span>Preferences &amp; Printer Offsets</span>
-                        </button>
-
-                        <button
-                          onClick={() => {
-                            setIsProfileMenuOpen(false);
-                            setIsLogoutConfirmOpen(true);
-                          }}
-                          className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-rose-300 hover:text-rose-200 hover:bg-rose-950/40 border border-transparent hover:border-rose-900/50 transition text-left cursor-pointer"
-                        >
-                          <LogOut className="w-4 h-4 text-rose-400" />
-                          <span>Sign Out</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 
@@ -821,73 +643,126 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
       </div>
+    </header>
 
-      {/* Modern Bottom-Docked Mobile Tab Bar with Curved Valley & Dark Ocean Blue Circle */}
-      {(() => {
-        const mobileNavItems: MobileNavItem[] = [
-          {
-            id: 'dashboard',
-            label: 'Dashboard',
-            icon: Clock,
-            isActive: activeTab === 'dashboard' && !isMobileMenuOpen,
-            onClick: () => {
-              setIsMobileMenuOpen(false);
-              onSelectTab('dashboard');
-            },
-          },
-          {
-            id: 'history',
-            label: 'History',
-            icon: History,
-            isActive: activeTab === 'history' && !isMobileMenuOpen,
-            onClick: () => {
-              setIsMobileMenuOpen(false);
-              onSelectTab('history');
-            },
-          },
-          {
-            id: 'new-claim',
-            label: 'New Claim',
-            icon: PlusCircle,
-            isActive: activeTab === 'new-claim' && !isMobileMenuOpen,
-            onClick: () => {
-              setIsMobileMenuOpen(false);
-              onSelectTab('new-claim');
-            },
-          },
-          {
-            id: 'calendar',
-            label: 'Calendar',
-            icon: Calendar,
-            isActive: activeTab === 'calendar' && !isMobileMenuOpen,
-            onClick: () => {
-              setIsMobileMenuOpen(false);
-              onSelectTab('calendar');
-            },
-          },
-          {
-            id: 'more',
-            label: isAdmin ? 'Admin' : 'More',
-            icon: isAdmin ? ShieldCheck : MoreHorizontal,
-            isActive: isMoreTabActive || isMobileMenuOpen,
-            badge: isAdmin || unreadNotifCount > 0,
-            onClick: () => {
-              setIsMobileMenuOpen(!isMobileMenuOpen);
-            },
-          },
-        ];
+      {/* Profile Details Modal Card - Rendered at root z-[60] cleanly above page content and below bottom nav z-[70] */}
+      {userProfile && isProfileMenuOpen && (
+        <div className="fixed inset-0 z-[60] modal-backdrop-safe flex items-center justify-center p-4 sm:p-6 bg-slate-950/70 backdrop-blur-xs animate-fade-in">
+          {/* Backdrop click to close */}
+          <div
+            className="fixed inset-0"
+            onClick={() => setIsProfileMenuOpen(false)}
+          />
 
-        return <MobileCurvedNavBar items={mobileNavItems} />;
-      })()}
+          <div className="relative w-full max-w-sm sm:max-w-md rounded-3xl bg-slate-900 border border-slate-700/90 shadow-2xl py-4 z-10 animate-scale-in modal-panel-safe max-h-[90dvh] overflow-y-auto">
+            {/* Card Title & Close Button */}
+            <div className="px-5 pb-3 border-b border-slate-800 flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                Employee Profile &amp; Account
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsProfileMenuOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
-      {/* Mobile Bottom-Docked Hub Drawer (Opens with One Thumb) */}
+            {/* User Info Header */}
+            <div className="px-5 py-4 border-b border-slate-800">
+              <div className="flex items-center gap-3.5">
+                {userProfile.photoURL ? (
+                  <img
+                    src={userProfile.photoURL}
+                    alt={userProfile.name}
+                    className="h-12 w-12 rounded-2xl object-cover border border-slate-600 shrink-0 shadow-md"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 font-bold text-white text-base shrink-0 shadow-md">
+                    {userProfile.name?.slice(0, 2).toUpperCase() || 'U'}
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <h4 className="font-bold text-sm sm:text-base text-white truncate">{userProfile.name}</h4>
+                  <p className="text-xs text-slate-400 truncate">{userProfile.email}</p>
+                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                    <span className="font-mono text-[10px] font-bold text-indigo-300 bg-indigo-500/20 px-2 py-0.5 rounded-md border border-indigo-500/30">
+                      {userProfile.employeeNumber || userProfile.pfNumber}
+                    </span>
+                    <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-md border ${
+                      isSuperAdmin
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                        : isAdmin
+                        ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                        : 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                    }`}>
+                      {isSuperAdmin ? 'Super Admin' : isAdmin ? 'Administrator' : 'Standard User'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Profile Specifics Matrix */}
+            <div className="px-5 py-3.5 text-xs border-b border-slate-800 space-y-2 text-slate-300">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="text-slate-400 shrink-0">Branch Office:</span>
+                <span className="font-semibold text-slate-100 truncate max-w-[55vw] sm:max-w-[200px] text-right">{userProfile.branch}</span>
+              </div>
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="text-slate-400 shrink-0">Designation:</span>
+                <span className="font-semibold text-slate-100 truncate max-w-[55vw] sm:max-w-[200px] text-right">{userProfile.designation || 'Staff'}</span>
+              </div>
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="text-slate-400 shrink-0">Department:</span>
+                <span className="font-semibold text-slate-100 truncate max-w-[55vw] sm:max-w-[200px] text-right">{userProfile.department}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400">Daily OT Limit:</span>
+                <span className="font-semibold text-emerald-400">
+                  {userProfile.maxOtHoursPerDay !== undefined ? `${userProfile.maxOtHoursPerDay} hrs max/day` : '2.0 hrs max/day'} &bull; {userProfile.claimType || 'OT'} Sheet
+                </span>
+              </div>
+            </div>
+
+            {/* Action Shortcuts */}
+            <div className="p-3 space-y-1.5 text-xs">
+              <button
+                onClick={() => {
+                  setIsProfileMenuOpen(false);
+                  onSelectTab('settings');
+                }}
+                className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-200 hover:text-white hover:bg-slate-800/80 transition text-left cursor-pointer border border-transparent hover:border-slate-700"
+              >
+                <Settings className="w-4 h-4 text-slate-400" />
+                <span>Preferences &amp; Printer Offsets</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsProfileMenuOpen(false);
+                  setIsLogoutConfirmOpen(true);
+                }}
+                className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-rose-300 hover:text-rose-200 hover:bg-rose-950/40 border border-transparent hover:border-rose-900/50 transition text-left cursor-pointer"
+              >
+                <LogOut className="w-4 h-4 text-rose-400" />
+                <span>Sign Out</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Bottom-Docked Hub Drawer (Sits cleanly above bottom nav bar) */}
       {isMobileMenuOpen && (
-        <div className="md:hidden fixed inset-0 z-50 flex flex-col justify-end bg-slate-950/70 backdrop-blur-xs animate-fade-in">
+        <div className="md:hidden fixed inset-0 z-[60] modal-backdrop-safe flex flex-col justify-end bg-slate-950/70 backdrop-blur-xs animate-fade-in">
           <div
             className="fixed inset-0"
             onClick={() => setIsMobileMenuOpen(false)}
           />
-          <div className="relative bg-slate-900 border-t border-slate-700/80 rounded-t-3xl p-5 pb-[calc(7.5rem+env(safe-area-inset-bottom,0px))] shadow-2xl space-y-3 z-10 animate-slide-up max-h-[85dvh] overflow-y-auto">
+          <div className="relative bg-slate-900 border border-slate-700/80 rounded-3xl p-5 pb-6 shadow-2xl space-y-3 z-10 animate-slide-up modal-panel-safe overflow-y-auto">
             {/* Grab handle */}
             <div className="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mb-2" />
 
@@ -1066,6 +941,69 @@ export const Navbar: React.FC<NavbarProps> = ({
           { label: 'Role', value: isAdmin ? 'Administrator' : 'Standard User' },
         ]}
       />
-    </header>
+
+    {/* Persistent Bottom-Docked Mobile Navigation Bar (outside header stacking context) */}
+    {(() => {
+      const mobileNavItems: MobileNavItem[] = [
+        {
+          id: 'dashboard',
+          label: 'Dashboard',
+          icon: Clock,
+          isActive: activeTab === 'dashboard' && !isMobileMenuOpen,
+          onClick: () => {
+            setIsProfileMenuOpen(false);
+            setIsMobileMenuOpen(false);
+            onSelectTab('dashboard');
+          },
+        },
+        {
+          id: 'history',
+          label: 'History',
+          icon: History,
+          isActive: activeTab === 'history' && !isMobileMenuOpen,
+          onClick: () => {
+            setIsProfileMenuOpen(false);
+            setIsMobileMenuOpen(false);
+            onSelectTab('history');
+          },
+        },
+        {
+          id: 'new-claim',
+          label: 'New Claim',
+          icon: PlusCircle,
+          isActive: activeTab === 'new-claim' && !isMobileMenuOpen,
+          onClick: () => {
+            setIsProfileMenuOpen(false);
+            setIsMobileMenuOpen(false);
+            onSelectTab('new-claim');
+          },
+        },
+        {
+          id: 'calendar',
+          label: 'Calendar',
+          icon: Calendar,
+          isActive: activeTab === 'calendar' && !isMobileMenuOpen,
+          onClick: () => {
+            setIsProfileMenuOpen(false);
+            setIsMobileMenuOpen(false);
+            onSelectTab('calendar');
+          },
+        },
+        {
+          id: 'more',
+          label: isAdmin ? 'Admin' : 'More',
+          icon: isAdmin ? ShieldCheck : MoreHorizontal,
+          isActive: isMoreTabActive || isMobileMenuOpen,
+          badge: isAdmin || unreadNotifCount > 0,
+          onClick: () => {
+            setIsProfileMenuOpen(false);
+            setIsMobileMenuOpen(!isMobileMenuOpen);
+          },
+        },
+      ];
+
+      return <MobileCurvedNavBar items={mobileNavItems} />;
+    })()}
+    </>
   );
 };

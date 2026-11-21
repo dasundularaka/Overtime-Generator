@@ -60,8 +60,8 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-      <div className="relative w-full max-w-2xl rounded-2xl bg-white p-6 sm:p-8 shadow-2xl border border-slate-200 overflow-hidden max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 z-[60] modal-backdrop-safe flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs">
+      <div className="relative w-full max-w-2xl modal-panel-safe rounded-2xl bg-white p-5 sm:p-8 shadow-2xl border border-slate-200 overflow-y-auto max-h-[90dvh] flex flex-col">
         {/* Header background accent */}
         <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-blue-600 via-indigo-600 to-emerald-500" />
 

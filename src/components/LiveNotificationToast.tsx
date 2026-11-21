@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { X, ArrowUpRight, Clock, CheckCircle2 } from 'lucide-react';
+import { X } from 'lucide-react';
 import { AppNotification } from '../types';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -13,11 +13,16 @@ import {
 import { NotificationDetailModal } from './NotificationDetailModal';
 
 const DISMISSED_TOASTS_KEY_PREFIX = 'ot_dismissed_push_toasts_';
-const RECENT_PUSH_WINDOW_MS = 2 * 60 * 1000; // 2 minutes for notifications sent just before opening
+const SESSION_SHOWN_ISLAND_PREFIX = 'ot_shown_island_';
+const RECENT_PUSH_WINDOW_MS = 2 * 60 * 1000;
 
-function readDismissedToastIds(userId: string): Set<string> {
+// Module-level session deduplication guard so re-mounts, StrictMode, or snapshot updates
+// never replay the Dynamic Island animation twice for the same notification ID.
+const shownIslandIdsSession = new Set<string>();
+
+function readIdSet(storage: Storage, key: string): Set<string> {
   try {
-    const raw = localStorage.getItem(`${DISMISSED_TOASTS_KEY_PREFIX}${userId}`);
+    const raw = storage.getItem(key);
     if (!raw) return new Set();
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? new Set(parsed) : new Set();
@@ -26,52 +31,75 @@ function readDismissedToastIds(userId: string): Set<string> {
   }
 }
 
-function saveDismissedToastId(userId: string, notifId: string): void {
+function appendStoredId(storage: Storage, key: string, id: string): void {
   try {
-    const existing = Array.from(readDismissedToastIds(userId));
-    const next = Array.from(new Set([...existing, notifId])).slice(-150);
-    localStorage.setItem(`${DISMISSED_TOASTS_KEY_PREFIX}${userId}`, JSON.stringify(next));
+    const existing = Array.from(readIdSet(storage, key));
+    const next = Array.from(new Set([...existing, id])).slice(-200);
+    storage.setItem(key, JSON.stringify(next));
   } catch {
     // ignore storage errors
   }
 }
 
+function hasShownIsland(userId: string, notifId: string): boolean {
+  const compositeKey = `${userId}:${notifId}`;
+  if (shownIslandIdsSession.has(compositeKey)) return true;
+  const sessionIds = readIdSet(sessionStorage, `${SESSION_SHOWN_ISLAND_PREFIX}${userId}`);
+  if (sessionIds.has(notifId)) {
+    shownIslandIdsSession.add(compositeKey);
+    return true;
+  }
+  const dismissedIds = readIdSet(localStorage, `${DISMISSED_TOASTS_KEY_PREFIX}${userId}`);
+  return dismissedIds.has(notifId);
+}
+
+function markIslandShown(userId: string, notifId: string): void {
+  shownIslandIdsSession.add(`${userId}:${notifId}`);
+  appendStoredId(sessionStorage, `${SESSION_SHOWN_ISLAND_PREFIX}${userId}`, notifId);
+}
+
+type IslandPhase = 'dot' | 'expanded' | 'closing';
+
 export const LiveNotificationToast: React.FC = () => {
   const { currentUser, userProfile, isSuperAdmin, isAdmin } = useAuth();
   const [allNotifications, setAllNotifications] = useState<AppNotification[]>([]);
-  const [activeToasts, setActiveToasts] = useState<AppNotification[]>([]);
+  const [queue, setQueue] = useState<AppNotification[]>([]);
+  const [islandPhase, setIslandPhase] = useState<IslandPhase>('dot');
+  const [isPaused, setIsPaused] = useState(false);
   const [selectedNotificationId, setSelectedNotificationId] = useState<string | null>(null);
   const [fallbackSelectedNotification, setFallbackSelectedNotification] =
     useState<AppNotification | null>(null);
-  const seenSessionIdsRef = useRef<Set<string>>(new Set());
-  const mountedAtRef = useRef<number>(Date.now());
-  const hoveredIdRef = useRef<string | null>(null);
 
+  const userProfileRef = useRef(userProfile);
+  userProfileRef.current = userProfile;
+
+  const mountedAtRef = useRef<number>(Date.now());
   const uid = userProfile?.id || currentUser?.uid || '';
 
   useEffect(() => {
     if (!uid) {
       setAllNotifications([]);
-      setActiveToasts([]);
+      setQueue([]);
       return;
     }
 
-    const dismissed = readDismissedToastIds(uid);
+    mountedAtRef.current = Date.now();
 
     const unsubscribe = subscribeToNotifications((notificationsList, newlyAdded) => {
       setAllNotifications(notificationsList);
+      const profileSnapshot = userProfileRef.current;
       const candidates: AppNotification[] = [];
 
-      // 1. Live additions arriving via Firestore onSnapshot while tab is open
+      // 1. Live additions arriving via Firestore onSnapshot while session is active
       newlyAdded.forEach((n) => {
-        if (!seenSessionIdsRef.current.has(n.id)) {
+        if (!hasShownIsland(uid, n.id)) {
           candidates.push(n);
         }
       });
 
-      // 2. Also surface very recent unread push notifications (sent within last 2 mins) on load
+      // 2. Very recent unread notifications sent within the last 2 minutes on initial load
       notificationsList.forEach((n) => {
-        if (seenSessionIdsRef.current.has(n.id)) return;
+        if (hasShownIsland(uid, n.id)) return;
         const createdMs = new Date(n.createdAt).getTime();
         if (
           !Number.isNaN(createdMs) &&
@@ -80,32 +108,78 @@ export const LiveNotificationToast: React.FC = () => {
         ) {
           candidates.push(n);
         } else {
-          seenSessionIdsRef.current.add(n.id);
+          // Record older existing notifications so they do not pop later
+          markIslandShown(uid, n.id);
         }
       });
 
-      const validPushes = candidates.filter((n) => {
-        seenSessionIdsRef.current.add(n.id);
-        if (!n.sendViaApp) return false;
-        if (dismissed.has(n.id)) return false;
-        if (!isNotificationUnreadForUser(n, uid)) return false;
-        if (!isNotificationForUser(n, userProfile, uid)) return false;
-        // Skip popping a toast back to the sender unless they explicitly targeted themselves by user ID
-        if (n.senderId === uid && n.targetScope !== 'users') return false;
-        return true;
+      const validPushes: AppNotification[] = [];
+      candidates.forEach((n) => {
+        if (hasShownIsland(uid, n.id)) return;
+        markIslandShown(uid, n.id);
+
+        if (!n.sendViaApp) return;
+        if (!isNotificationUnreadForUser(n, uid)) return;
+        if (!isNotificationForUser(n, profileSnapshot, uid)) return;
+        // Skip pushing back to sender unless they explicitly targeted themselves
+        if (n.senderId === uid && n.targetScope !== 'users') return;
+
+        validPushes.push(n);
       });
 
       if (validPushes.length > 0) {
-        setActiveToasts((prev) => {
-          const existingIds = new Set(prev.map((p) => p.id));
-          const merged = [...validPushes.filter((p) => !existingIds.has(p.id)), ...prev];
-          return merged.slice(0, 3);
+        setQueue((prev) => {
+          const existingIds = new Set(prev.map((item) => item.id));
+          const uniqueIncoming = validPushes.filter((item) => !existingIds.has(item.id));
+          if (uniqueIncoming.length === 0) return prev;
+          return [...prev, ...uniqueIncoming].slice(0, 5);
         });
       }
     });
 
     return () => unsubscribe();
-  }, [uid, userProfile]);
+  }, [uid]);
+
+  const activeNotif = queue[0] || null;
+
+  // Drive single-shot Dynamic Island sequence: top-center dot -> smooth horizontal expansion
+  useEffect(() => {
+    if (!activeNotif) return;
+
+    setIslandPhase('dot');
+    setIsPaused(false);
+
+    const expandTimer = setTimeout(() => {
+      setIslandPhase('expanded');
+    }, 150);
+
+    return () => clearTimeout(expandTimer);
+  }, [activeNotif?.id]);
+
+  // Smooth auto-dismiss collapse after 6 seconds (unless hovered/focused)
+  useEffect(() => {
+    if (!activeNotif || islandPhase !== 'expanded' || isPaused) return;
+
+    const closeTimer = setTimeout(() => {
+      setIslandPhase('closing');
+    }, 6200);
+
+    return () => clearTimeout(closeTimer);
+  }, [activeNotif?.id, islandPhase, isPaused]);
+
+  // Remove current item once collapse transition finishes
+  useEffect(() => {
+    if (!activeNotif || islandPhase !== 'closing') return;
+
+    const removeTimer = setTimeout(() => {
+      if (uid) {
+        appendStoredId(localStorage, `${DISMISSED_TOASTS_KEY_PREFIX}${uid}`, activeNotif.id);
+      }
+      setQueue((prev) => prev.filter((item) => item.id !== activeNotif.id));
+    }, 320);
+
+    return () => clearTimeout(removeTimer);
+  }, [activeNotif?.id, islandPhase, uid]);
 
   const selectedNotification = useMemo(() => {
     if (!selectedNotificationId) return null;
@@ -114,148 +188,91 @@ export const LiveNotificationToast: React.FC = () => {
     );
   }, [selectedNotificationId, allNotifications, fallbackSelectedNotification]);
 
-  // Auto-dismiss pushed notifications smoothly after 10s unless hovered
-  useEffect(() => {
-    if (activeToasts.length === 0 || !uid) return;
-    const timer = setInterval(() => {
-      setActiveToasts((prev) => {
-        if (prev.length === 0) return prev;
-        const oldest = prev[prev.length - 1];
-        if (hoveredIdRef.current === oldest.id) return prev;
-        saveDismissedToastId(uid, oldest.id);
-        return prev.slice(0, -1);
-      });
-    }, 9500);
-    return () => clearInterval(timer);
-  }, [activeToasts.length, uid]);
-
-  const dismissToast = (notifId: string) => {
-    if (uid) saveDismissedToastId(uid, notifId);
-    setActiveToasts((prev) => prev.filter((n) => n.id !== notifId));
-  };
-
-  const handleMarkReadToast = async (e: React.MouseEvent, notif: AppNotification) => {
-    e.stopPropagation();
-    dismissToast(notif.id);
+  const dismissCurrent = (notifId: string) => {
     if (uid) {
-      await markNotificationAsRead(notif.id, uid, userProfile);
+      appendStoredId(localStorage, `${DISMISSED_TOASTS_KEY_PREFIX}${uid}`, notifId);
     }
+    setIslandPhase('closing');
   };
 
-  const openToastDetails = async (notif: AppNotification) => {
-    dismissToast(notif.id);
+  const openDetails = async (notif: AppNotification) => {
+    if (uid) {
+      appendStoredId(localStorage, `${DISMISSED_TOASTS_KEY_PREFIX}${uid}`, notif.id);
+    }
+    setQueue((prev) => prev.filter((item) => item.id !== notif.id));
     setFallbackSelectedNotification(notif);
     setSelectedNotificationId(notif.id);
     if (uid) {
-      await markNotificationAsRead(notif.id, uid, userProfile);
+      await markNotificationAsRead(notif.id, uid, userProfileRef.current);
     }
   };
 
+  const priorityMeta = activeNotif ? getPriorityMeta(activeNotif.priority) : null;
+  const isExpanded = islandPhase === 'expanded';
+  const isClosing = islandPhase === 'closing';
+
   return (
     <>
-      {activeToasts.length > 0 && (
+      {activeNotif && priorityMeta && (
         <div
           aria-live="polite"
-          className="fixed top-3 sm:top-20 left-3 right-3 sm:left-auto sm:right-4 z-[75] flex flex-col gap-2.5 sm:w-[min(92vw,25rem)] max-w-[calc(100vw-1.5rem)] max-h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-6rem)] overflow-y-auto pointer-events-none"
+          className="fixed top-2.5 sm:top-3.5 left-1/2 -translate-x-1/2 z-[110] pointer-events-none flex justify-center w-full px-3"
         >
-          {activeToasts.map((notif) => {
-            const pMeta = getPriorityMeta(notif.priority);
-            return (
-              <div
-                key={notif.id}
-                onMouseEnter={() => {
-                  hoveredIdRef.current = notif.id;
+          <div
+            key={activeNotif.id}
+            role="button"
+            tabIndex={0}
+            onMouseEnter={() => setIsPaused(true)}
+            onMouseLeave={() => setIsPaused(false)}
+            onFocus={() => setIsPaused(true)}
+            onBlur={() => setIsPaused(false)}
+            onClick={() => openDetails(activeNotif)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                openDetails(activeNotif);
+              }
+            }}
+            aria-label={`New notification: ${activeNotif.heading}. Click to view full details.`}
+            className={`pointer-events-auto animate-dynamic-island-dot flex items-center justify-center overflow-hidden rounded-full bg-slate-950/95 text-white border border-slate-700/80 shadow-[0_14px_34px_rgba(2,6,23,0.48)] backdrop-blur-md cursor-pointer select-none focus:outline-hidden focus:ring-2 focus:ring-indigo-400 transition-[min-width,max-width,height,padding,opacity,transform] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+              isExpanded
+                ? 'h-10 sm:h-11 w-fit min-w-[min(64vw,15rem)] max-w-[min(92vw,26rem)] px-3.5 sm:px-4 gap-2.5 opacity-100 scale-100'
+                : isClosing
+                ? 'h-9 w-fit min-w-[2.25rem] max-w-[2.25rem] px-0 gap-0 opacity-0 scale-75'
+                : 'h-9 w-fit min-w-[2.25rem] max-w-[2.25rem] px-0 gap-0 opacity-100 scale-100'
+            }`}
+          >
+            {/* Priority Color Dot */}
+            <span
+              className={`w-2.5 h-2.5 rounded-full shrink-0 transition-transform duration-300 ${priorityMeta.dotColorClass} ${
+                isExpanded ? 'scale-100' : 'scale-125'
+              }`}
+            />
+
+            {/* Heading Only (Smoothly Revealed During Horizontal Expansion) */}
+            <span
+              className={`text-xs sm:text-sm font-semibold text-white truncate transition-opacity duration-300 ${
+                isExpanded ? 'opacity-100 flex-1 min-w-0 delay-100' : 'opacity-0 w-0 overflow-hidden'
+              }`}
+            >
+              {activeNotif.heading}
+            </span>
+
+            {/* Subtle Dismiss Control */}
+            {isExpanded && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  dismissCurrent(activeNotif.id);
                 }}
-                onMouseLeave={() => {
-                  if (hoveredIdRef.current === notif.id) hoveredIdRef.current = null;
-                }}
-                onClick={() => openToastDetails(notif)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    openToastDetails(notif);
-                  }
-                }}
-                className="pointer-events-auto group relative rounded-2xl bg-white/95 backdrop-blur-md border border-slate-200/90 shadow-2xl overflow-hidden cursor-pointer transition-transform duration-200 hover:-translate-y-0.5 animate-notification-pop focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                className="p-1 -mr-1 rounded-full text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer shrink-0"
+                aria-label="Dismiss notification"
               >
-                {/* Top Priority Accent Bar */}
-                <div className={`h-1 w-full ${pMeta.accentBarClass}`} />
-
-                <div className="p-3.5 sm:p-4 space-y-2.5">
-                  {/* Top Row: Heading Left Top Corner, Priority Colour Right Top Corner */}
-                  <div className="flex items-start justify-between gap-2.5">
-                    <h4 className="text-xs sm:text-sm font-bold text-slate-900 leading-snug line-clamp-2 flex-1 min-w-0">
-                      {notif.heading}
-                    </h4>
-
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <span
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border ${pMeta.badgeClasses}`}
-                      >
-                        <span className={`w-1.5 h-1.5 rounded-full ${pMeta.dotColorClass}`} />
-                        <span>{pMeta.label}</span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          dismissToast(notif.id);
-                        }}
-                        className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
-                        aria-label="Dismiss notification"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Body + Optional Supported Image Preview */}
-                  <div className="flex items-start gap-3">
-                    <p className="text-xs text-slate-600 leading-relaxed line-clamp-3 flex-1 min-w-0">
-                      {notif.body}
-                    </p>
-                    {notif.imageUrl && (
-                      <img
-                        src={notif.imageUrl}
-                        alt=""
-                        referrerPolicy="no-referrer"
-                        onError={(e) => {
-                          (e.currentTarget as HTMLImageElement).style.display = 'none';
-                        }}
-                        className="w-12 h-12 rounded-xl object-cover border border-slate-200 shrink-0 bg-slate-100"
-                      />
-                    )}
-                  </div>
-
-                  {/* Quiet Footer Metadata + Mark Read Action */}
-                  <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between gap-2 text-[11px] text-slate-500">
-                    <div className="truncate min-w-0">
-                      <span className="font-medium text-slate-700">{notif.senderName}</span>
-                      <span aria-hidden="true"> &middot; </span>
-                      <span>{notif.senderBranch}</span>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        type="button"
-                        onClick={(e) => handleMarkReadToast(e, notif)}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold transition cursor-pointer whitespace-nowrap"
-                      >
-                        <CheckCircle2 className="w-3 h-3" />
-                        <span>Mark Read</span>
-                      </button>
-                      <span className="inline-flex items-center gap-0.5 text-indigo-600 font-semibold group-hover:underline">
-                        <Clock className="w-3 h-3 mr-0.5 text-slate-400" />
-                        <span>View</span>
-                        <ArrowUpRight className="w-3 h-3" />
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -272,7 +289,7 @@ export const LiveNotificationToast: React.FC = () => {
         )}
         onDeleted={(deletedId) => {
           setAllNotifications((prev) => prev.filter((item) => item.id !== deletedId));
-          setActiveToasts((prev) => prev.filter((item) => item.id !== deletedId));
+          setQueue((prev) => prev.filter((item) => item.id !== deletedId));
         }}
         onClose={() => {
           setSelectedNotificationId(null);
