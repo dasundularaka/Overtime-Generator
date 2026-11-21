@@ -202,6 +202,7 @@ function AppContent() {
         } else {
           setActiveTab(targetTab);
         }
+        window.scrollTo({ top: 0, behavior: 'auto' });
       } catch (err) {
         console.error('Tab transition pre-switch error:', err);
       } finally {
@@ -371,8 +372,6 @@ function AppContent() {
 
           {activeTab === 'settings' && <SettingsPage />}
         </ErrorBoundary>
-        {/* Guaranteed mobile scroll clearance spacer above curved bottom navigation bar */}
-        <div className="md:hidden h-28 w-full shrink-0 pointer-events-none" aria-hidden="true" />
       </main>
 
       {/* Footer (Desktop only) */}

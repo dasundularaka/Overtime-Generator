@@ -762,7 +762,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             className="fixed inset-0"
             onClick={() => setIsMobileMenuOpen(false)}
           />
-          <div className="relative bg-slate-900 border border-slate-700/80 rounded-3xl p-5 pb-6 shadow-2xl space-y-3 z-10 animate-slide-up modal-panel-safe overflow-y-auto">
+          <div className="relative w-full max-w-lg mx-auto bg-slate-900 border border-slate-700/80 rounded-3xl p-5 pb-6 shadow-2xl space-y-3 z-10 animate-slide-up modal-panel-safe overflow-y-auto">
             {/* Grab handle */}
             <div className="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mb-2" />
 
