@@ -20,7 +20,7 @@ export const OTAUpdateBanner: React.FC = () => {
       <div
         role="status"
         aria-live="polite"
-        className="fixed bottom-20 md:bottom-5 right-4 z-[70] max-w-xs w-[calc(100vw-2rem)] sm:w-auto rounded-2xl bg-slate-900 text-white px-4 py-3 shadow-2xl border border-slate-700/80 flex items-center gap-3 animate-fade-in"
+        className="fixed bottom-[calc(6.5rem+env(safe-area-inset-bottom,0px))] md:bottom-5 right-4 z-[70] max-w-xs w-[calc(100vw-2rem)] sm:w-auto rounded-2xl bg-slate-900 text-white px-4 py-3 shadow-2xl border border-slate-700/80 flex items-center gap-3 animate-fade-in"
       >
         <div className="w-8 h-8 rounded-xl bg-indigo-600/30 border border-indigo-400/30 flex items-center justify-center shrink-0">
           <RefreshCw className="w-4 h-4 text-indigo-300 animate-spin" />
@@ -44,7 +44,7 @@ export const OTAUpdateBanner: React.FC = () => {
       <div
         role="status"
         aria-live="polite"
-        className="fixed bottom-20 md:bottom-5 right-4 z-[70] max-w-sm w-[calc(100vw-2rem)] rounded-2xl bg-white text-slate-900 p-4 shadow-2xl border border-indigo-200 flex flex-col gap-3 animate-fade-in"
+        className="fixed bottom-[calc(6.5rem+env(safe-area-inset-bottom,0px))] md:bottom-5 right-4 z-[70] max-w-sm w-[calc(100vw-2rem)] rounded-2xl bg-white text-slate-900 p-4 shadow-2xl border border-indigo-200 flex flex-col gap-3 animate-fade-in"
       >
         <div className="flex items-start justify-between gap-2.5">
           <div className="flex items-start gap-2.5 min-w-0">

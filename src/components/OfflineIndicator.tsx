@@ -8,7 +8,7 @@ export const OfflineIndicator: React.FC = () => {
   if (isOnline) return null;
 
   return (
-    <div className="fixed bottom-24 md:bottom-4 left-4 z-50 flex items-center gap-2 rounded-lg bg-amber-600 px-3.5 py-2 text-xs font-semibold text-white shadow-xl">
+    <div className="fixed bottom-[calc(6.75rem+env(safe-area-inset-bottom,0px))] md:bottom-4 left-4 z-50 flex items-center gap-2 rounded-lg bg-amber-600 px-3.5 py-2 text-xs font-semibold text-white shadow-xl">
       <WifiOff className="w-4 h-4 text-amber-200" />
       <span>Offline Mode — All claims &amp; PDFs generate locally in your browser.</span>
     </div>

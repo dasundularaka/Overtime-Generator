@@ -18,6 +18,7 @@ import {
   AlertCircle,
   CheckCircle2,
   Loader2,
+  Trash2,
 } from 'lucide-react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase/config';
@@ -30,12 +31,15 @@ import {
 } from '../types';
 import { subscribeToBranches } from '../utils/branchRoleManager';
 import {
+  canUserDeleteNotification,
   compressNotificationImage,
+  deleteNotificationById,
   getNotificationReadSummary,
   getPriorityMeta,
   getUserReadTimestamp,
   hasUserReadNotification,
   isNotificationForUser,
+  isNotificationSender,
   isNotificationUnreadForUser,
   markAllNotificationsAsRead,
   markNotificationAsRead,
@@ -43,6 +47,7 @@ import {
   subscribeToNotifications,
 } from '../services/notificationService';
 import { NotificationDetailModal } from './NotificationDetailModal';
+import { ConfirmationModal } from './ConfirmationModal';
 import { Skeleton } from './Skeleton';
 import { hasGoogleWorkspaceToken } from '../services/googleWorkspaceService';
 
@@ -588,6 +593,8 @@ export const NotificationCenter: React.FC = () => {
   const [isSending, setIsSending] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [statusBanner, setStatusBanner] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [notifPendingDelete, setNotifPendingDelete] = useState<AppNotification | null>(null);
+  const [isDeletingNotif, setIsDeletingNotif] = useState(false);
   const imageFileInputRef = useRef<HTMLInputElement>(null);
 
   // Keep Admin's branch strictly locked to their assigned branch
@@ -678,10 +685,10 @@ export const NotificationCenter: React.FC = () => {
     return notifications
       .filter((n) => {
         if (isSuperAdmin) return true;
-        return n.senderId === uid;
+        return isNotificationSender(n, userProfile, currentUser?.uid);
       })
       .filter(filterFn);
-  }, [notifications, isAdmin, isSuperAdmin, uid, priorityFilter, searchQuery]);
+  }, [notifications, isAdmin, isSuperAdmin, userProfile, currentUser?.uid, priorityFilter, searchQuery]);
 
   const unreadReceivedCount = useMemo(() => {
     return notifications.filter(
@@ -800,12 +807,53 @@ export const NotificationCenter: React.FC = () => {
     await markNotificationAsRead(notif.id, uid, userProfile);
   };
 
+  const handleRequestDeleteCard = (e: React.MouseEvent, notif: AppNotification) => {
+    e.stopPropagation();
+    setNotifPendingDelete(notif);
+  };
+
+  const handleConfirmDeleteNotification = async () => {
+    if (!notifPendingDelete || isDeletingNotif) return;
+    setIsDeletingNotif(true);
+    try {
+      const target = notifPendingDelete;
+      await deleteNotificationById(target, {
+        userProfile,
+        fallbackUid: currentUser?.uid,
+        isSuperAdmin,
+      });
+      setNotifications((prev) => prev.filter((item) => item.id !== target.id));
+      if (selectedNotificationId === target.id) {
+        setSelectedNotificationId(null);
+        setFallbackSelectedNotification(null);
+      }
+      setNotifPendingDelete(null);
+      setStatusBanner({
+        type: 'success',
+        text: `Deleted notification "${target.heading}".`,
+      });
+      setTimeout(() => setStatusBanner(null), 5000);
+    } catch (err: any) {
+      setNotifPendingDelete(null);
+      setStatusBanner({
+        type: 'error',
+        text: err?.message || 'Failed to delete notification.',
+      });
+      setTimeout(() => setStatusBanner(null), 5000);
+    } finally {
+      setIsDeletingNotif(false);
+    }
+  };
+
   const renderNotificationCard = (notif: AppNotification, mode: 'received' | 'sent') => {
     const pMeta = getPriorityMeta(notif.priority);
     const isUnread = mode === 'received' && isNotificationUnreadForUser(notif, uid);
     const hasRead = mode === 'received' && hasUserReadNotification(notif, uid);
     const readTimestamp = mode === 'received' ? getUserReadTimestamp(notif, uid) : null;
     const readSummary = mode === 'sent' ? getNotificationReadSummary(notif, allUsers) : null;
+    const allowDeleteCard =
+      mode === 'sent' &&
+      canUserDeleteNotification(notif, userProfile, currentUser?.uid, isSuperAdmin);
 
     return (
       <div
@@ -960,6 +1008,19 @@ export const NotificationCenter: React.FC = () => {
                   minute: '2-digit',
                 })}
               </span>
+
+              {allowDeleteCard && (
+                <button
+                  type="button"
+                  onClick={(e) => handleRequestDeleteCard(e, notif)}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-rose-200 bg-rose-50/70 hover:bg-rose-100 text-rose-700 font-semibold transition cursor-pointer whitespace-nowrap"
+                  aria-label={`Delete notification ${notif.heading}`}
+                  title="Delete sent notification"
+                >
+                  <Trash2 className="w-3 h-3 shrink-0" />
+                  <span>Delete</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1508,7 +1569,7 @@ export const NotificationCenter: React.FC = () => {
               </div>
 
               {/* Pinned Modal Actions Footer */}
-              <div className="px-4 py-3 sm:px-5 sm:py-3.5 border-t border-slate-100 bg-slate-50/80 flex items-center justify-end gap-2 sm:gap-2.5 shrink-0">
+              <div className="px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:px-5 sm:py-3.5 border-t border-slate-100 bg-slate-50/80 flex items-center justify-end gap-2 sm:gap-2.5 shrink-0">
                 <button
                   type="button"
                   disabled={isSending}
@@ -1547,14 +1608,48 @@ export const NotificationCenter: React.FC = () => {
         currentUserProfile={userProfile}
         isAdminView={isAdmin}
         allUsers={allUsers}
-        canDelete={
-          !!selectedNotification &&
-          (isSuperAdmin || selectedNotification.senderId === uid)
-        }
+        canDelete={canUserDeleteNotification(
+          selectedNotification,
+          userProfile,
+          currentUser?.uid,
+          isSuperAdmin
+        )}
+        onDeleted={(deletedId) => {
+          setNotifications((prev) => prev.filter((item) => item.id !== deletedId));
+          setStatusBanner({
+            type: 'success',
+            text: 'Sent notification deleted for all recipients.',
+          });
+          setTimeout(() => setStatusBanner(null), 5000);
+        }}
         onClose={() => {
           setSelectedNotificationId(null);
           setFallbackSelectedNotification(null);
         }}
+      />
+
+      {/* Confirm Delete Sent Notification Modal */}
+      <ConfirmationModal
+        isOpen={Boolean(notifPendingDelete)}
+        onClose={() => !isDeletingNotif && setNotifPendingDelete(null)}
+        onConfirm={handleConfirmDeleteNotification}
+        title="Delete Sent Notification"
+        message="This will permanently remove the notification from your sent history and all recipient inboxes."
+        confirmText="Delete Notification"
+        cancelText="Keep Notification"
+        variant="danger"
+        isLoading={isDeletingNotif}
+        details={
+          notifPendingDelete
+            ? [
+                { label: 'Heading', value: notifPendingDelete.heading },
+                {
+                  label: 'Target',
+                  value: notifPendingDelete.targetLabel || notifPendingDelete.targetBranch || 'Recipients',
+                },
+              ]
+            : undefined
+        }
       />
     </div>
   );

@@ -4934,7 +4934,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       </div>
 
       {/* Sentinel for detecting bottom scroll */}
-      <div ref={bottomSentinelRef} className="h-6 w-full pointer-events-none -mt-3 mb-1" />
+      <div ref={bottomSentinelRef} className="h-8 w-full pointer-events-none -mt-3 mb-2" />
 
       {/* Modern floating scroll-to-bottom arrow button (label removed, sleek circular styling) */}
       {!isScrolledToBottom && (
@@ -4944,7 +4944,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             bottomSentinelRef.current?.scrollIntoView({ behavior: 'smooth' });
             setIsScrolledToBottom(true);
           }}
-          className="fixed bottom-24 md:bottom-8 right-6 z-30 w-11 h-11 rounded-full bg-slate-900/90 hover:bg-indigo-600 text-white shadow-2xl backdrop-blur-md transition-all duration-300 hover:scale-110 active:scale-95 cursor-pointer border border-slate-700/60 flex items-center justify-center ring-4 ring-indigo-500/20 group"
+          className="fixed bottom-[calc(6.75rem+env(safe-area-inset-bottom,0px))] md:bottom-8 right-6 z-30 w-11 h-11 rounded-full bg-slate-900/90 hover:bg-indigo-600 text-white shadow-2xl backdrop-blur-md transition-all duration-300 hover:scale-110 active:scale-95 cursor-pointer border border-slate-700/60 flex items-center justify-center ring-4 ring-indigo-500/20 group"
           title="Scroll down"
           aria-label="Scroll down"
         >
@@ -4953,7 +4953,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       )}
 
       {/* Bottom Action Bar: Preview, Save, Download - Only visible when scrolling bottom down */}
-      <div className={`rounded-2xl bg-white p-4 sm:p-5 shadow-xl border border-slate-200 flex-col sm:flex-row items-center justify-between gap-4 sticky bottom-20 md:bottom-4 z-30 backdrop-blur-md bg-white/95 transition-all duration-300 ${
+      <div className={`rounded-2xl bg-white p-4 sm:p-5 shadow-xl border border-slate-200 flex-col sm:flex-row items-center justify-between gap-4 sticky bottom-[calc(6.25rem+env(safe-area-inset-bottom,0px))] md:bottom-4 z-30 backdrop-blur-md bg-white/95 transition-all duration-300 ${
         isScrolledToBottom && !isKeyboardOpen
           ? 'flex opacity-100 translate-y-0 pointer-events-auto'
           : 'hidden opacity-0 translate-y-8 pointer-events-none'

@@ -14,6 +14,7 @@ import {
   Eye,
   Search,
   ChevronDown,
+  AlertCircle,
 } from 'lucide-react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase/config';
@@ -52,6 +53,8 @@ export const NotificationDetailModal: React.FC<NotificationDetailModalProps> = (
 }) => {
   const [imageError, setImageError] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isMarkingRead, setIsMarkingRead] = useState(false);
   const [optimisticReadAt, setOptimisticReadAt] = useState<string | null>(null);
   const [fallbackUsers, setFallbackUsers] = useState<UserProfile[]>([]);
@@ -61,6 +64,8 @@ export const NotificationDetailModal: React.FC<NotificationDetailModalProps> = (
 
   useEffect(() => {
     setImageError(false);
+    setConfirmingDelete(false);
+    setDeleteError(null);
     setOptimisticReadAt(null);
     setReceiptFilter('all');
     setReceiptSearch('');
@@ -139,13 +144,16 @@ export const NotificationDetailModal: React.FC<NotificationDetailModalProps> = (
 
   const handleDelete = async () => {
     if (!canDelete || isDeleting) return;
+    setDeleteError(null);
     setIsDeleting(true);
     try {
       await deleteNotificationById(notification);
+      setConfirmingDelete(false);
       onDeleted?.(notification.id);
       onClose();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to delete notification:', err);
+      setDeleteError(err?.message || 'Could not delete this notification. Please try again.');
     } finally {
       setIsDeleting(false);
     }
@@ -453,20 +461,53 @@ export const NotificationDetailModal: React.FC<NotificationDetailModalProps> = (
         </div>
 
         {/* Pinned Footer */}
-        <div className="px-4 py-3 sm:px-5 sm:py-3.5 border-t border-slate-100 bg-slate-50/70 flex items-center justify-between gap-2 flex-wrap shrink-0">
-          <div className="flex items-center gap-2">
-            {canDelete && (
-              <button
-                type="button"
-                disabled={isDeleting}
-                onClick={handleDelete}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-200 bg-white hover:bg-rose-50 text-rose-700 text-xs font-semibold transition cursor-pointer disabled:opacity-60"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>{isDeleting ? 'Deleting...' : 'Delete'}</span>
-              </button>
-            )}
-          </div>
+        <div className="px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:px-5 sm:py-3.5 border-t border-slate-100 bg-slate-50/70 space-y-2 shrink-0">
+          {deleteError && (
+            <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 flex items-center gap-2 text-xs text-rose-700 font-medium">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+              <span className="min-w-0 flex-1">{deleteError}</span>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
+              {canDelete && (
+                confirmingDelete ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={isDeleting}
+                      onClick={handleDelete}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold transition cursor-pointer disabled:opacity-60 whitespace-nowrap"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>{isDeleting ? 'Deleting...' : 'Confirm Delete'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isDeleting}
+                      onClick={() => setConfirmingDelete(false)}
+                      className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold transition cursor-pointer disabled:opacity-60 whitespace-nowrap"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={isDeleting}
+                    onClick={() => {
+                      setDeleteError(null);
+                      setConfirmingDelete(true);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-200 bg-white hover:bg-rose-50 text-rose-700 text-xs font-semibold transition cursor-pointer disabled:opacity-60 whitespace-nowrap"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete</span>
+                  </button>
+                )
+              )}
+            </div>
 
           <div className="flex items-center gap-2.5 ml-auto flex-wrap">
             {isRecipientOfNotification && currentUserId && (
@@ -502,6 +543,7 @@ export const NotificationDetailModal: React.FC<NotificationDetailModalProps> = (
             >
               Close
             </button>
+          </div>
           </div>
         </div>
       </div>

@@ -231,14 +231,19 @@ const MobileCurvedNavBar: React.FC<MobileCurvedNavBarProps> = ({ items }) => {
   return (
     <nav
       ref={navRef}
-      className={`md:hidden fixed bottom-0 left-0 right-0 z-50 h-16 safe-bottom overflow-visible flex items-center justify-around pointer-events-auto transition-transform duration-200 ease-in-out ${
+      className={`md:hidden fixed bottom-0 left-0 right-0 z-40 h-[calc(4rem+env(safe-area-inset-bottom,0px))] pb-[env(safe-area-inset-bottom,0px)] overflow-visible flex items-center justify-around pointer-events-auto transition-transform duration-200 ease-in-out ${
         isKeyboardOpen ? 'translate-y-28 opacity-0 pointer-events-none' : 'translate-y-0 opacity-100'
       }`}
     >
+      {/* Safe-area base backing for iOS/Android gesture bars */}
+      <div
+        aria-hidden="true"
+        className="absolute bottom-0 left-0 right-0 h-[env(safe-area-inset-bottom,0px)] bg-[#0f172a] pointer-events-none"
+      />
       {/* 1:1 True-Pixel SVG Half-Circle Notch Background (never distorted across any screen size) */}
       <svg
         viewBox={`0 0 ${totalW} 76`}
-        className="absolute bottom-0 left-0 right-0 w-full h-[76px] pointer-events-none drop-shadow-[0_-8px_25px_rgba(0,0,0,0.65)]"
+        className="absolute bottom-[env(safe-area-inset-bottom,0px)] left-0 right-0 w-full h-[76px] pointer-events-none drop-shadow-[0_-8px_25px_rgba(0,0,0,0.65)]"
       >
         <path d={fillPath} fill="#0f172a" />
         <path d={borderPath} fill="none" stroke="#475569" strokeWidth="1.5" />
@@ -882,7 +887,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             className="fixed inset-0"
             onClick={() => setIsMobileMenuOpen(false)}
           />
-          <div className="relative bg-slate-900 border-t border-slate-700/80 rounded-t-3xl p-5 pb-20 shadow-2xl space-y-3 z-10 animate-slide-up max-h-[85dvh] overflow-y-auto">
+          <div className="relative bg-slate-900 border-t border-slate-700/80 rounded-t-3xl p-5 pb-[calc(7.5rem+env(safe-area-inset-bottom,0px))] shadow-2xl space-y-3 z-10 animate-slide-up max-h-[85dvh] overflow-y-auto">
             {/* Grab handle */}
             <div className="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mb-2" />
 

@@ -3,6 +3,7 @@ import { X, ArrowUpRight, Clock, CheckCircle2 } from 'lucide-react';
 import { AppNotification } from '../types';
 import { useAuth } from '../context/AuthContext';
 import {
+  canUserDeleteNotification,
   getPriorityMeta,
   isNotificationForUser,
   isNotificationUnreadForUser,
@@ -263,10 +264,16 @@ export const LiveNotificationToast: React.FC = () => {
         currentUserId={uid}
         currentUserProfile={userProfile}
         isAdminView={isAdmin}
-        canDelete={
-          !!selectedNotification &&
-          (isSuperAdmin || selectedNotification.senderId === uid)
-        }
+        canDelete={canUserDeleteNotification(
+          selectedNotification,
+          userProfile,
+          currentUser?.uid,
+          isSuperAdmin
+        )}
+        onDeleted={(deletedId) => {
+          setAllNotifications((prev) => prev.filter((item) => item.id !== deletedId));
+          setActiveToasts((prev) => prev.filter((item) => item.id !== deletedId));
+        }}
         onClose={() => {
           setSelectedNotificationId(null);
           setFallbackSelectedNotification(null);

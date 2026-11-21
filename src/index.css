@@ -11,6 +11,10 @@
     scrollbar-width: none;  /* Firefox */
   }
 
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
   .animate-fade-in {
     animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
@@ -131,7 +135,7 @@ input,
 select,
 textarea {
   scroll-margin-top: 80px;
-  scroll-margin-bottom: 120px;
+  scroll-margin-bottom: calc(144px + env(safe-area-inset-bottom, 0px));
   touch-action: manipulation;
 }
 

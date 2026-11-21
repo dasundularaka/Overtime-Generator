@@ -95,6 +95,42 @@ function writeCachedNotifications(list: AppNotification[]): void {
   }
 }
 
+function removeNotificationFromCache(notificationId: string): void {
+  try {
+    const cached = readCachedNotifications();
+    if (cached.length > 0) {
+      writeCachedNotifications(cached.filter((item) => item.id !== notificationId));
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function isNotificationSender(
+  notification: AppNotification | null | undefined,
+  user?: UserProfile | null,
+  fallbackUid?: string | null
+): boolean {
+  if (!notification) return false;
+  const candidateIds = [user?.id, fallbackUid].filter(Boolean) as string[];
+  if (candidateIds.includes(notification.senderId)) {
+    return true;
+  }
+  const userEmail = (user?.email || '').trim().toLowerCase();
+  const senderEmail = (notification.senderEmail || '').trim().toLowerCase();
+  return Boolean(userEmail && senderEmail && userEmail === senderEmail);
+}
+
+export function canUserDeleteNotification(
+  notification: AppNotification | null | undefined,
+  user?: UserProfile | null,
+  fallbackUid?: string | null,
+  isSuperAdmin = false
+): boolean {
+  if (!notification) return false;
+  return isSuperAdmin || isNotificationSender(notification, user, fallbackUid);
+}
+
 export function isNotificationForUser(
   notification: AppNotification,
   user: UserProfile | null,
@@ -620,27 +656,50 @@ export function getNotificationReadSummary(
   };
 }
 
+export interface DeleteNotificationRequester {
+  userProfile?: UserProfile | null;
+  fallbackUid?: string | null;
+  isSuperAdmin?: boolean;
+}
+
 export async function deleteNotificationById(
-  notification: AppNotification
+  notification: AppNotification,
+  requester?: DeleteNotificationRequester
 ): Promise<void> {
+  if (
+    requester &&
+    !canUserDeleteNotification(
+      notification,
+      requester.userProfile,
+      requester.fallbackUid,
+      Boolean(requester.isSuperAdmin)
+    )
+  ) {
+    throw new Error('Only the notification sender or a Super Admin can delete this notification.');
+  }
+
   const docPath = `${NOTIFICATIONS_COLLECTION}/${notification.id}`;
   try {
     await deleteDoc(doc(db, NOTIFICATIONS_COLLECTION, notification.id));
-    await recordAuditLog({
-      action: 'NOTIFICATION_DELETE',
-      actionLabel: 'Deleted Notification',
-      targetType: 'notification',
-      targetId: notification.id,
-      targetDescription: notification.heading,
-      beforeState: {
-        heading: notification.heading,
-        priority: notification.priority,
-        targetLabel: notification.targetLabel,
-      },
-    });
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, docPath);
   }
+
+  removeNotificationFromCache(notification.id);
+
+  await recordAuditLog({
+    action: 'NOTIFICATION_DELETE',
+    actionLabel: 'Deleted Notification',
+    targetType: 'notification',
+    targetId: notification.id,
+    targetDescription: notification.heading,
+    beforeState: {
+      heading: notification.heading,
+      priority: notification.priority,
+      targetLabel: notification.targetLabel,
+      senderId: notification.senderId,
+    },
+  }).catch(() => {});
 }
 
 /**

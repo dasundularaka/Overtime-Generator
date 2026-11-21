@@ -297,7 +297,7 @@ function AppContent() {
   };
 
   return (
-    <div className="min-h-dvh bg-slate-50 flex flex-col font-sans overflow-x-hidden">
+    <div className="min-h-dvh bg-slate-50 flex flex-col font-sans overflow-x-clip">
       {/* Inter-Pages Transmission with White Background Expanding from Center */}
       <PageTransitionOverlay
         isVisible={pageTransition.isVisible}
@@ -315,7 +315,7 @@ function AppContent() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-24 sm:pb-24 md:pb-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-[calc(10rem+env(safe-area-inset-bottom,0px))] md:pb-12">
         <ErrorBoundary
           resetKey={`${activeTab}:${editingClaim?.id || 'fresh'}`}
           fallbackTitle={activeTab === 'new-claim' ? 'Unable to load New Claim sheet' : 'Unable to display this section'}
