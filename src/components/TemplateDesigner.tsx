@@ -3029,8 +3029,8 @@ service cloud.firestore {
 
       {/* MODAL: Create New Template */}
       {isNewModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-fadeIn">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-3 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full max-h-[92dvh] overflow-y-auto p-5 sm:p-6 shadow-2xl border border-slate-200 animate-fadeIn">
             <h3 className="text-lg font-bold text-slate-900 mb-1">Create New Overtime Template</h3>
             <p className="text-xs text-slate-500 mb-4">
               Create a custom A4 template configuration with custom field coordinates.

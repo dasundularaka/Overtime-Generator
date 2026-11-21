@@ -153,21 +153,21 @@ export const NotificationDetailModal: React.FC<NotificationDetailModalProps> = (
 
   return (
     <div
-      className="fixed inset-0 z-[80] flex items-center justify-center p-4 sm:p-6 bg-slate-950/65 backdrop-blur-xs animate-fade-in"
+      className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center p-0 sm:p-4 md:p-6 bg-slate-950/65 backdrop-blur-xs animate-fade-in"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-labelledby="notification-detail-heading"
     >
       <div
-        className="relative w-full max-w-2xl rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden animate-scale-in max-h-[90dvh] flex flex-col"
+        className="relative w-full sm:w-[min(94vw,44rem)] max-h-[94dvh] sm:max-h-[90dvh] rounded-t-2xl sm:rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden animate-scale-in flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Top Accent Line matching Priority */}
-        <div className={`h-1.5 w-full ${priorityMeta.accentBarClass}`} />
+        <div className={`h-1.5 w-full shrink-0 ${priorityMeta.accentBarClass}`} />
 
-        {/* Header: Heading Top-Left & Priority Color + Close Top-Right */}
-        <div className="px-5 pt-4 pb-3 border-b border-slate-100 flex items-start justify-between gap-3">
+        {/* Pinned Header: Heading Top-Left & Priority Color + Close Top-Right */}
+        <div className="px-4 pt-3.5 pb-3 sm:px-5 sm:pt-4 sm:pb-3 border-b border-slate-100 flex items-start justify-between gap-3 shrink-0">
           <div className="min-w-0 flex-1">
             <h2
               id="notification-detail-heading"
@@ -212,7 +212,7 @@ export const NotificationDetailModal: React.FC<NotificationDetailModalProps> = (
         </div>
 
         {/* Scrollable Content Body */}
-        <div className="p-5 space-y-4 overflow-y-auto flex-1">
+        <div className="p-4 sm:p-5 space-y-4 overflow-y-auto overscroll-contain flex-1 min-h-0">
           {/* Supported Image (if attached) */}
           {notification.imageUrl && (
             <div className="rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
@@ -222,7 +222,7 @@ export const NotificationDetailModal: React.FC<NotificationDetailModalProps> = (
                   alt={notification.heading}
                   referrerPolicy="no-referrer"
                   onError={() => setImageError(true)}
-                  className="w-full max-h-72 object-contain bg-slate-100"
+                  className="w-full max-h-[34dvh] sm:max-h-72 object-contain bg-slate-100"
                 />
               ) : (
                 <div className="h-36 flex flex-col items-center justify-center gap-1.5 text-slate-400 text-xs p-4">
@@ -389,7 +389,7 @@ export const NotificationDetailModal: React.FC<NotificationDetailModalProps> = (
                         </div>
                       )}
 
-                      <div className="max-h-48 overflow-y-auto divide-y divide-slate-100 rounded-xl border border-slate-200 bg-slate-50/40">
+                      <div className="max-h-[30dvh] sm:max-h-52 overflow-y-auto divide-y divide-slate-100 rounded-xl border border-slate-200 bg-slate-50/40">
                         {filteredRecipients.length === 0 ? (
                           <div className="p-4 text-center text-xs text-slate-500">
                             No recipients match the current filter.
@@ -452,8 +452,8 @@ export const NotificationDetailModal: React.FC<NotificationDetailModalProps> = (
           )}
         </div>
 
-        {/* Footer */}
-        <div className="px-5 py-3.5 border-t border-slate-100 bg-slate-50/70 flex items-center justify-between gap-2 flex-wrap">
+        {/* Pinned Footer */}
+        <div className="px-4 py-3 sm:px-5 sm:py-3.5 border-t border-slate-100 bg-slate-50/70 flex items-center justify-between gap-2 flex-wrap shrink-0">
           <div className="flex items-center gap-2">
             {canDelete && (
               <button

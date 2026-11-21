@@ -630,8 +630,8 @@ export const BranchManagement: React.FC = () => {
       {/* BRANCH DETAILS POPUP MODAL (All Details Relevant to Branch) */}
       {/* ======================================================== */}
       {selectedBranch && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-fade-in">
-          <div className="relative w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden animate-scale-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs animate-fade-in">
+          <div className="relative w-full max-w-lg max-h-[92dvh] overflow-y-auto rounded-2xl bg-white shadow-2xl border border-slate-200 animate-scale-in">
             {/* Modal Header */}
             <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white p-5 flex items-start justify-between">
               <div className="space-y-1">
@@ -839,8 +839,8 @@ export const BranchManagement: React.FC = () => {
       {/* ADMIN ADD / EDIT MODAL (With Google Maps Location Link) */}
       {/* ======================================================== */}
       {isModalOpen && isAdmin && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-          <div className="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl border border-slate-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs">
+          <div className="relative w-full max-w-lg max-h-[92dvh] overflow-y-auto rounded-2xl bg-white p-5 sm:p-6 shadow-2xl border border-slate-200">
             <div className="flex items-center justify-between pb-4 border-b border-slate-100">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 rounded-xl bg-indigo-50 text-indigo-700">

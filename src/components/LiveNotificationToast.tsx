@@ -155,7 +155,7 @@ export const LiveNotificationToast: React.FC = () => {
       {activeToasts.length > 0 && (
         <div
           aria-live="polite"
-          className="fixed top-4 sm:top-20 left-3 right-3 sm:left-auto sm:right-4 z-[75] flex flex-col gap-2.5 sm:w-96 max-w-full pointer-events-none"
+          className="fixed top-3 sm:top-20 left-3 right-3 sm:left-auto sm:right-4 z-[75] flex flex-col gap-2.5 sm:w-[min(92vw,25rem)] max-w-[calc(100vw-1.5rem)] max-h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-6rem)] overflow-y-auto pointer-events-none"
         >
           {activeToasts.map((notif) => {
             const pMeta = getPriorityMeta(notif.priority);
