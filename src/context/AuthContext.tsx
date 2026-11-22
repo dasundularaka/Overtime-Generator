@@ -6,7 +6,6 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   updatePassword,
-  sendPasswordResetEmail,
   signOut as fbSignOut,
   GoogleAuthProvider,
   EmailAuthProvider,
@@ -40,6 +39,7 @@ import {
 import { recordAuditLog } from '../utils/auditLogger';
 import { setCachedGoogleToken } from '../services/googleWorkspaceService';
 import { getAssignedTemplateIdsForClaimType } from '../utils/defaultTemplate';
+import { sendPasswordResetLinkViaMake } from '../services/makeEmailService';
 
 interface AuthContextType {
   currentUser: FirebaseUser | null;
@@ -62,7 +62,19 @@ interface AuthContextType {
     branch?: string;
     department?: string;
   }) => Promise<UserProfile>;
-  sendPasswordReset: (identifierOrEmail: string) => Promise<string>;
+  sendPasswordReset: (
+    identifierOrEmail: string,
+    options?: { requestedBy?: 'self' | 'admin'; senderName?: string }
+  ) => Promise<string>;
+  verifyPasswordResetTokenOrCode: (params: {
+    uidOrIdentifier?: string;
+    codeOrToken: string;
+  }) => Promise<{ userId: string; name: string; email: string; pfNumber: string }>;
+  completePasswordResetWithMake: (params: {
+    uidOrIdentifier?: string;
+    codeOrToken: string;
+    newPassword: string;
+  }) => Promise<{ email: string; pfNumber: string; name: string }>;
   updateUserPassword: (newPass: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUserProfile: () => Promise<void>;
@@ -505,6 +517,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (storedAccount) {
         candidateProfile = storedAccount;
         targetEmail = storedAccount.email;
+        if (storedAccount.id) {
+          try {
+            const freshSnap = await getDoc(doc(db, 'users', storedAccount.id));
+            if (freshSnap.exists()) {
+              const freshData = freshSnap.data() as UserProfile;
+              candidateProfile = { ...freshData, id: freshData.id || freshSnap.id };
+              if (candidateProfile.email) {
+                targetEmail = candidateProfile.email.toLowerCase().trim();
+              }
+            }
+          } catch {}
+        }
       }
 
       // If not in local cache or missing email, resolve from Firestore
@@ -557,7 +581,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const q = query(collection(db, 'users'), where('email', '==', targetEmail));
           const snap = await getDocs(q);
           if (!snap.empty) {
-            candidateProfile = snap.docs[0].data() as UserProfile;
+            const d = snap.docs[0];
+            const data = d.data() as UserProfile;
+            candidateProfile = { ...data, id: data.id || d.id };
           }
         } catch {}
       }
@@ -567,8 +593,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (targetEmail && targetEmail.includes('@')) {
         try {
           const cred = await signInWithEmailAndPassword(auth, targetEmail, cleanPass);
+          // Prevent stale pre-reset Firebase Auth password from bypassing a completed Make password reset
+          if (
+            candidateProfile?.passwordResetCompletedAt &&
+            candidateProfile?.passwordHash &&
+            candidateProfile.passwordHash !== cleanPass
+          ) {
+            await fbSignOut(auth).catch(() => {});
+            throw new Error(
+              'Invalid password. Please sign in with your newly reset password.'
+            );
+          }
           authUser = cred.user;
         } catch (fbErr: any) {
+          if (fbErr?.message?.includes('newly reset password')) {
+            throw fbErr;
+          }
           console.warn('Firebase signIn note:', fbErr?.code);
         }
       }
@@ -720,32 +760,116 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const sendPasswordReset = async (identifierOrEmail: string): Promise<string> => {
+  const generateResetCodeAndToken = (): { code: string; token: string } => {
+    const bytes = new Uint8Array(20);
+    if (typeof window !== 'undefined' && window.crypto?.getRandomValues) {
+      window.crypto.getRandomValues(bytes);
+    } else {
+      for (let i = 0; i < bytes.length; i += 1) {
+        bytes[i] = Math.floor(Math.random() * 256);
+      }
+    }
+    const rawNum =
+      ((bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3]) >>> 0;
+    const code = String(100000 + (rawNum % 900000));
+    const token = Array.from(bytes.slice(4))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+    return { code, token };
+  };
+
+  const resolveUserDocForReset = async (
+    identifierOrId: string
+  ): Promise<{ docId: string; profile: UserProfile } | null> => {
+    const clean = identifierOrId.trim();
+    if (!clean) return null;
+
+    // 1. Direct document ID lookup
+    try {
+      const directSnap = await getDoc(doc(db, 'users', clean));
+      if (directSnap.exists()) {
+        const data = directSnap.data() as UserProfile;
+        return { docId: directSnap.id, profile: { ...data, id: data.id || directSnap.id } };
+      }
+    } catch {}
+
+    const lower = clean.toLowerCase();
+    const isEmail = lower.includes('@');
+    const formattedPf = !isEmail ? formatPfNumber(clean) : '';
+    const cleanDigits = clean.replace(/\D/g, '');
+
+    if (isEmail) {
+      try {
+        const emailSnap = await getDocs(
+          query(collection(db, 'users'), where('email', '==', lower))
+        );
+        if (!emailSnap.empty) {
+          const d = emailSnap.docs[0];
+          const data = d.data() as UserProfile;
+          return { docId: d.id, profile: { ...data, id: data.id || d.id } };
+        }
+      } catch {}
+    }
+
+    // 2. Scan users collection for PF number / case-insensitive email / reset token match
+    try {
+      const usersSnap = await getDocs(collection(db, 'users'));
+      for (const d of usersSnap.docs) {
+        const data = d.data() as UserProfile;
+        const uEmail = (data.email || '').toLowerCase().trim();
+        const uPf = (data.employeeNumber || data.pfNumber || '').toUpperCase().trim();
+        const uDigits = uPf.replace(/\D/g, '');
+
+        if (
+          (isEmail && uEmail === lower) ||
+          (!isEmail &&
+            (uPf === clean.toUpperCase() ||
+              uPf === formattedPf ||
+              formatPfNumber(uPf) === formattedPf ||
+              (cleanDigits.length >= 4 && uDigits === cleanDigits))) ||
+          data.passwordResetToken === clean
+        ) {
+          return { docId: d.id, profile: { ...data, id: data.id || d.id } };
+        }
+      }
+    } catch (e) {
+      console.warn('Firestore user lookup note for password reset:', e);
+    }
+
+    return null;
+  };
+
+  const sendPasswordReset = async (
+    identifierOrEmail: string,
+    options?: { requestedBy?: 'self' | 'admin'; senderName?: string }
+  ): Promise<string> => {
     const clean = identifierOrEmail.trim();
     if (!clean) throw new Error('Please enter your PF Number or email.');
 
-    let targetEmail = clean;
-    const cleanPf = !clean.includes('@') ? formatPfNumber(clean) : '';
-    if (cleanPf) {
-      const stored = findStoredAccount(cleanPf);
-      if (stored) {
-        targetEmail = stored.email;
-        upsertStoredAccount({
-          ...stored,
-          passwordHash: cleanPf,
-          mustChangePassword: true,
-        });
+    const resolved = await resolveUserDocForReset(clean);
+    let targetEmail = resolved?.profile.email?.toLowerCase().trim() || '';
+    let targetName = resolved?.profile.name || 'Team Member';
+    let targetPf = (
+      resolved?.profile.employeeNumber ||
+      resolved?.profile.pfNumber ||
+      (!clean.includes('@') ? formatPfNumber(clean) : '')
+    )
+      .toUpperCase()
+      .trim();
+    const targetBranch = resolved?.profile.branch || '';
+
+    // Fallback to pfDirectory or local cache if Firestore user doc wasn't resolved yet
+    if (!targetEmail && targetPf) {
+      const stored = findStoredAccount(targetPf);
+      if (stored?.email) {
+        targetEmail = stored.email.toLowerCase().trim();
+        targetName = stored.name || targetName;
       } else {
         try {
-          const dirDoc = await getDoc(doc(db, 'pfDirectory', cleanPf));
+          const dirDoc = await getDoc(doc(db, 'pfDirectory', targetPf));
           if (dirDoc.exists() && dirDoc.data().email) {
-            targetEmail = dirDoc.data().email;
-          } else {
-            const q = query(collection(db, 'users'), where('employeeNumber', '==', cleanPf));
-            const snap = await getDocs(q);
-            if (!snap.empty && snap.docs[0].data().email) {
-              targetEmail = snap.docs[0].data().email;
-            }
+            targetEmail = String(dirDoc.data().email).toLowerCase().trim();
+            targetName = dirDoc.data().name || targetName;
           }
         } catch (e) {
           console.warn('Directory lookup error for reset', e);
@@ -754,30 +878,229 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     if (!targetEmail || !targetEmail.includes('@')) {
-      throw new Error(`Could not find an email address associated with PF Number "${clean}". Please contact your administrator.`);
+      throw new Error(
+        `Could not find an email address associated with "${clean}". Please verify your PF Number or contact your administrator.`
+      );
     }
 
-    await sendPasswordResetEmail(auth, targetEmail.toLowerCase().trim()).catch((e) => {
-      console.warn('sendPasswordResetEmail note:', e);
+    const { code, token } = generateResetCodeAndToken();
+    const nowIso = new Date().toISOString();
+    const expiresInMinutes = 15;
+    const expiresAtIso = new Date(Date.now() + expiresInMinutes * 60 * 1000).toISOString();
+
+    if (resolved?.docId) {
+      await updateDoc(doc(db, 'users', resolved.docId), {
+        passwordResetCode: code,
+        passwordResetToken: token,
+        passwordResetExpiresAt: expiresAtIso,
+        passwordResetRequestedAt: nowIso,
+      });
+    } else if (targetPf) {
+      await setDoc(
+        doc(db, 'pfDirectory', targetPf),
+        {
+          passwordResetCode: code,
+          passwordResetToken: token,
+          passwordResetExpiresAt: expiresAtIso,
+          passwordResetRequestedAt: nowIso,
+        },
+        { merge: true }
+      );
+    }
+
+    const originUrl =
+      typeof window !== 'undefined' && window.location?.origin
+        ? window.location.origin
+        : 'https://otclaim.vercel.app';
+    const uidParam = encodeURIComponent(resolved?.docId || targetPf || targetEmail);
+    const resetUrl = `${originUrl}/?resetToken=${encodeURIComponent(token)}&uid=${uidParam}`;
+
+    const dispatchRes = await sendPasswordResetLinkViaMake({
+      to: targetEmail,
+      name: targetName,
+      pfNumber: targetPf,
+      branch: targetBranch,
+      resetCode: code,
+      resetUrl,
+      expiresInMinutes,
+      requestedBy: options?.requestedBy || 'self',
+      senderName: options?.senderName,
     });
+
+    if (!dispatchRes.success) {
+      throw new Error(
+        dispatchRes.error || 'Could not dispatch password reset email via Make webhook.'
+      );
+    }
 
     recordAuditLog({
       action: 'USER_PASSWORD_RECOVERY_REQUEST',
-      actionLabel: 'Submitted Password Recovery Request',
+      actionLabel:
+        options?.requestedBy === 'admin'
+          ? 'Admin Sent Password Reset Email via Make'
+          : 'User Requested Password Reset Email via Make',
       targetType: 'user',
-      targetDescription: `${clean} (${targetEmail})`,
+      targetId: resolved?.docId,
+      targetDescription: `${targetName} (${targetPf || targetEmail})`,
       afterState: {
         recoveryEmailSent: true,
-        targetEmail: targetEmail.toLowerCase().trim(),
-        pfNumber: cleanPf || undefined,
+        provider: 'make_webhook',
+        messageId: dispatchRes.messageId,
+        targetEmail,
+        pfNumber: targetPf || undefined,
       },
       details: {
         identifier: clean,
-        targetEmail: targetEmail.toLowerCase().trim(),
+        targetEmail,
+        provider: 'make_webhook',
+        messageId: dispatchRes.messageId,
       },
     });
 
-    return targetEmail.toLowerCase().trim();
+    return targetEmail;
+  };
+
+  const verifyPasswordResetTokenOrCode = async (params: {
+    uidOrIdentifier?: string;
+    codeOrToken: string;
+  }): Promise<{ userId: string; name: string; email: string; pfNumber: string }> => {
+    const rawSecret = params.codeOrToken.trim();
+    const digitsOnly = rawSecret.replace(/\s|-/g, '');
+    if (!rawSecret) {
+      throw new Error('Verification code or reset link token is missing.');
+    }
+
+    let resolved: { docId: string; profile: UserProfile } | null = null;
+    if (params.uidOrIdentifier?.trim()) {
+      resolved = await resolveUserDocForReset(params.uidOrIdentifier.trim());
+    }
+    if (!resolved) {
+      resolved = await resolveUserDocForReset(rawSecret);
+    }
+
+    if (!resolved) {
+      throw new Error('This password reset link or account could not be found.');
+    }
+
+    const p = resolved.profile;
+    const tokenMatches = Boolean(p.passwordResetToken && p.passwordResetToken === rawSecret);
+    const codeMatches = Boolean(
+      p.passwordResetCode && digitsOnly && p.passwordResetCode === digitsOnly
+    );
+
+    if (!tokenMatches && !codeMatches) {
+      throw new Error('Invalid or already used verification code / reset link.');
+    }
+
+    if (!p.passwordResetExpiresAt || Date.now() > Date.parse(p.passwordResetExpiresAt)) {
+      throw new Error('This password reset link/code has expired. Please request a new one.');
+    }
+
+    return {
+      userId: resolved.docId,
+      name: p.name || 'Team Member',
+      email: (p.email || '').toLowerCase().trim(),
+      pfNumber: (p.employeeNumber || p.pfNumber || '').toUpperCase().trim(),
+    };
+  };
+
+  const completePasswordResetWithMake = async (params: {
+    uidOrIdentifier?: string;
+    codeOrToken: string;
+    newPassword: string;
+  }): Promise<{ email: string; pfNumber: string; name: string }> => {
+    const cleanPass = params.newPassword.trim();
+    if (cleanPass.length < 6) {
+      throw new Error('Password must be at least 6 characters long.');
+    }
+
+    const verified = await verifyPasswordResetTokenOrCode({
+      uidOrIdentifier: params.uidOrIdentifier,
+      codeOrToken: params.codeOrToken,
+    });
+
+    const pf = verified.pfNumber;
+    const pfDigits = pf.replace(/\D/g, '');
+    const passUpper = cleanPass.toUpperCase();
+    const passDigits = cleanPass.replace(/\D/g, '');
+    if (
+      (pf && passUpper === pf) ||
+      (pf && formatPfNumber(pf).toUpperCase() === passUpper) ||
+      (pfDigits.length >= 4 && passDigits === pfDigits)
+    ) {
+      throw new Error(
+        'Your new password cannot match your PF Number. Please choose a private password.'
+      );
+    }
+
+    const completedAtIso = new Date().toISOString();
+
+    await updateDoc(doc(db, 'users', verified.userId), {
+      passwordHash: cleanPass,
+      mustChangePassword: false,
+      isFirstLogin: false,
+      passwordMatchesPf: false,
+      passwordResetCompletedAt: completedAtIso,
+      initialPassword: deleteField(),
+      passwordResetToken: deleteField(),
+      passwordResetCode: deleteField(),
+      passwordResetExpiresAt: deleteField(),
+      updatedAt: completedAtIso,
+    });
+
+    if (pf) {
+      try {
+        await setDoc(
+          doc(db, 'pfDirectory', pf),
+          {
+            pfNumber: pf,
+            email: verified.email,
+            name: verified.name,
+            passwordHash: cleanPass,
+            mustChangePassword: false,
+            passwordMatchesPf: false,
+            initialPassword: deleteField(),
+            passwordResetToken: deleteField(),
+            passwordResetCode: deleteField(),
+            passwordResetExpiresAt: deleteField(),
+            updatedAt: completedAtIso,
+          },
+          { merge: true }
+        );
+      } catch (dirErr) {
+        console.warn('pfDirectory update note after Make reset:', dirErr);
+      }
+    }
+
+    const stored = findStoredAccount(pf || verified.email);
+    if (stored) {
+      upsertStoredAccount({
+        ...stored,
+        passwordHash: cleanPass,
+        mustChangePassword: false,
+        isFirstLogin: false,
+        passwordMatchesPf: false,
+      });
+    }
+
+    await recordAuditLog({
+      action: 'USER_PASSWORD_CHANGE',
+      actionLabel: 'Completed Self-Service Password Reset via Make Link/Code',
+      targetType: 'user',
+      targetId: verified.userId,
+      targetDescription: `${verified.name} (${pf || verified.email})`,
+      afterState: {
+        passwordUpdated: true,
+        method: 'make_recovery_verification',
+        completedAt: completedAtIso,
+      },
+    });
+
+    return {
+      email: verified.email,
+      pfNumber: pf,
+      name: verified.name,
+    };
   };
 
   const updateUserPassword = async (newPass: string) => {
@@ -943,6 +1266,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loginWithIdentifier,
         registerUser,
         sendPasswordReset,
+        verifyPasswordResetTokenOrCode,
+        completePasswordResetWithMake,
         updateUserPassword,
         logout,
         refreshUserProfile,

@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Clock,
   Lock,
   ArrowRight,
   AlertCircle,
@@ -8,21 +7,26 @@ import {
   KeyRound,
   CheckCircle2,
   X,
-  ShieldCheck,
-  Building2,
   Mail,
   Loader2,
+  Eye,
+  EyeOff,
+  ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { formatPfNumber } from '../utils/pfHelper';
 import { ClockLogo } from './ClockLogo';
 import { PageTransitionOverlay } from './PageTransitionOverlay';
 
+type ResetModalStep = 'request' | 'verify' | 'done';
+
 export const AuthScreen: React.FC = () => {
   const {
     loginWithGoogle,
     loginWithIdentifier,
     sendPasswordReset,
+    verifyPasswordResetTokenOrCode,
+    completePasswordResetWithMake,
     authError,
     clearAuthError,
   } = useAuth();
@@ -35,14 +39,91 @@ export const AuthScreen: React.FC = () => {
   const [localSuccess, setLocalSuccess] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Forgot password modal state
+  // Forgot / Reset Password Modal State
   const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
+  const [resetStep, setResetStep] = useState<ResetModalStep>('request');
   const [forgotInput, setForgotInput] = useState('');
+  const [resetSentToEmail, setResetSentToEmail] = useState('');
+  const [resetUidParam, setResetUidParam] = useState('');
+  const [resetCodeOrToken, setResetCodeOrToken] = useState('');
+  const [isFromEmailLink, setIsFromEmailLink] = useState(false);
+  const [isVerifyingLink, setIsVerifyingLink] = useState(false);
+  const [verifiedAccountLabel, setVerifiedAccountLabel] = useState<string | null>(null);
+  const [newResetPassword, setNewResetPassword] = useState('');
+  const [confirmResetPassword, setConfirmResetPassword] = useState('');
+  const [showResetPassword, setShowResetPassword] = useState(false);
   const [isSendingReset, setIsSendingReset] = useState(false);
+  const [isCompletingReset, setIsCompletingReset] = useState(false);
   const [resetSuccessMessage, setResetSuccessMessage] = useState<string | null>(null);
   const [resetErrorMessage, setResetErrorMessage] = useState<string | null>(null);
 
   const activeError = authError || localError;
+
+  const clearResetUrlQuery = () => {
+    if (typeof window !== 'undefined' && window.location.search.includes('resetToken=')) {
+      const cleanUrl = `${window.location.origin}${window.location.pathname}${window.location.hash || ''}`;
+      window.history.replaceState({}, document.title, cleanUrl);
+    }
+  };
+
+  // Detect 1-click Make password reset link parameters (?resetToken=...&uid=...)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('resetToken')?.trim();
+    const uid = params.get('uid')?.trim() || '';
+    if (!token) return;
+
+    setIsForgotModalOpen(true);
+    setResetStep('verify');
+    setIsFromEmailLink(true);
+    setResetCodeOrToken(token);
+    setResetUidParam(uid);
+    setResetErrorMessage(null);
+    setResetSuccessMessage(null);
+    setIsVerifyingLink(true);
+
+    verifyPasswordResetTokenOrCode({ uidOrIdentifier: uid, codeOrToken: token })
+      .then((info) => {
+        setVerifiedAccountLabel(
+          `${info.name}${info.pfNumber ? ` (${info.pfNumber})` : ''}`
+        );
+        setResetSentToEmail(info.email);
+        if (info.pfNumber) {
+          setForgotInput(info.pfNumber);
+        } else if (info.email) {
+          setForgotInput(info.email);
+        }
+      })
+      .catch((err: any) => {
+        setResetErrorMessage(
+          err?.message || 'This reset link is invalid or has expired. Please request a new one.'
+        );
+      })
+      .finally(() => {
+        setIsVerifyingLink(false);
+      });
+  }, []);
+
+  const openForgotModal = () => {
+    setForgotInput(identifier);
+    setResetStep('request');
+    setIsFromEmailLink(false);
+    setResetCodeOrToken('');
+    setResetUidParam('');
+    setResetSentToEmail('');
+    setVerifiedAccountLabel(null);
+    setNewResetPassword('');
+    setConfirmResetPassword('');
+    setResetSuccessMessage(null);
+    setResetErrorMessage(null);
+    setIsForgotModalOpen(true);
+  };
+
+  const closeForgotModal = () => {
+    setIsForgotModalOpen(false);
+    clearResetUrlQuery();
+  };
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,14 +166,58 @@ export const AuthScreen: React.FC = () => {
     setIsSendingReset(true);
 
     try {
-      const email = await sendPasswordReset(forgotInput.trim());
-      setResetSuccessMessage(
-        `Password reset link sent to ${email}! Please check your email inbox to set a new password.`
-      );
+      const email = await sendPasswordReset(forgotInput.trim(), { requestedBy: 'self' });
+      setResetSentToEmail(email);
+      setResetUidParam(forgotInput.trim());
+      setIsFromEmailLink(false);
+      setResetCodeOrToken('');
+      setNewResetPassword('');
+      setConfirmResetPassword('');
+      setResetStep('verify');
     } catch (err: any) {
       setResetErrorMessage(err.message || 'Failed to send password reset email.');
     } finally {
       setIsSendingReset(false);
+    }
+  };
+
+  const handleCompletePasswordReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetErrorMessage(null);
+
+    if (newResetPassword.trim().length < 6) {
+      setResetErrorMessage('New password must be at least 6 characters long.');
+      return;
+    }
+    if (newResetPassword.trim() !== confirmResetPassword.trim()) {
+      setResetErrorMessage('Passwords do not match. Please re-enter.');
+      return;
+    }
+
+    setIsCompletingReset(true);
+    try {
+      const completed = await completePasswordResetWithMake({
+        uidOrIdentifier: resetUidParam || forgotInput.trim(),
+        codeOrToken: resetCodeOrToken.trim(),
+        newPassword: newResetPassword.trim(),
+      });
+
+      const loginId = completed.pfNumber || completed.email;
+      if (loginId) {
+        setIdentifier(loginId);
+      }
+      setPassword('');
+      clearResetUrlQuery();
+      setResetSuccessMessage(
+        `Your password has been updated for ${completed.name}${
+          completed.pfNumber ? ` (${completed.pfNumber})` : ''
+        }. You can now sign in with your new password.`
+      );
+      setResetStep('done');
+    } catch (err: any) {
+      setResetErrorMessage(err?.message || 'Unable to reset password.');
+    } finally {
+      setIsCompletingReset(false);
     }
   };
 
@@ -202,12 +327,7 @@ export const AuthScreen: React.FC = () => {
               <label className="block font-bold text-slate-700">Password</label>
               <button
                 type="button"
-                onClick={() => {
-                  setForgotInput(identifier);
-                  setResetSuccessMessage(null);
-                  setResetErrorMessage(null);
-                  setIsForgotModalOpen(true);
-                }}
+                onClick={openForgotModal}
                 className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 transition cursor-pointer"
               >
                 Forgot Password?
@@ -243,7 +363,7 @@ export const AuthScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* Forgot Password Modal */}
+      {/* Forgot / Reset Password Modal (Make-powered 1-click link + 6-digit OTP) */}
       {isForgotModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs">
           <div className="w-full max-w-md max-h-[92dvh] overflow-y-auto rounded-2xl bg-white p-5 sm:p-6 shadow-2xl border border-slate-200 animate-scale-in">
@@ -254,39 +374,48 @@ export const AuthScreen: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-slate-900">Reset Your Password</h3>
-                  <p className="text-[11px] text-slate-500">Self Password Recovery</p>
+                  <p className="text-[11px] text-slate-500">
+                    {resetStep === 'request'
+                      ? 'Automated Make Email Recovery'
+                      : resetStep === 'verify'
+                      ? 'Set a New Private Password'
+                      : 'Recovery Complete'}
+                  </p>
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setIsForgotModalOpen(false)}
+                onClick={closeForgotModal}
                 className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+                aria-label="Close password reset modal"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {resetSuccessMessage ? (
+            {resetStep === 'done' && resetSuccessMessage && (
               <div className="py-6 text-center space-y-3">
                 <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
                   <CheckCircle2 className="w-6 h-6" />
                 </div>
-                <h4 className="text-sm font-bold text-slate-900">Reset Email Dispatched!</h4>
+                <h4 className="text-sm font-bold text-slate-900">Password Updated!</h4>
                 <p className="text-xs text-slate-600 leading-relaxed max-w-sm mx-auto">
                   {resetSuccessMessage}
                 </p>
                 <button
                   type="button"
-                  onClick={() => setIsForgotModalOpen(false)}
-                  className="mt-2 px-5 py-2 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 transition"
+                  onClick={closeForgotModal}
+                  className="mt-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition cursor-pointer"
                 >
                   Return to Sign In
                 </button>
               </div>
-            ) : (
+            )}
+
+            {resetStep === 'request' && (
               <form onSubmit={handleSendPasswordReset} className="mt-4 space-y-4 text-xs">
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  Enter your registered <strong>PF Number</strong> or <strong>Email</strong>. We will send a secure password reset link to your email.
+                  Enter your registered <strong>PF Number</strong> or <strong>Email</strong>. We will send a reset link and 6-digit verification code to your inbox via Make.
                 </p>
 
                 {resetErrorMessage && (
@@ -316,8 +445,8 @@ export const AuthScreen: React.FC = () => {
                 <div className="flex items-center justify-end gap-2 pt-2">
                   <button
                     type="button"
-                    onClick={() => setIsForgotModalOpen(false)}
-                    className="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 transition"
+                    onClick={closeForgotModal}
+                    className="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 transition cursor-pointer"
                   >
                     Cancel
                   </button>
@@ -327,9 +456,150 @@ export const AuthScreen: React.FC = () => {
                     className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-700 transition disabled:opacity-60 cursor-pointer shadow-xs"
                   >
                     {isSendingReset && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                    <span>{isSendingReset ? 'Sending link...' : 'Send Reset Email'}</span>
+                    <span>{isSendingReset ? 'Sending via Make...' : 'Send Reset Email'}</span>
                   </button>
                 </div>
+              </form>
+            )}
+
+            {resetStep === 'verify' && (
+              <form onSubmit={handleCompletePasswordReset} className="mt-4 space-y-3.5 text-xs">
+                {isVerifyingLink ? (
+                  <div className="py-8 flex flex-col items-center justify-center gap-2 text-slate-600">
+                    <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+                    <span>Verifying password reset link...</span>
+                  </div>
+                ) : (
+                  <>
+                    {!resetErrorMessage && (
+                      <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-start gap-2">
+                        <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                        <div className="leading-relaxed">
+                          {isFromEmailLink ? (
+                            <>
+                              <span className="font-bold block">Reset Link Verified</span>
+                              <span className="text-[11px] text-emerald-800">
+                                Choosing a new password for{' '}
+                                <strong>{verifiedAccountLabel || resetSentToEmail}</strong>.
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="font-bold block">Reset Email Sent via Make!</span>
+                              <span className="text-[11px] text-emerald-800">
+                                Enter the 6-digit code sent to{' '}
+                                <strong>{resetSentToEmail}</strong> (or click the button in the email).
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {resetErrorMessage && (
+                      <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                        <span>{resetErrorMessage}</span>
+                      </div>
+                    )}
+
+                    {!isFromEmailLink && (
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">
+                          6-Digit Verification Code
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          inputMode="numeric"
+                          value={resetCodeOrToken}
+                          onChange={e => setResetCodeOrToken(e.target.value)}
+                          placeholder="e.g. 482917"
+                          className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 font-mono font-bold tracking-widest text-center text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-white"
+                        />
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">
+                        New Password
+                      </label>
+                      <div className="relative">
+                        <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                        <input
+                          type={showResetPassword ? 'text' : 'password'}
+                          required
+                          minLength={6}
+                          value={newResetPassword}
+                          onChange={e => setNewResetPassword(e.target.value)}
+                          placeholder="At least 6 characters"
+                          className="w-full rounded-xl border border-slate-300 py-2 pl-9 pr-9 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowResetPassword(prev => !prev)}
+                          className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                        >
+                          {showResetPassword ? (
+                            <EyeOff className="w-4 h-4" />
+                          ) : (
+                            <Eye className="w-4 h-4" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">
+                        Confirm New Password
+                      </label>
+                      <div className="relative">
+                        <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                        <input
+                          type={showResetPassword ? 'text' : 'password'}
+                          required
+                          minLength={6}
+                          value={confirmResetPassword}
+                          onChange={e => setConfirmResetPassword(e.target.value)}
+                          placeholder="Re-enter your new password"
+                          className="w-full rounded-xl border border-slate-300 py-2 pl-9 pr-3 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-white"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          clearResetUrlQuery();
+                          setResetStep('request');
+                          setIsFromEmailLink(false);
+                          setResetErrorMessage(null);
+                        }}
+                        className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 cursor-pointer"
+                      >
+                        Request new code
+                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={closeForgotModal}
+                          className="px-3.5 py-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 transition cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={isCompletingReset}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-700 transition disabled:opacity-60 cursor-pointer shadow-xs"
+                        >
+                          {isCompletingReset && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                          <span>{isCompletingReset ? 'Saving...' : 'Update Password'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
               </form>
             )}
           </div>

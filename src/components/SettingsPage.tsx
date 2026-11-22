@@ -168,6 +168,7 @@ export const SettingsPage: React.FC = () => {
   const [testEmailRecipient, setTestEmailRecipient] = useState(
     userProfile?.email || currentUser?.email || ''
   );
+  const [testEmailTemplateMode, setTestEmailTemplateMode] = useState<'standard' | 'password_reset'>('standard');
   const [isSendingTestEmail, setIsSendingTestEmail] = useState(false);
   const [makeEmailFeedback, setMakeEmailFeedback] = useState<{
     type: 'success' | 'error';
@@ -1934,20 +1935,29 @@ export const SettingsPage: React.FC = () => {
                   recipientName: userProfile?.name || 'Administrator',
                   senderName: userProfile?.name || currentUser?.email || 'Administrator',
                   senderEmail: userProfile?.email || currentUser?.email || '',
+                  templateMode: testEmailTemplateMode,
                 });
                 if (res.success) {
                   setMakeEmailFeedback({
                     type: 'success',
-                    text: `Test payload accepted by ${res.webhookHost} (${res.responseText || 'Accepted'}). Check your inbox or Make scenario execution log.`,
+                    text: `${
+                      testEmailTemplateMode === 'password_reset'
+                        ? 'Modern password reset preview'
+                        : 'Test payload'
+                    } accepted by ${res.webhookHost} (${res.responseText || 'Accepted'}). Check your inbox or Make scenario execution log.`,
                   });
                   await recordAuditLog({
                     action: 'EMAIL_DISPATCH',
-                    actionLabel: 'Sent Make Webhook Test Email',
+                    actionLabel:
+                      testEmailTemplateMode === 'password_reset'
+                        ? 'Sent Make Password Reset Template Preview'
+                        : 'Sent Make Webhook Test Email',
                     targetType: 'settings',
                     targetDescription: `Test dispatch to ${testEmailRecipient}`,
                     details: {
                       recipientEmail: testEmailRecipient,
                       provider: 'make_webhook',
+                      templateMode: testEmailTemplateMode,
                       messageId: res.messageId,
                     },
                   });
@@ -1973,8 +1983,33 @@ export const SettingsPage: React.FC = () => {
                 Verify Make Scenario With a Test Email
               </h3>
               <p className="text-[11px] text-indigo-800/80 mt-0.5">
-                Triggers a live <code className="font-mono bg-white/80 px-1 py-0.5 rounded">test_email</code> webhook event so you can test email delivery or map fields in Make.
+                Trigger a live webhook event to verify delivery or preview the modern Password Reset email template in your inbox.
               </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setTestEmailTemplateMode('standard')}
+                className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
+                  testEmailTemplateMode === 'standard'
+                    ? 'bg-indigo-600 text-white shadow-2xs'
+                    : 'bg-white text-slate-600 border border-indigo-200 hover:bg-indigo-50'
+                }`}
+              >
+                Standard Test Email
+              </button>
+              <button
+                type="button"
+                onClick={() => setTestEmailTemplateMode('password_reset')}
+                className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
+                  testEmailTemplateMode === 'password_reset'
+                    ? 'bg-indigo-600 text-white shadow-2xs'
+                    : 'bg-white text-slate-600 border border-indigo-200 hover:bg-indigo-50'
+                }`}
+              >
+                Modern Password Reset Preview
+              </button>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2.5">

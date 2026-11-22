@@ -35,7 +35,7 @@ import { ConfirmationModal } from './ConfirmationModal';
 import { TableSkeleton, MobileCardListSkeleton } from './Skeleton';
 import { SearchableBranchSelect } from './SearchableBranchSelect';
 import { sanitizeFirestoreData } from '../utils/firestoreUtils';
-import { adminChangeUserPassword, adminSendUserPasswordResetEmail, adminCreateUserInAuth } from '../utils/adminAuthHelper';
+import { adminChangeUserPassword, adminCreateUserInAuth } from '../utils/adminAuthHelper';
 import { sendUserWelcomeEmail, EmailDispatchResult } from '../utils/emailNotifier';
 import {
   claimWelcomeDispatchLock,
@@ -58,7 +58,7 @@ import {
 } from '../utils/branchRoleManager';
 
 export const UserManagement: React.FC = () => {
-  const { currentUser, isAdmin, isSuperAdmin, refreshUserProfile } = useAuth();
+  const { currentUser, userProfile, isAdmin, isSuperAdmin, refreshUserProfile, sendPasswordReset } = useAuth();
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -892,13 +892,18 @@ export const UserManagement: React.FC = () => {
 
     try {
       if (pendingPasswordTarget.type === 'email') {
-        await adminSendUserPasswordResetEmail(passwordModalUser.email);
-        setPasswordSuccess(`A secure password reset link has been dispatched to ${passwordModalUser.email}!`);
+        const sentTo = await sendPasswordReset(passwordModalUser.email, {
+          requestedBy: 'admin',
+          senderName: userProfile?.name || currentUser?.email || 'Administrator',
+        });
+        setPasswordSuccess(
+          `Modern password reset email (1-click link & 6-digit code) dispatched via Make to ${sentTo}!`
+        );
 
         // Record administrative audit log
         await recordAuditLog({
           action: 'USER_PASSWORD_RESET_EMAIL',
-          actionLabel: 'Dispatched Password Reset Email Link',
+          actionLabel: 'Dispatched Password Reset Email via Make',
           targetType: 'user',
           targetId: passwordModalUser.id,
           targetDescription: `${passwordModalUser.name} (${passwordModalUser.employeeNumber || passwordModalUser.pfNumber})`,
@@ -908,10 +913,11 @@ export const UserManagement: React.FC = () => {
           },
           afterState: {
             notificationSent: true,
+            provider: 'make_webhook',
             targetEmail: passwordModalUser.email,
           },
           details: {
-            method: 'email',
+            method: 'make_email_link_and_code',
             targetEmail: passwordModalUser.email,
             userBranch: passwordModalUser.branch,
           },

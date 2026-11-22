@@ -117,6 +117,11 @@ export interface UserProfile {
   initialPassword?: string;
   passwordHash?: string;
   passwordMatchesPf?: boolean;
+  passwordResetToken?: string;
+  passwordResetCode?: string;
+  passwordResetExpiresAt?: string;
+  passwordResetRequestedAt?: string;
+  passwordResetCompletedAt?: string;
   createdAt: string;
   updatedAt: string;
 }

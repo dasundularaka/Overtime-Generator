@@ -6,6 +6,7 @@ export const DEFAULT_MAKE_WEBHOOK_URL =
 export type MakeEmailEventType =
   | 'welcome_credentials'
   | 'notification_broadcast'
+  | 'password_reset_link'
   | 'password_reset_credentials'
   | 'test_email';
 
@@ -58,11 +59,25 @@ export interface MakePasswordResetEmailPayload {
   senderEmail?: string;
 }
 
+export interface MakePasswordResetLinkPayload {
+  to: string;
+  name: string;
+  pfNumber?: string;
+  branch?: string;
+  resetCode: string;
+  resetUrl: string;
+  expiresInMinutes?: number;
+  requestedBy?: 'self' | 'admin';
+  senderName?: string;
+  senderEmail?: string;
+}
+
 export interface MakeTestEmailPayload {
   to: string;
   recipientName?: string;
   senderName?: string;
   senderEmail?: string;
+  templateMode?: 'standard' | 'password_reset';
 }
 
 // In-memory lock to avoid duplicate welcome email dispatches when creating users interactively
@@ -556,7 +571,248 @@ OT Claim Notification System`;
 }
 
 /**
- * Dispatches an updated credentials notice when an admin resets an employee password.
+ * Modern HTML wrapper for security & password recovery emails.
+ * Uses dark slate/indigo contrast header and email-safe inline table styling.
+ */
+function buildModernSecurityEmailHtml(params: {
+  badgeText: string;
+  badgeBgHex?: string;
+  badgeTextHex?: string;
+  accentHex?: string;
+  title: string;
+  subtitle: string;
+  bodyHtml: string;
+  ctaLabel?: string;
+  ctaUrl?: string;
+  footerNote?: string;
+}): string {
+  const safeCtaUrl = sanitizeHttpUrl(params.ctaUrl);
+  const accent = params.accentHex || '#4f46e5';
+
+  return `<div style="margin:0;padding:28px 12px;background-color:#eef2f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0f172a;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:600px;margin:0 auto;background-color:#ffffff;border-radius:20px;overflow:hidden;border:1px solid #dbe4f0;">
+    <tr>
+      <td style="padding:28px 32px 24px 32px;background-color:#0f172a;border-bottom:4px solid ${accent};">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+          <tr>
+            <td style="font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;">
+              OT CLAIM &middot; ACCOUNT SECURITY
+            </td>
+            <td align="right">
+              <span style="display:inline-block;padding:4px 11px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;background-color:${
+                params.badgeBgHex || '#312e81'
+              };color:${params.badgeTextHex || '#e0e7ff'};">
+                ${escapeHtml(params.badgeText)}
+              </span>
+            </td>
+          </tr>
+        </table>
+        <h1 style="margin:14px 0 6px 0;font-size:22px;line-height:1.25;font-weight:800;color:#ffffff;letter-spacing:-0.01em;">
+          ${escapeHtml(params.title)}
+        </h1>
+        <p style="margin:0;font-size:13px;line-height:1.5;color:#cbd5e1;">
+          ${escapeHtml(params.subtitle)}
+        </p>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:28px 32px;font-size:14px;line-height:1.65;color:#334155;">
+        ${params.bodyHtml}
+        ${
+          safeCtaUrl && params.ctaLabel
+            ? `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-top:22px;">
+                <tr>
+                  <td align="center">
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                      <tr>
+                        <td style="border-radius:12px;background-color:${accent};">
+                          <a href="${escapeHtml(safeCtaUrl)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:13px 28px;font-size:14px;font-weight:700;color:#ffffff;text-decoration:none;letter-spacing:0.01em;">
+                            ${escapeHtml(params.ctaLabel)} &rarr;
+                          </a>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>`
+            : ''
+        }
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:18px 32px;background-color:#f8fafc;border-top:1px solid #e2e8f0;font-size:12px;line-height:1.55;color:#64748b;">
+        ${escapeHtml(
+          params.footerNote || 'Automated security email from OT Claim Management System via Make.'
+        )}
+      </td>
+    </tr>
+  </table>
+</div>`;
+}
+
+/**
+ * Dispatches a modern self-service or admin-triggered Password Reset Link + 6-digit OTP email via Make.
+ */
+export async function sendPasswordResetLinkViaMake(
+  params: MakePasswordResetLinkPayload
+): Promise<MakeWebhookDispatchResult> {
+  const recipientEmail = (params.to || '').trim().toLowerCase();
+  if (!recipientEmail || !recipientEmail.includes('@')) {
+    return { success: false, error: 'Valid recipient email address is required.' };
+  }
+
+  const recipientName = (params.name || 'Team Member').trim();
+  const cleanPf = (params.pfNumber || '').trim().toUpperCase();
+  const branch = (params.branch || '').trim();
+  const resetCode = String(params.resetCode || '').trim();
+  const spacedCode =
+    resetCode.length === 6 ? `${resetCode.slice(0, 3)} ${resetCode.slice(3)}` : resetCode;
+  const resetUrl = sanitizeHttpUrl(params.resetUrl) || resolveDefaultAppUrl();
+  const expiresInMinutes = params.expiresInMinutes ?? 15;
+  const requestedAtText = new Date().toLocaleString();
+  const isAdminTriggered = params.requestedBy === 'admin';
+  const subject = `OT Claim - Reset Your Password${cleanPf ? ` [${cleanPf}]` : ''}`;
+
+  const textBody = `Hello ${recipientName},
+
+${
+  isAdminTriggered
+    ? 'An administrator has initiated a password reset for your OT Claim Management System account.'
+    : 'We received a request to reset the password for your OT Claim Management System account.'
+}
+
+Verification Code: ${resetCode}
+Expires In: ${expiresInMinutes} minutes
+${cleanPf ? `PF Number: ${cleanPf}\n` : ''}
+Reset Link: ${resetUrl}
+
+To set a new personal password:
+1. Click the reset link above, OR
+2. Enter verification code ${resetCode} on the password recovery screen.
+
+Security Notice:
+If you did not request a password reset, you can safely ignore this email. Your existing password remains secure and unchanged.
+
+Best regards,
+OT Claim Security Team`;
+
+  const htmlBody = buildModernSecurityEmailHtml({
+    badgeText: isAdminTriggered ? 'Admin Initiated' : 'Password Recovery',
+    badgeBgHex: '#312e81',
+    badgeTextHex: '#e0e7ff',
+    accentHex: '#4f46e5',
+    title: 'Reset Your Account Password',
+    subtitle: `Single-use recovery link & code valid for ${expiresInMinutes} minutes`,
+    bodyHtml: `
+      <p style="margin:0 0 14px 0;">Hi <strong>${escapeHtml(recipientName)}</strong>,</p>
+      <p style="margin:0 0 20px 0;">${
+        isAdminTriggered
+          ? 'An administrator sent you a secure password reset link for your <strong>OT Claim Management System</strong> account. Click the button below or enter your 6-digit verification code on the sign-in recovery screen.'
+          : 'We received a request to reset your <strong>OT Claim Management System</strong> password. Click the button below to choose a new password, or enter the 6-digit verification code on the recovery screen.'
+      }</p>
+
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px 0;background-color:#f8fafc;border:1.5px dashed #a5b4fc;border-radius:14px;">
+        <tr>
+          <td align="center" style="padding:18px 16px;">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#4f46e5;">
+              6-Digit Verification Code
+            </div>
+            <div style="margin-top:8px;font-size:30px;line-height:1.1;font-weight:800;letter-spacing:0.18em;color:#0f172a;font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;">
+              ${escapeHtml(spacedCode)}
+            </div>
+            <div style="margin-top:8px;font-size:11px;color:#64748b;">
+              Valid for ${escapeHtml(expiresInMinutes)} minutes &middot; Single-use security code
+            </div>
+          </td>
+        </tr>
+      </table>
+
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 18px 0;background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;">
+        ${
+          cleanPf
+            ? `<tr>
+                <td style="padding:11px 16px;border-bottom:1px solid #e2e8f0;font-size:12px;">
+                  <span style="color:#64748b;font-weight:600;">Account PF Number</span>
+                </td>
+                <td align="right" style="padding:11px 16px;border-bottom:1px solid #e2e8f0;font-size:12px;font-weight:700;color:#0f172a;font-family:monospace;">
+                  ${escapeHtml(cleanPf)}
+                </td>
+              </tr>`
+            : ''
+        }
+        <tr>
+          <td style="padding:11px 16px;border-bottom:1px solid #e2e8f0;font-size:12px;">
+            <span style="color:#64748b;font-weight:600;">Registered Email</span>
+          </td>
+          <td align="right" style="padding:11px 16px;border-bottom:1px solid #e2e8f0;font-size:12px;font-weight:600;color:#0f172a;">
+            ${escapeHtml(recipientEmail)}
+          </td>
+        </tr>
+        ${
+          branch
+            ? `<tr>
+                <td style="padding:11px 16px;border-bottom:1px solid #e2e8f0;font-size:12px;">
+                  <span style="color:#64748b;font-weight:600;">Branch</span>
+                </td>
+                <td align="right" style="padding:11px 16px;border-bottom:1px solid #e2e8f0;font-size:12px;font-weight:600;color:#0f172a;">
+                  ${escapeHtml(branch)}
+                </td>
+              </tr>`
+            : ''
+        }
+        <tr>
+          <td style="padding:11px 16px;font-size:12px;">
+            <span style="color:#64748b;font-weight:600;">Requested</span>
+          </td>
+          <td align="right" style="padding:11px 16px;font-size:12px;font-weight:600;color:#475569;">
+            ${escapeHtml(requestedAtText)}
+          </td>
+        </tr>
+      </table>
+
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#fffbeb;border:1px solid #fde68a;border-radius:10px;">
+        <tr>
+          <td style="padding:12px 14px;font-size:12px;line-height:1.5;color:#92400e;">
+            <strong>Didn&apos;t request this?</strong> You can safely ignore this message. Your current password will remain unchanged and this link will expire automatically.
+          </td>
+        </tr>
+      </table>
+
+      <p style="margin:16px 0 0 0;font-size:11px;line-height:1.5;color:#64748b;word-break:break-all;">
+        If the button below does not open, copy and paste this URL into your browser:<br />
+        <a href="${escapeHtml(resetUrl)}" style="color:#4f46e5;text-decoration:underline;">${escapeHtml(resetUrl)}</a>
+      </p>
+    `,
+    ctaLabel: 'Reset Password Now',
+    ctaUrl: resetUrl,
+    footerNote: 'Automated password recovery notification delivered via Make email automation.',
+  });
+
+  return postToMakeWebhook({
+    event: 'password_reset_link' satisfies MakeEmailEventType,
+    source: 'OT Claim System',
+    timestamp: new Date().toISOString(),
+    to: recipientEmail,
+    recipientEmail,
+    recipientName,
+    subject,
+    text: textBody,
+    body: textBody,
+    html: htmlBody,
+    pfNumber: cleanPf,
+    username: cleanPf,
+    branch,
+    resetCode,
+    resetUrl,
+    expiresInMinutes,
+    requestedBy: params.requestedBy || 'self',
+    senderName: params.senderName || 'OT Claim Security',
+    senderEmail: params.senderEmail || '',
+  });
+}
+
+/**
+ * Dispatches an updated credentials notice when an admin resets an employee password directly.
  */
 export async function sendPasswordResetNotificationViaMake(
   params: MakePasswordResetEmailPayload
@@ -569,6 +825,8 @@ export async function sendPasswordResetNotificationViaMake(
   const cleanPf = (params.pfNumber || '').trim().toUpperCase();
   const recipientName = (params.name || 'User').trim();
   const loginUrl = sanitizeHttpUrl(params.loginUrl) || resolveDefaultAppUrl();
+  const resetTypeLabel =
+    params.resetMode === 'custom' ? 'Temporary Admin Password' : 'Reset to PF Number';
   const subject = `OT Claim - Password Updated [${cleanPf || recipientName}]`;
 
   const textBody = `Dear ${recipientName},
@@ -577,6 +835,7 @@ An administrator has reset your OT Claim Management System password.
 
 • Username (PF No): ${cleanPf}
 • Temporary Password: ${params.newPassword}
+• Reset Type: ${resetTypeLabel}
 • Web Portal: ${loginUrl}
 
 For security, you will be prompted to create a new personal password on your next sign-in.
@@ -584,35 +843,47 @@ For security, you will be prompted to create a new personal password on your nex
 Best regards,
 OT Claim Administration`;
 
-  const htmlBody = buildBrandedEmailShell({
-    eyebrow: 'Account Security Notice',
-    accentHex: '#d97706',
+  const htmlBody = buildModernSecurityEmailHtml({
     badgeText: 'Password Reset',
-    badgeBgHex: '#fef3c7',
-    badgeTextHex: '#92400e',
+    badgeBgHex: '#78350f',
+    badgeTextHex: '#fef3c7',
+    accentHex: '#d97706',
     title: 'Your OT Claim Password Was Reset',
+    subtitle: 'Temporary credentials are ready for your next sign-in',
     bodyHtml: `
-      <p style="margin:0 0 12px 0;">Dear <strong>${escapeHtml(recipientName)}</strong>,</p>
-      <p style="margin:0 0 16px 0;">An administrator has reset your account password. Use the temporary credentials below to sign in:</p>
-      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;margin:0 0 16px 0;">
+      <p style="margin:0 0 14px 0;">Hi <strong>${escapeHtml(recipientName)}</strong>,</p>
+      <p style="margin:0 0 18px 0;">An administrator has updated your sign-in credentials for the <strong>OT Claim Management System</strong>. Use the temporary credentials below to log in:</p>
+
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;margin:0 0 18px 0;">
         <tr>
-          <td style="padding:14px 18px 8px 18px;border-bottom:1px solid #e2e8f0;">
-            <div style="color:#64748b;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;">Username (PF No)</div>
-            <div style="margin-top:3px;font-size:15px;font-weight:700;color:#0f172a;font-family:monospace;">${escapeHtml(cleanPf)}</div>
+          <td style="padding:14px 18px;border-bottom:1px solid #e2e8f0;">
+            <div style="color:#64748b;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;">Username (PF No)</div>
+            <div style="margin-top:4px;font-size:16px;font-weight:800;color:#0f172a;font-family:'SFMono-Regular',Consolas,monospace;">${escapeHtml(cleanPf)}</div>
           </td>
         </tr>
         <tr>
-          <td style="padding:10px 18px 14px 18px;">
-            <div style="color:#64748b;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;">Temporary Password</div>
-            <div style="margin-top:3px;font-size:15px;font-weight:700;color:#0f172a;font-family:monospace;">${escapeHtml(params.newPassword)}</div>
+          <td style="padding:14px 18px;border-bottom:1px solid #e2e8f0;">
+            <div style="color:#64748b;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;">Temporary Password</div>
+            <div style="margin-top:4px;font-size:16px;font-weight:800;color:#b45309;font-family:'SFMono-Regular',Consolas,monospace;">${escapeHtml(params.newPassword)}</div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:12px 18px;">
+            <div style="color:#64748b;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;">Reset Method</div>
+            <div style="margin-top:3px;font-size:13px;font-weight:600;color:#334155;">${escapeHtml(resetTypeLabel)}</div>
           </td>
         </tr>
       </table>
-      <p style="margin:0;font-size:12px;color:#64748b;">
-        You will be prompted to set a new personal password immediately upon logging in.
-      </p>
+
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#fffbeb;border:1px solid #fde68a;border-radius:10px;">
+        <tr>
+          <td style="padding:12px 14px;font-size:12px;line-height:1.5;color:#92400e;">
+            <strong>Mandatory Password Update:</strong> Immediately after signing in with these temporary credentials, you will be prompted to set your own private password.
+          </td>
+        </tr>
+      </table>
     `,
-    ctaLabel: 'Sign In to OT Claim',
+    ctaLabel: 'Sign In & Update Password',
     ctaUrl: loginUrl,
     footerNote: 'Security notification dispatched via Make email automation.',
   });
@@ -652,6 +923,22 @@ export async function sendTestEmailViaMake(
   const recipientName = (params.recipientName || 'Administrator').trim();
   const senderName = (params.senderName || 'OT Claim System').trim();
   const portalUrl = resolveDefaultAppUrl();
+
+  if (params.templateMode === 'password_reset') {
+    return sendPasswordResetLinkViaMake({
+      to: recipientEmail,
+      name: recipientName,
+      pfNumber: 'PF1001',
+      branch: 'Head Office',
+      resetCode: '482917',
+      resetUrl: `${portalUrl}/?resetToken=sample-preview-token`,
+      expiresInMinutes: 15,
+      requestedBy: 'self',
+      senderName,
+      senderEmail: params.senderEmail,
+    });
+  }
+
   const subject = 'OT Claim - Make Automated Email Test';
   const sentAt = new Date().toISOString();
 
