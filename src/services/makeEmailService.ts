@@ -167,7 +167,20 @@ function resolveDefaultAppUrl(): string {
 }
 
 function formatTextParagraphsHtml(text: string): string {
-  return escapeHtml(text).replace(/\r\n|\r|\n/g, '<br />');
+  const normalized = String(text ?? '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .trim();
+  if (!normalized) return '';
+  const paragraphs = normalized.split(/\n{2,}/);
+  return paragraphs
+    .map(
+      (para, idx) =>
+        `<p style="margin:${idx === paragraphs.length - 1 ? '0' : '0 0 12px 0'};line-height:1.6;color:#1e293b;">${escapeHtml(
+          para
+        ).replace(/\n/g, '<br />')}</p>`
+    )
+    .join('');
 }
 
 function buildBrandedEmailShell(params: {
@@ -183,21 +196,14 @@ function buildBrandedEmailShell(params: {
   ctaUrl?: string;
 }): string {
   const safeCtaUrl = sanitizeHttpUrl(params.ctaUrl);
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${escapeHtml(params.title)}</title>
-</head>
-<body style="margin:0;padding:24px 12px;background-color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0f172a;">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e2e8f0;box-shadow:0 4px 16px rgba(15,23,42,0.06);">
+  return `<div style="margin:0;padding:24px 12px;background-color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0f172a;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:600px;margin:0 auto;background-color:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e2e8f0;">
     <tr>
-      <td style="height:5px;background:${params.accentHex};font-size:0;line-height:0;">&nbsp;</td>
+      <td style="height:5px;background-color:${params.accentHex};font-size:0;line-height:0;">&nbsp;</td>
     </tr>
     <tr>
       <td style="padding:24px 28px 16px 28px;border-bottom:1px solid #f1f5f9;">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
           <tr>
             <td style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">
               ${escapeHtml(params.eyebrow)}
@@ -205,7 +211,7 @@ function buildBrandedEmailShell(params: {
             ${
               params.badgeText
                 ? `<td align="right">
-                    <span style="display:inline-block;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;background:${
+                    <span style="display:inline-block;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;background-color:${
                       params.badgeBgHex || '#eef2ff'
                     };color:${params.badgeTextHex || '#3730a3'};">
                       ${escapeHtml(params.badgeText)}
@@ -225,27 +231,28 @@ function buildBrandedEmailShell(params: {
         ${params.bodyHtml}
         ${
           safeCtaUrl && params.ctaLabel
-            ? `<div style="margin-top:24px;">
-                <a href="${escapeHtml(safeCtaUrl)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:11px 20px;border-radius:10px;background:${
-                  params.accentHex
-                };color:#ffffff;font-size:13px;font-weight:700;text-decoration:none;">
-                  ${escapeHtml(params.ctaLabel)}
-                </a>
-              </div>`
+            ? `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin-top:22px;">
+                <tr>
+                  <td style="border-radius:10px;background-color:${params.accentHex};">
+                    <a href="${escapeHtml(safeCtaUrl)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:11px 20px;font-size:13px;font-weight:700;color:#ffffff;text-decoration:none;">
+                      ${escapeHtml(params.ctaLabel)}
+                    </a>
+                  </td>
+                </tr>
+              </table>`
             : ''
         }
       </td>
     </tr>
     <tr>
-      <td style="padding:16px 28px;background:#f8fafc;border-top:1px solid #f1f5f9;font-size:12px;line-height:1.5;color:#64748b;">
+      <td style="padding:16px 28px;background-color:#f8fafc;border-top:1px solid #f1f5f9;font-size:12px;line-height:1.5;color:#64748b;">
         ${escapeHtml(
           params.footerNote || 'Automated system notification delivered via OT Claim Management Portal.'
         )}
       </td>
     </tr>
   </table>
-</body>
-</html>`;
+</div>`;
 }
 
 /**
@@ -373,16 +380,35 @@ Overtime Claim Management Team`;
     badgeTextHex: '#3730a3',
     title: 'Your OT Claim Login Credentials',
     bodyHtml: `
-      <p style="margin:0 0 14px 0;">Dear <strong>${escapeHtml(recipientName)}</strong>,</p>
+      <p style="margin:0 0 12px 0;">Dear <strong>${escapeHtml(recipientName)}</strong>,</p>
       <p style="margin:0 0 16px 0;">Welcome to the <strong>OT Claim Management System</strong>. Your staff account has been created and you can sign in using the credentials below:</p>
-      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px 18px;margin:0 0 16px 0;">
-        <div style="margin-bottom:8px;"><span style="color:#64748b;font-size:12px;font-weight:600;">Username (PF No):</span><br /><strong style="font-size:15px;color:#0f172a;font-family:monospace;">${escapeHtml(cleanPf)}</strong></div>
-        <div style="margin-bottom:8px;"><span style="color:#64748b;font-size:12px;font-weight:600;">Temporary Password:</span><br /><strong style="font-size:15px;color:#0f172a;font-family:monospace;">${escapeHtml(initialPassword)}</strong></div>
-        <div><span style="color:#64748b;font-size:12px;font-weight:600;">Portal URL:</span><br /><a href="${escapeHtml(loginUrl)}" style="color:#4f46e5;font-weight:600;text-decoration:none;">${escapeHtml(loginUrl)}</a></div>
-      </div>
-      <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px 14px;font-size:12px;color:#92400e;">
-        <strong>First-Time Login Security Notice:</strong> When signing in for the first time, you will be prompted to set a new personal password before accessing your dashboard.
-      </div>
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;margin:0 0 16px 0;">
+        <tr>
+          <td style="padding:14px 18px 8px 18px;border-bottom:1px solid #e2e8f0;">
+            <div style="color:#64748b;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;">Username (PF No)</div>
+            <div style="margin-top:3px;font-size:15px;font-weight:700;color:#0f172a;font-family:monospace;">${escapeHtml(cleanPf)}</div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:10px 18px;border-bottom:1px solid #e2e8f0;">
+            <div style="color:#64748b;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;">Temporary Password</div>
+            <div style="margin-top:3px;font-size:15px;font-weight:700;color:#0f172a;font-family:monospace;">${escapeHtml(initialPassword)}</div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:10px 18px 14px 18px;">
+            <div style="color:#64748b;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;">Portal URL</div>
+            <div style="margin-top:3px;font-size:13px;"><a href="${escapeHtml(loginUrl)}" style="color:#4f46e5;font-weight:600;text-decoration:none;">${escapeHtml(loginUrl)}</a></div>
+          </td>
+        </tr>
+      </table>
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#fffbeb;border:1px solid #fde68a;border-radius:10px;">
+        <tr>
+          <td style="padding:12px 14px;font-size:12px;line-height:1.5;color:#92400e;">
+            <strong>First-Time Login Security Notice:</strong> When signing in for the first time, you will be prompted to set a new personal password before accessing your dashboard.
+          </td>
+        </tr>
+      </table>
     `,
     ctaLabel: 'Open OT Claim Portal',
     ctaUrl: loginUrl,
@@ -478,10 +504,14 @@ OT Claim Notification System`;
     badgeTextHex: priorityConfig.badgeTextHex,
     title: params.heading,
     bodyHtml: `
-      <p style="margin:0 0 12px 0;">Dear <strong>${escapeHtml(recipientName)}</strong>,</p>
-      <div style="margin:0 0 16px 0;padding:14px 16px;background:#f8fafc;border-left:4px solid ${priorityConfig.accentHex};border-radius:8px;color:#1e293b;">
-        ${formatTextParagraphsHtml(params.body)}
-      </div>
+      <p style="margin:0 0 14px 0;">Dear <strong>${escapeHtml(recipientName)}</strong>,</p>
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 16px 0;background-color:#f8fafc;border-left:4px solid ${priorityConfig.accentHex};border-radius:8px;">
+        <tr>
+          <td style="padding:14px 16px;font-size:14px;line-height:1.6;color:#1e293b;">
+            ${formatTextParagraphsHtml(params.body)}
+          </td>
+        </tr>
+      </table>
       ${
         safeImageUrl
           ? `<div style="margin:0 0 16px 0;">
@@ -562,12 +592,22 @@ OT Claim Administration`;
     badgeTextHex: '#92400e',
     title: 'Your OT Claim Password Was Reset',
     bodyHtml: `
-      <p style="margin:0 0 14px 0;">Dear <strong>${escapeHtml(recipientName)}</strong>,</p>
+      <p style="margin:0 0 12px 0;">Dear <strong>${escapeHtml(recipientName)}</strong>,</p>
       <p style="margin:0 0 16px 0;">An administrator has reset your account password. Use the temporary credentials below to sign in:</p>
-      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px 18px;margin:0 0 16px 0;">
-        <div style="margin-bottom:8px;"><span style="color:#64748b;font-size:12px;font-weight:600;">Username (PF No):</span><br /><strong style="font-size:15px;color:#0f172a;font-family:monospace;">${escapeHtml(cleanPf)}</strong></div>
-        <div><span style="color:#64748b;font-size:12px;font-weight:600;">Temporary Password:</span><br /><strong style="font-size:15px;color:#0f172a;font-family:monospace;">${escapeHtml(params.newPassword)}</strong></div>
-      </div>
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;margin:0 0 16px 0;">
+        <tr>
+          <td style="padding:14px 18px 8px 18px;border-bottom:1px solid #e2e8f0;">
+            <div style="color:#64748b;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;">Username (PF No)</div>
+            <div style="margin-top:3px;font-size:15px;font-weight:700;color:#0f172a;font-family:monospace;">${escapeHtml(cleanPf)}</div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:10px 18px 14px 18px;">
+            <div style="color:#64748b;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;">Temporary Password</div>
+            <div style="margin-top:3px;font-size:15px;font-weight:700;color:#0f172a;font-family:monospace;">${escapeHtml(params.newPassword)}</div>
+          </td>
+        </tr>
+      </table>
       <p style="margin:0;font-size:12px;color:#64748b;">
         You will be prompted to set a new personal password immediately upon logging in.
       </p>

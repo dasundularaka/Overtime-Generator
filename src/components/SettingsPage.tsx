@@ -1885,13 +1885,22 @@ export const SettingsPage: React.FC = () => {
 
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
               <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                JSON Payload Fields Mapped
+                Recommended Make Email Mapping
               </div>
-              <div className="text-[11px] text-slate-700 font-mono leading-relaxed">
-                event, to, recipientName, subject, text, html, heading, message, priority, pfNumber, initialPassword
+              <div className="text-[11px] text-slate-700 leading-relaxed space-y-1">
+                <div>
+                  <strong>To:</strong> <code className="font-mono bg-white px-1 py-0.5 rounded border border-slate-200">to</code>
+                  {' · '}
+                  <strong>Subject:</strong> <code className="font-mono bg-white px-1 py-0.5 rounded border border-slate-200">subject</code>
+                </div>
+                <div>
+                  <strong>Content Type:</strong> <span className="font-semibold text-indigo-700">HTML</span>
+                  {' · '}
+                  <strong>Content:</strong> <code className="font-mono bg-white px-1 py-0.5 rounded border border-slate-200">html</code>
+                </div>
               </div>
               <div className="text-[11px] text-slate-500">
-                Dispatched individually per recipient for direct 2-module Make Email/SMTP scenarios.
+                Map <code className="font-mono">html</code> (not <code className="font-mono">text</code>/<code className="font-mono">body</code>) in Make&apos;s HTML Content box to preserve cards, tables, and line breaks.
               </div>
             </div>
           </div>
