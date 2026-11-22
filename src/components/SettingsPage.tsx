@@ -1983,7 +1983,7 @@ export const SettingsPage: React.FC = () => {
                 Verify Make Scenario With a Test Email
               </h3>
               <p className="text-[11px] text-indigo-800/80 mt-0.5">
-                Trigger a live webhook event to verify delivery or preview the modern Password Reset email template in your inbox.
+                Trigger a live webhook event to verify delivery or preview the modern 6-digit OTP Password Reset email template (with Copy Code button) in your inbox.
               </p>
             </div>
 
@@ -2008,7 +2008,7 @@ export const SettingsPage: React.FC = () => {
                     : 'bg-white text-slate-600 border border-indigo-200 hover:bg-indigo-50'
                 }`}
               >
-                Modern Password Reset Preview
+                Modern OTP Reset Preview
               </button>
             </div>
 

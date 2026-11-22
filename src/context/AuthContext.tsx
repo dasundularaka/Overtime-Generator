@@ -39,7 +39,7 @@ import {
 import { recordAuditLog } from '../utils/auditLogger';
 import { setCachedGoogleToken } from '../services/googleWorkspaceService';
 import { getAssignedTemplateIdsForClaimType } from '../utils/defaultTemplate';
-import { sendPasswordResetLinkViaMake } from '../services/makeEmailService';
+import { sendPasswordResetOtpViaMake } from '../services/makeEmailService';
 
 interface AuthContextType {
   currentUser: FirebaseUser | null;
@@ -69,7 +69,7 @@ interface AuthContextType {
   verifyPasswordResetTokenOrCode: (params: {
     uidOrIdentifier?: string;
     codeOrToken: string;
-  }) => Promise<{ userId: string; name: string; email: string; pfNumber: string }>;
+  }) => Promise<{ userId: string; name: string; email: string; pfNumber: string; expiresAt?: string }>;
   completePasswordResetWithMake: (params: {
     uidOrIdentifier?: string;
     codeOrToken: string;
@@ -760,8 +760,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const generateResetCodeAndToken = (): { code: string; token: string } => {
-    const bytes = new Uint8Array(20);
+  const generateResetOtpCode = (): string => {
+    const bytes = new Uint8Array(4);
     if (typeof window !== 'undefined' && window.crypto?.getRandomValues) {
       window.crypto.getRandomValues(bytes);
     } else {
@@ -771,11 +771,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     const rawNum =
       ((bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3]) >>> 0;
-    const code = String(100000 + (rawNum % 900000));
-    const token = Array.from(bytes.slice(4))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
-    return { code, token };
+    return String(100000 + (rawNum % 900000));
   };
 
   const resolveUserDocForReset = async (
@@ -811,7 +807,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch {}
     }
 
-    // 2. Scan users collection for PF number / case-insensitive email / reset token match
+    // 2. Scan users collection for PF number or case-insensitive email match
     try {
       const usersSnap = await getDocs(collection(db, 'users'));
       for (const d of usersSnap.docs) {
@@ -826,8 +822,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             (uPf === clean.toUpperCase() ||
               uPf === formattedPf ||
               formatPfNumber(uPf) === formattedPf ||
-              (cleanDigits.length >= 4 && uDigits === cleanDigits))) ||
-          data.passwordResetToken === clean
+              (cleanDigits.length >= 4 && uDigits === cleanDigits)))
         ) {
           return { docId: d.id, profile: { ...data, id: data.id || d.id } };
         }
@@ -883,7 +878,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
     }
 
-    const { code, token } = generateResetCodeAndToken();
+    const code = generateResetOtpCode();
     const nowIso = new Date().toISOString();
     const expiresInMinutes = 15;
     const expiresAtIso = new Date(Date.now() + expiresInMinutes * 60 * 1000).toISOString();
@@ -891,37 +886,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (resolved?.docId) {
       await updateDoc(doc(db, 'users', resolved.docId), {
         passwordResetCode: code,
-        passwordResetToken: token,
+        passwordResetToken: deleteField(),
         passwordResetExpiresAt: expiresAtIso,
         passwordResetRequestedAt: nowIso,
+        passwordResetAttempts: 0,
       });
     } else if (targetPf) {
       await setDoc(
         doc(db, 'pfDirectory', targetPf),
         {
           passwordResetCode: code,
-          passwordResetToken: token,
+          passwordResetToken: deleteField(),
           passwordResetExpiresAt: expiresAtIso,
           passwordResetRequestedAt: nowIso,
+          passwordResetAttempts: 0,
         },
         { merge: true }
       );
     }
 
-    const originUrl =
-      typeof window !== 'undefined' && window.location?.origin
-        ? window.location.origin
-        : 'https://otclaim.vercel.app';
-    const uidParam = encodeURIComponent(resolved?.docId || targetPf || targetEmail);
-    const resetUrl = `${originUrl}/?resetToken=${encodeURIComponent(token)}&uid=${uidParam}`;
-
-    const dispatchRes = await sendPasswordResetLinkViaMake({
+    const dispatchRes = await sendPasswordResetOtpViaMake({
       to: targetEmail,
       name: targetName,
       pfNumber: targetPf,
       branch: targetBranch,
       resetCode: code,
-      resetUrl,
       expiresInMinutes,
       requestedBy: options?.requestedBy || 'self',
       senderName: options?.senderName,
@@ -929,7 +918,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (!dispatchRes.success) {
       throw new Error(
-        dispatchRes.error || 'Could not dispatch password reset email via Make webhook.'
+        dispatchRes.error || 'Could not dispatch password reset OTP email via Make webhook.'
       );
     }
 
@@ -937,8 +926,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       action: 'USER_PASSWORD_RECOVERY_REQUEST',
       actionLabel:
         options?.requestedBy === 'admin'
-          ? 'Admin Sent Password Reset Email via Make'
-          : 'User Requested Password Reset Email via Make',
+          ? 'Admin Sent Password Reset OTP via Make'
+          : 'User Requested Password Reset OTP via Make',
       targetType: 'user',
       targetId: resolved?.docId,
       targetDescription: `${targetName} (${targetPf || targetEmail})`,
@@ -960,40 +949,91 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return targetEmail;
   };
 
+  const MAX_OTP_ATTEMPTS = 5;
+
   const verifyPasswordResetTokenOrCode = async (params: {
     uidOrIdentifier?: string;
     codeOrToken: string;
-  }): Promise<{ userId: string; name: string; email: string; pfNumber: string }> => {
-    const rawSecret = params.codeOrToken.trim();
-    const digitsOnly = rawSecret.replace(/\s|-/g, '');
-    if (!rawSecret) {
-      throw new Error('Verification code or reset link token is missing.');
+  }): Promise<{ userId: string; name: string; email: string; pfNumber: string; expiresAt?: string }> => {
+    const rawIdentifier = (params.uidOrIdentifier || '').trim();
+    const digitsOnly = params.codeOrToken.replace(/\D/g, '');
+    if (!/^\d{6}$/.test(digitsOnly)) {
+      throw new Error('Please enter the complete 6-digit verification code.');
     }
 
     let resolved: { docId: string; profile: UserProfile } | null = null;
-    if (params.uidOrIdentifier?.trim()) {
-      resolved = await resolveUserDocForReset(params.uidOrIdentifier.trim());
-    }
-    if (!resolved) {
-      resolved = await resolveUserDocForReset(rawSecret);
+    let isPfDirectoryFallback = false;
+
+    if (rawIdentifier) {
+      resolved = await resolveUserDocForReset(rawIdentifier);
+      if (!resolved && !rawIdentifier.includes('@')) {
+        const cleanPf = formatPfNumber(rawIdentifier);
+        try {
+          const dirSnap = await getDoc(doc(db, 'pfDirectory', cleanPf));
+          if (dirSnap.exists()) {
+            const data = dirSnap.data() as UserProfile;
+            resolved = {
+              docId: cleanPf,
+              profile: { ...data, id: data.id || cleanPf, pfNumber: cleanPf, employeeNumber: cleanPf },
+            };
+            isPfDirectoryFallback = true;
+          }
+        } catch {}
+      }
     }
 
     if (!resolved) {
-      throw new Error('This password reset link or account could not be found.');
+      throw new Error('Account record could not be located. Please request a new verification code.');
     }
 
     const p = resolved.profile;
-    const tokenMatches = Boolean(p.passwordResetToken && p.passwordResetToken === rawSecret);
-    const codeMatches = Boolean(
-      p.passwordResetCode && digitsOnly && p.passwordResetCode === digitsOnly
-    );
+    const targetRef = doc(db, isPfDirectoryFallback ? 'pfDirectory' : 'users', resolved.docId);
 
-    if (!tokenMatches && !codeMatches) {
-      throw new Error('Invalid or already used verification code / reset link.');
+    if (!p.passwordResetCode || !p.passwordResetExpiresAt) {
+      throw new Error('No active verification code found. Please request a new code.');
     }
 
-    if (!p.passwordResetExpiresAt || Date.now() > Date.parse(p.passwordResetExpiresAt)) {
-      throw new Error('This password reset link/code has expired. Please request a new one.');
+    if (Date.now() > Date.parse(p.passwordResetExpiresAt)) {
+      await updateDoc(targetRef, {
+        passwordResetCode: deleteField(),
+        passwordResetExpiresAt: deleteField(),
+        passwordResetAttempts: deleteField(),
+      }).catch(() => {});
+      throw new Error('This verification code has expired. Please request a new code.');
+    }
+
+    const currentAttempts = Number(p.passwordResetAttempts || 0);
+    if (currentAttempts >= MAX_OTP_ATTEMPTS) {
+      await updateDoc(targetRef, {
+        passwordResetCode: deleteField(),
+        passwordResetExpiresAt: deleteField(),
+      }).catch(() => {});
+      throw new Error(
+        'Too many incorrect attempts. For security, this code has been invalidated. Please request a new code.'
+      );
+    }
+
+    if (p.passwordResetCode !== digitsOnly) {
+      const nextAttempts = currentAttempts + 1;
+      const remaining = Math.max(0, MAX_OTP_ATTEMPTS - nextAttempts);
+      await updateDoc(targetRef, {
+        passwordResetAttempts: nextAttempts,
+        ...(remaining === 0
+          ? {
+              passwordResetCode: deleteField(),
+              passwordResetExpiresAt: deleteField(),
+            }
+          : {}),
+      }).catch(() => {});
+
+      if (remaining === 0) {
+        throw new Error(
+          'Maximum verification attempts reached. This code has been invalidated—please request a new code.'
+        );
+      }
+      throw new Error(
+        `Incorrect verification code. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining.`
+      );
     }
 
     return {
@@ -1001,6 +1041,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       name: p.name || 'Team Member',
       email: (p.email || '').toLowerCase().trim(),
       pfNumber: (p.employeeNumber || p.pfNumber || '').toUpperCase().trim(),
+      expiresAt: p.passwordResetExpiresAt,
     };
   };
 
@@ -1045,8 +1086,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       passwordResetToken: deleteField(),
       passwordResetCode: deleteField(),
       passwordResetExpiresAt: deleteField(),
+      passwordResetAttempts: deleteField(),
       updatedAt: completedAtIso,
-    });
+    }).catch(() => {});
 
     if (pf) {
       try {
@@ -1063,6 +1105,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             passwordResetToken: deleteField(),
             passwordResetCode: deleteField(),
             passwordResetExpiresAt: deleteField(),
+            passwordResetAttempts: deleteField(),
             updatedAt: completedAtIso,
           },
           { merge: true }
@@ -1085,13 +1128,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     await recordAuditLog({
       action: 'USER_PASSWORD_CHANGE',
-      actionLabel: 'Completed Self-Service Password Reset via Make Link/Code',
+      actionLabel: 'Completed Self-Service Password Reset via Make OTP',
       targetType: 'user',
       targetId: verified.userId,
       targetDescription: `${verified.name} (${pf || verified.email})`,
       afterState: {
         passwordUpdated: true,
-        method: 'make_recovery_verification',
+        method: 'make_otp_verification',
         completedAt: completedAtIso,
       },
     });

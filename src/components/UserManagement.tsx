@@ -897,13 +897,13 @@ export const UserManagement: React.FC = () => {
           senderName: userProfile?.name || currentUser?.email || 'Administrator',
         });
         setPasswordSuccess(
-          `Modern password reset email (1-click link & 6-digit code) dispatched via Make to ${sentTo}!`
+          `Modern password reset OTP email (6-digit verification code) dispatched via Make to ${sentTo}!`
         );
 
         // Record administrative audit log
         await recordAuditLog({
           action: 'USER_PASSWORD_RESET_EMAIL',
-          actionLabel: 'Dispatched Password Reset Email via Make',
+          actionLabel: 'Dispatched Password Reset OTP Email via Make',
           targetType: 'user',
           targetId: passwordModalUser.id,
           targetDescription: `${passwordModalUser.name} (${passwordModalUser.employeeNumber || passwordModalUser.pfNumber})`,
@@ -917,7 +917,7 @@ export const UserManagement: React.FC = () => {
             targetEmail: passwordModalUser.email,
           },
           details: {
-            method: 'make_email_link_and_code',
+            method: 'make_email_otp',
             targetEmail: passwordModalUser.email,
             userBranch: passwordModalUser.branch,
           },
@@ -2319,7 +2319,7 @@ export const UserManagement: React.FC = () => {
                         onClick={handlePromptSendResetEmail}
                         className="py-2 px-3 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold transition cursor-pointer text-center"
                       >
-                        Send Reset Link Email
+                        Send Reset OTP Email
                       </button>
                     </div>
                   </form>
@@ -2354,7 +2354,7 @@ export const UserManagement: React.FC = () => {
         }
         message={
           pendingPasswordTarget?.type === 'email'
-            ? `Send an official password reset email link to "${passwordModalUser?.email}"?`
+            ? `Send a 6-digit password reset verification code email to "${passwordModalUser?.email}"?`
             : pendingPasswordTarget?.type === 'employeeNumber'
             ? `Set the sign-in password for "${passwordModalUser?.name}" to their PF Number "${passwordModalUser?.employeeNumber}"?`
             : `Are you sure you want to apply the new custom password for "${passwordModalUser?.name}" (${passwordModalUser?.email})?`

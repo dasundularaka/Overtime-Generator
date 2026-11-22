@@ -122,6 +122,7 @@ export interface UserProfile {
   passwordResetExpiresAt?: string;
   passwordResetRequestedAt?: string;
   passwordResetCompletedAt?: string;
+  passwordResetAttempts?: number;
   createdAt: string;
   updatedAt: string;
 }

@@ -68,6 +68,10 @@
   .animate-pulse-subtle {
     animation: pulseSubtle 2.5s ease-in-out infinite;
   }
+
+  .animate-shake {
+    animation: otpShake 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+  }
 }
 
 @keyframes fadeIn {
@@ -298,4 +302,17 @@ textarea {
     max-height: calc(100dvh - 9.5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
   }
 }
+
+@keyframes otpShake {
+  0%, 100% {
+    transform: translate3d(0, 0, 0);
+  }
+  15%, 45%, 75% {
+    transform: translate3d(-6px, 0, 0);
+  }
+  30%, 60%, 90% {
+    transform: translate3d(6px, 0, 0);
+  }
+}
+
 

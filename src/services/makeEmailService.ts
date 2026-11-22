@@ -6,6 +6,7 @@ export const DEFAULT_MAKE_WEBHOOK_URL =
 export type MakeEmailEventType =
   | 'welcome_credentials'
   | 'notification_broadcast'
+  | 'password_reset_otp'
   | 'password_reset_link'
   | 'password_reset_credentials'
   | 'test_email';
@@ -65,7 +66,7 @@ export interface MakePasswordResetLinkPayload {
   pfNumber?: string;
   branch?: string;
   resetCode: string;
-  resetUrl: string;
+  resetUrl?: string;
   expiresInMinutes?: number;
   requestedBy?: 'self' | 'admin';
   senderName?: string;
@@ -651,7 +652,8 @@ function buildModernSecurityEmailHtml(params: {
 }
 
 /**
- * Dispatches a modern self-service or admin-triggered Password Reset Link + 6-digit OTP email via Make.
+ * Dispatches a modern self-service or admin-triggered 6-digit OTP Password Reset email via Make.
+ * Includes a selectable "Copy Code" button instead of any reset link or "Reset Password Now" button.
  */
 export async function sendPasswordResetLinkViaMake(
   params: MakePasswordResetLinkPayload
@@ -664,14 +666,12 @@ export async function sendPasswordResetLinkViaMake(
   const recipientName = (params.name || 'Team Member').trim();
   const cleanPf = (params.pfNumber || '').trim().toUpperCase();
   const branch = (params.branch || '').trim();
-  const resetCode = String(params.resetCode || '').trim();
-  const spacedCode =
-    resetCode.length === 6 ? `${resetCode.slice(0, 3)} ${resetCode.slice(3)}` : resetCode;
-  const resetUrl = sanitizeHttpUrl(params.resetUrl) || resolveDefaultAppUrl();
+  const resetCode = String(params.resetCode || '').replace(/\D/g, '').slice(0, 6);
+  const codeDigits = resetCode.split('');
   const expiresInMinutes = params.expiresInMinutes ?? 15;
   const requestedAtText = new Date().toLocaleString();
   const isAdminTriggered = params.requestedBy === 'admin';
-  const subject = `OT Claim - Reset Your Password${cleanPf ? ` [${cleanPf}]` : ''}`;
+  const subject = `OT Claim - Password Verification Code${cleanPf ? ` [${cleanPf}]` : ''}`;
 
   const textBody = `Hello ${recipientName},
 
@@ -684,11 +684,10 @@ ${
 Verification Code: ${resetCode}
 Expires In: ${expiresInMinutes} minutes
 ${cleanPf ? `PF Number: ${cleanPf}\n` : ''}
-Reset Link: ${resetUrl}
-
-To set a new personal password:
-1. Click the reset link above, OR
-2. Enter verification code ${resetCode} on the password recovery screen.
+How to reset your password:
+1. Copy the 6-digit verification code above: ${resetCode}
+2. Enter the code in the OTP Verification panel on the OT Claim sign-in screen.
+3. Once your code is verified, enter and confirm your new personal password.
 
 Security Notice:
 If you did not request a password reset, you can safely ignore this email. Your existing password remains secure and unchanged.
@@ -696,32 +695,62 @@ If you did not request a password reset, you can safely ignore this email. Your 
 Best regards,
 OT Claim Security Team`;
 
+  const digitBoxesHtml =
+    codeDigits.length === 6
+      ? `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:12px auto 0 auto;">
+          <tr>
+            ${codeDigits
+              .map(
+                (digit, idx) =>
+                  `<td style="padding:0 ${idx === 5 ? '0' : '5px'} 0 0;">
+                    <div style="width:38px;height:46px;line-height:46px;text-align:center;background-color:#ffffff;border:1.5px solid #c7d2fe;border-radius:10px;font-size:22px;font-weight:800;color:#0f172a;font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;">
+                      ${escapeHtml(digit)}
+                    </div>
+                  </td>`
+              )
+              .join('')}
+          </tr>
+        </table>`
+      : '';
+
   const htmlBody = buildModernSecurityEmailHtml({
-    badgeText: isAdminTriggered ? 'Admin Initiated' : 'Password Recovery',
+    badgeText: isAdminTriggered ? 'Admin Initiated' : 'One-Time Verification',
     badgeBgHex: '#312e81',
     badgeTextHex: '#e0e7ff',
     accentHex: '#4f46e5',
-    title: 'Reset Your Account Password',
-    subtitle: `Single-use recovery link & code valid for ${expiresInMinutes} minutes`,
+    title: 'Your Password Verification Code',
+    subtitle: `Enter this 6-digit OTP on the recovery screen (valid for ${expiresInMinutes} minutes)`,
     bodyHtml: `
       <p style="margin:0 0 14px 0;">Hi <strong>${escapeHtml(recipientName)}</strong>,</p>
       <p style="margin:0 0 20px 0;">${
         isAdminTriggered
-          ? 'An administrator sent you a secure password reset link for your <strong>OT Claim Management System</strong> account. Click the button below or enter your 6-digit verification code on the sign-in recovery screen.'
-          : 'We received a request to reset your <strong>OT Claim Management System</strong> password. Click the button below to choose a new password, or enter the 6-digit verification code on the recovery screen.'
+          ? 'An administrator initiated a password reset for your <strong>OT Claim Management System</strong> account. Use the 6-digit verification code below on the OTP verification panel to unlock your new password form.'
+          : 'We received a request to reset your <strong>OT Claim Management System</strong> password. Copy the 6-digit verification code below and enter it on the OTP verification panel to proceed.'
       }</p>
 
-      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px 0;background-color:#f8fafc;border:1.5px dashed #a5b4fc;border-radius:14px;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px 0;background-color:#f8fafc;border:1.5px dashed #a5b4fc;border-radius:16px;">
         <tr>
-          <td align="center" style="padding:18px 16px;">
-            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#4f46e5;">
-              6-Digit Verification Code
+          <td align="center" style="padding:20px 16px;">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#4f46e5;">
+              6-Digit Security OTP
             </div>
-            <div style="margin-top:8px;font-size:30px;line-height:1.1;font-weight:800;letter-spacing:0.18em;color:#0f172a;font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;">
-              ${escapeHtml(spacedCode)}
+            ${digitBoxesHtml}
+            <div style="margin-top:16px;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto;">
+                <tr>
+                  <td align="center" style="border-radius:12px;background-color:#4f46e5;padding:11px 22px;">
+                    <span style="display:inline-block;font-size:12px;font-weight:700;color:#e0e7ff;letter-spacing:0.04em;text-transform:uppercase;vertical-align:middle;margin-right:10px;">
+                      Copy Code
+                    </span>
+                    <span style="display:inline-block;padding:4px 10px;border-radius:8px;background-color:#312e81;font-size:16px;font-weight:800;letter-spacing:0.16em;color:#ffffff;font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;vertical-align:middle;user-select:all;-webkit-user-select:all;-moz-user-select:all;cursor:pointer;">
+                      ${escapeHtml(resetCode)}
+                    </span>
+                  </td>
+                </tr>
+              </table>
             </div>
-            <div style="margin-top:8px;font-size:11px;color:#64748b;">
-              Valid for ${escapeHtml(expiresInMinutes)} minutes &middot; Single-use security code
+            <div style="margin-top:10px;font-size:11px;color:#64748b;">
+              Tap or click the code inside <strong>Copy Code</strong> to select all 6 digits &middot; Valid for ${escapeHtml(expiresInMinutes)} minutes
             </div>
           </td>
         </tr>
@@ -773,23 +802,16 @@ OT Claim Security Team`;
       <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#fffbeb;border:1px solid #fde68a;border-radius:10px;">
         <tr>
           <td style="padding:12px 14px;font-size:12px;line-height:1.5;color:#92400e;">
-            <strong>Didn&apos;t request this?</strong> You can safely ignore this message. Your current password will remain unchanged and this link will expire automatically.
+            <strong>Didn&apos;t request this?</strong> You can safely ignore this message. Your current password remains unchanged and this verification code will expire automatically.
           </td>
         </tr>
       </table>
-
-      <p style="margin:16px 0 0 0;font-size:11px;line-height:1.5;color:#64748b;word-break:break-all;">
-        If the button below does not open, copy and paste this URL into your browser:<br />
-        <a href="${escapeHtml(resetUrl)}" style="color:#4f46e5;text-decoration:underline;">${escapeHtml(resetUrl)}</a>
-      </p>
     `,
-    ctaLabel: 'Reset Password Now',
-    ctaUrl: resetUrl,
-    footerNote: 'Automated password recovery notification delivered via Make email automation.',
+    footerNote: 'Automated one-time verification code delivered via Make email automation.',
   });
 
   return postToMakeWebhook({
-    event: 'password_reset_link' satisfies MakeEmailEventType,
+    event: 'password_reset_otp' satisfies MakeEmailEventType,
     source: 'OT Claim System',
     timestamp: new Date().toISOString(),
     to: recipientEmail,
@@ -803,13 +825,14 @@ OT Claim Security Team`;
     username: cleanPf,
     branch,
     resetCode,
-    resetUrl,
     expiresInMinutes,
     requestedBy: params.requestedBy || 'self',
     senderName: params.senderName || 'OT Claim Security',
     senderEmail: params.senderEmail || '',
   });
 }
+
+export const sendPasswordResetOtpViaMake = sendPasswordResetLinkViaMake;
 
 /**
  * Dispatches an updated credentials notice when an admin resets an employee password directly.
@@ -931,7 +954,6 @@ export async function sendTestEmailViaMake(
       pfNumber: 'PF1001',
       branch: 'Head Office',
       resetCode: '482917',
-      resetUrl: `${portalUrl}/?resetToken=sample-preview-token`,
       expiresInMinutes: 15,
       requestedBy: 'self',
       senderName,
