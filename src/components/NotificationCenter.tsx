@@ -49,6 +49,7 @@ import {
 import { NotificationDetailModal } from './NotificationDetailModal';
 import { ConfirmationModal } from './ConfirmationModal';
 import { Skeleton } from './Skeleton';
+import { getCallingName } from '../utils/userNameHelper';
 
 interface SearchableTargetBranchDropdownProps {
   branches: Branch[];
@@ -341,7 +342,9 @@ const SearchableTargetUsersDropdown: React.FC<SearchableTargetUsersDropdownProps
   }, [isOpen]);
 
   const sortedUsers = useMemo(() => {
-    return [...users].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    return [...users].sort((a, b) =>
+      getCallingName(a).localeCompare(getCallingName(b))
+    );
   }, [users]);
 
   const filteredUsers = useMemo(() => {
@@ -349,6 +352,7 @@ const SearchableTargetUsersDropdown: React.FC<SearchableTargetUsersDropdownProps
     if (!q) return sortedUsers;
     return sortedUsers.filter(
       (u) =>
+        getCallingName(u, '').toLowerCase().includes(q) ||
         (u.name || '').toLowerCase().includes(q) ||
         (u.employeeNumber || u.pfNumber || '').toLowerCase().includes(q) ||
         (u.email || '').toLowerCase().includes(q) ||
@@ -377,7 +381,7 @@ const SearchableTargetUsersDropdown: React.FC<SearchableTargetUsersDropdownProps
     }
     if (selectedUserIds.length === 1) {
       const found = users.find((u) => u.id === selectedUserIds[0]);
-      return found ? `${found.name} (${found.employeeNumber || found.pfNumber || 'User'})` : '1 Selected User';
+      return found ? `${getCallingName(found)} (${found.employeeNumber || found.pfNumber || 'User'})` : '1 Selected User';
     }
     return `${selectedUserIds.length} Selected Users`;
   }, [isAllSelected, selectedUserIds, users]);
@@ -498,7 +502,7 @@ const SearchableTargetUsersDropdown: React.FC<SearchableTargetUsersDropdownProps
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
-                        <span className="truncate font-semibold">{u.name}</span>
+                        <span className="truncate font-semibold">{getCallingName(u, 'Staff Member')}</span>
                         {(u.employeeNumber || u.pfNumber) && (
                           <span className="font-mono text-[10px] text-slate-500 shrink-0">
                             {u.employeeNumber || u.pfNumber}
@@ -506,6 +510,7 @@ const SearchableTargetUsersDropdown: React.FC<SearchableTargetUsersDropdownProps
                         )}
                       </div>
                       <div className="text-[10px] text-slate-400 truncate">
+                        {u.callingName && u.callingName.trim() !== u.name ? `${u.name} · ` : ''}
                         {u.branch || 'Head Office'}
                         {u.email ? ` · ${u.email}` : ''}
                       </div>

@@ -33,6 +33,7 @@ import {
   isNotificationUnreadForUser,
   subscribeToNotifications,
 } from '../services/notificationService';
+import { getCallingName } from '../utils/userNameHelper';
 
 export type NavigationTab =
   | 'dashboard'
@@ -589,19 +590,19 @@ export const Navbar: React.FC<NavbarProps> = ({
                   {userProfile.photoURL ? (
                     <img
                       src={userProfile.photoURL}
-                      alt={userProfile.name}
+                      alt={getCallingName(userProfile, 'User')}
                       className="h-7 w-7 rounded-lg object-cover border border-slate-600 shrink-0"
                       referrerPolicy="no-referrer"
                     />
                   ) : (
                     <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-600 font-bold text-white text-[11px] shrink-0">
-                      {userProfile.name?.slice(0, 2).toUpperCase() || 'U'}
+                      {getCallingName(userProfile, 'U').slice(0, 2).toUpperCase()}
                     </div>
                   )}
                   <div className="text-left hidden md:block">
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs font-bold text-slate-200 truncate max-w-[70px] lg:max-w-[120px]">
-                        {userProfile.employeeNumber || userProfile.pfNumber || userProfile.name}
+                        {userProfile.employeeNumber || userProfile.pfNumber || getCallingName(userProfile, 'User')}
                       </span>
                       <span
                         className={`text-[9px] font-extrabold uppercase px-1.5 py-0.2 rounded hidden sm:inline-block ${
@@ -675,17 +676,24 @@ export const Navbar: React.FC<NavbarProps> = ({
                 {userProfile.photoURL ? (
                   <img
                     src={userProfile.photoURL}
-                    alt={userProfile.name}
+                    alt={getCallingName(userProfile, 'User')}
                     className="h-12 w-12 rounded-2xl object-cover border border-slate-600 shrink-0 shadow-md"
                     referrerPolicy="no-referrer"
                   />
                 ) : (
                   <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 font-bold text-white text-base shrink-0 shadow-md">
-                    {userProfile.name?.slice(0, 2).toUpperCase() || 'U'}
+                    {getCallingName(userProfile, 'U').slice(0, 2).toUpperCase()}
                   </div>
                 )}
                 <div className="min-w-0 flex-1">
-                  <h4 className="font-bold text-sm sm:text-base text-white truncate">{userProfile.name}</h4>
+                  <h4 className="font-bold text-sm sm:text-base text-white truncate">
+                    {getCallingName(userProfile, 'User')}
+                  </h4>
+                  {userProfile.callingName && userProfile.callingName.trim() !== userProfile.name && (
+                    <p className="text-[11px] text-slate-400 truncate">
+                      Sheet Name: {userProfile.name}
+                    </p>
+                  )}
                   <p className="text-xs text-slate-400 truncate">{userProfile.email}</p>
                   <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                     <span className="font-mono text-[10px] font-bold text-indigo-300 bg-indigo-500/20 px-2 py-0.5 rounded-md border border-indigo-500/30">
@@ -771,7 +779,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 {userProfile?.photoURL ? (
                   <img
                     src={userProfile.photoURL}
-                    alt={userProfile.name}
+                    alt={getCallingName(userProfile, 'User')}
                     className="w-8 h-8 rounded-xl object-cover border border-slate-600 shrink-0"
                     referrerPolicy="no-referrer"
                   />
@@ -783,7 +791,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <div>
                   <h3 className="font-bold text-sm text-white">Application Sections</h3>
                   <p className="text-[10px] text-slate-400">
-                    Logged in as {userProfile?.name} ({userProfile?.employeeNumber || userProfile?.pfNumber})
+                    Logged in as {getCallingName(userProfile, 'User')} ({userProfile?.employeeNumber || userProfile?.pfNumber})
                   </p>
                 </div>
               </div>
@@ -931,7 +939,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         onClose={() => setIsLogoutConfirmOpen(false)}
         onConfirm={handleConfirmLogout}
         title="Sign Out of Account"
-        message={`Are you sure you want to log out, ${userProfile?.name || 'User'}? You will need to sign in again to create or view overtime claims.`}
+        message={`Are you sure you want to log out, ${getCallingName(userProfile, 'User')}? You will need to sign in again to create or view overtime claims.`}
         confirmText="Yes, Sign Out"
         cancelText="Stay Signed In"
         variant="warning"

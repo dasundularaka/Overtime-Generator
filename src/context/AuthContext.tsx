@@ -40,6 +40,7 @@ import { recordAuditLog } from '../utils/auditLogger';
 import { setCachedGoogleToken } from '../services/googleWorkspaceService';
 import { getAssignedTemplateIdsForClaimType } from '../utils/defaultTemplate';
 import { sendPasswordResetOtpViaMake } from '../services/makeEmailService';
+import { getCallingName } from '../utils/userNameHelper';
 
 interface AuthContextType {
   currentUser: FirebaseUser | null;
@@ -843,7 +844,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const resolved = await resolveUserDocForReset(clean);
     let targetEmail = resolved?.profile.email?.toLowerCase().trim() || '';
-    let targetName = resolved?.profile.name || 'Team Member';
+    let targetName = getCallingName(resolved?.profile, 'Team Member');
     let targetPf = (
       resolved?.profile.employeeNumber ||
       resolved?.profile.pfNumber ||
@@ -858,13 +859,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const stored = findStoredAccount(targetPf);
       if (stored?.email) {
         targetEmail = stored.email.toLowerCase().trim();
-        targetName = stored.name || targetName;
+        targetName = getCallingName(stored, targetName);
       } else {
         try {
           const dirDoc = await getDoc(doc(db, 'pfDirectory', targetPf));
           if (dirDoc.exists() && dirDoc.data().email) {
-            targetEmail = String(dirDoc.data().email).toLowerCase().trim();
-            targetName = dirDoc.data().name || targetName;
+            const dirData = dirDoc.data() as Partial<UserProfile>;
+            targetEmail = String(dirData.email).toLowerCase().trim();
+            targetName = getCallingName(dirData, targetName);
           }
         } catch (e) {
           console.warn('Directory lookup error for reset', e);
@@ -1038,7 +1040,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return {
       userId: resolved.docId,
-      name: p.name || 'Team Member',
+      name: getCallingName(p, 'Team Member'),
       email: (p.email || '').toLowerCase().trim(),
       pfNumber: (p.employeeNumber || p.pfNumber || '').toUpperCase().trim(),
       expiresAt: p.passwordResetExpiresAt,

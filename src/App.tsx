@@ -28,6 +28,7 @@ import {
   initOtaUpdater,
   registerOtaTabProvider,
 } from './services/otaUpdateService';
+import { getCallingName } from './utils/userNameHelper';
 
 const TAB_TITLES: Record<NavigationTab, { message: string; subMessage: string }> = {
   dashboard: { message: 'Loading Dashboard...', subMessage: 'Summarizing claims and monthly statistics...' },
@@ -381,7 +382,7 @@ function AppContent() {
             <strong>OT Claim</strong> &bull; Official A4 Timesheet &amp; Claim System
           </div>
           <div className="flex items-center gap-3 text-[11px] text-slate-400">
-            <span>Signed in as: <strong className="text-slate-700">{userProfile?.name || currentUser.email}</strong> ({isSuperAdmin ? 'Super Admin' : isAdmin ? 'Admin' : 'User'})</span>
+            <span>Signed in as: <strong className="text-slate-700">{getCallingName(userProfile, currentUser.email || 'User')}</strong> ({isSuperAdmin ? 'Super Admin' : isAdmin ? 'Admin' : 'User'})</span>
           </div>
         </div>
       </footer>

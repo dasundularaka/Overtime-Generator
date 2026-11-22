@@ -46,6 +46,7 @@ import { generateStandardPfNumber, formatPfNumber, isValidPfNumber } from '../ut
 import { upsertStoredAccount, deleteStoredAccount } from '../utils/localAuthManager';
 import { deleteEmployee } from '../utils/storage';
 import { recordAuditLog } from '../utils/auditLogger';
+import { getCallingName } from '../utils/userNameHelper';
 import { Branch, RoleRate, Department } from '../types';
 import {
   fetchBranchesFromFirestore,
@@ -81,6 +82,7 @@ export const UserManagement: React.FC = () => {
 
   // Form Fields
   const [name, setName] = useState('');
+  const [callingName, setCallingName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<UserRole>('user');
@@ -201,6 +203,7 @@ export const UserManagement: React.FC = () => {
   const openCreateModal = () => {
     setEditingUser(null);
     setName('');
+    setCallingName('');
     setEmail('');
     setPassword('');
     setRole('user');
@@ -244,6 +247,7 @@ export const UserManagement: React.FC = () => {
     }
     setEditingUser(user);
     setName(user.name);
+    setCallingName(user.callingName || '');
     setEmail(user.email);
     setPassword('');
     setRole(isTargetSuperAdmin ? 'super_admin' : user.role);
@@ -441,6 +445,7 @@ export const UserManagement: React.FC = () => {
         const userRef = doc(db, 'users', editingUser.id);
         const updatedData: Record<string, any> = {
           name: name.trim(),
+          callingName: callingName.trim() ? callingName.trim() : deleteField(),
           role: effectiveSaveRole,
           roleId: roleId || deleteField(),
           claimType,
@@ -490,6 +495,7 @@ export const UserManagement: React.FC = () => {
 
         const localUpdatedData: Record<string, any> = {
           name: name.trim(),
+          callingName: callingName.trim() || undefined,
           role: effectiveSaveRole,
           roleId: roleId || undefined,
           claimType,
@@ -525,6 +531,7 @@ export const UserManagement: React.FC = () => {
             pfNumber: cleanPf,
             email: editingUser.email.toLowerCase().trim(),
             name: name.trim(),
+            ...(callingName.trim() ? { callingName: callingName.trim() } : {}),
             updatedAt: new Date().toISOString(),
           });
         } catch (dirErr) {
@@ -596,6 +603,7 @@ export const UserManagement: React.FC = () => {
         const newProfile: Record<string, any> = {
           id: targetUid,
           name: name.trim(),
+          ...(callingName.trim() ? { callingName: callingName.trim() } : {}),
           email: cleanEmail,
           role,
           roleId: roleId || undefined,
@@ -652,6 +660,7 @@ export const UserManagement: React.FC = () => {
             pfNumber: cleanPf,
             email: cleanEmail,
             name: name.trim(),
+            ...(callingName.trim() ? { callingName: callingName.trim() } : {}),
             initialPassword: cleanPf,
             mustChangePassword: true,
             passwordMatchesPf: true,
@@ -694,7 +703,7 @@ export const UserManagement: React.FC = () => {
             const emailDispatch = await sendUserWelcomeEmail(
               {
                 email: cleanEmail,
-                name: name.trim(),
+                name: callingName.trim() || name.trim(),
                 pfNumber: cleanPf,
                 initialPassword: cleanPf,
                 loginUrl: typeof window !== 'undefined' ? window.location.origin : 'https://otclaim.vercel.app/',
@@ -894,7 +903,7 @@ export const UserManagement: React.FC = () => {
       if (pendingPasswordTarget.type === 'email') {
         const sentTo = await sendPasswordReset(passwordModalUser.email, {
           requestedBy: 'admin',
-          senderName: userProfile?.name || currentUser?.email || 'Administrator',
+          senderName: getCallingName(userProfile, currentUser?.email || 'Administrator'),
         });
         setPasswordSuccess(
           `Modern password reset OTP email (6-digit verification code) dispatched via Make to ${sentTo}!`
@@ -975,7 +984,7 @@ export const UserManagement: React.FC = () => {
         if (notifyUserOnPasswordReset && passwordModalUser.email?.includes('@')) {
           const resetEmailRes = await sendPasswordResetNotificationViaMake({
             to: passwordModalUser.email,
-            name: passwordModalUser.name,
+            name: getCallingName(passwordModalUser),
             pfNumber: cleanPf,
             newPassword: passToSet,
             resetMode: pendingPasswordTarget.type === 'employeeNumber' ? 'pf_default' : 'custom',
@@ -1031,6 +1040,7 @@ export const UserManagement: React.FC = () => {
   const filteredUsers = users.filter(u => {
     const matchesSearch =
       u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (u.callingName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
       u.department.toLowerCase().includes(searchQuery.toLowerCase()) ||
       u.employeeNumber.toLowerCase().includes(searchQuery.toLowerCase());
@@ -1185,6 +1195,11 @@ export const UserManagement: React.FC = () => {
                         <div className="min-w-0">
                           <div className="font-bold text-slate-900 text-sm flex items-center gap-1.5 flex-wrap">
                             <span className="truncate">{u.name}</span>
+                            {u.callingName && u.callingName.trim() !== u.name && (
+                              <span className="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.2 rounded font-semibold">
+                                Calls: {u.callingName}
+                              </span>
+                            )}
                             {isCurrent && (
                               <span className="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded font-semibold">
                                 You
@@ -1333,8 +1348,16 @@ export const UserManagement: React.FC = () => {
                             </div>
                           )}
                           <div>
-                            <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                            <div className="font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
                               <span>{u.name}</span>
+                              {u.callingName && u.callingName.trim() !== u.name && (
+                                <span
+                                  className="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.2 rounded font-semibold"
+                                  title="System Calling Name (used in greetings, notifications & emails — never printed on OT/OP sheets)"
+                                >
+                                  Calls: {u.callingName}
+                                </span>
+                              )}
                               {isCurrent && (
                                 <span className="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded font-semibold">
                                   You
@@ -1547,10 +1570,12 @@ export const UserManagement: React.FC = () => {
             )}
 
             <form onSubmit={handleSave} className="mt-4 flex-1 overflow-y-auto pr-1 space-y-3.5 text-xs">
-              {/* Name & Email */}
+              {/* Full Name, Calling Name & Email */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Full Name *</label>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Full Name * <span className="text-[10px] font-normal text-slate-400">(Prints on OT/OP Sheets)</span>
+                  </label>
                   <input
                     type="text"
                     required
@@ -1561,17 +1586,33 @@ export const UserManagement: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Email Address *</label>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Calling Name <span className="text-[10px] font-normal text-slate-400">(Optional)</span>
+                  </label>
                   <input
-                    type="email"
-                    required
-                    disabled={!!editingUser}
-                    value={email}
-                    onChange={e => setEmail(e.target.value)}
-                    placeholder="staff@company.com"
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                    type="text"
+                    value={callingName}
+                    onChange={e => setCallingName(e.target.value)}
+                    placeholder="e.g. Dasun (Dashboard, Alerts & Emails)"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                   />
+                  <p className="text-[10px] text-slate-500 mt-1 leading-snug">
+                    Used only in dashboard greetings, system notifications &amp; automated emails (never printed on OT/OP sheets).
+                  </p>
                 </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Email Address *</label>
+                <input
+                  type="email"
+                  required
+                  disabled={!!editingUser}
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="staff@company.com"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                />
               </div>
 
               {/* Role & Claim Type */}
@@ -2116,7 +2157,8 @@ export const UserManagement: React.FC = () => {
         variant="info"
         isLoading={isSavingUser}
         details={[
-          { label: 'Full Name', value: name },
+          { label: 'Full Name (OT/OP Sheets)', value: name },
+          { label: 'Calling Name (System & Emails)', value: callingName.trim() || `${name.trim()} (Default)` },
           { label: 'Account Email', value: email },
           { label: 'PF Username', value: employeeNumber },
           { label: 'Role', value: role === 'super_admin' ? 'Super Admin' : role === 'admin' ? 'Administrator' : 'Standard User' },
@@ -2438,7 +2480,7 @@ export const UserManagement: React.FC = () => {
                         const res = await sendUserWelcomeEmail(
                           {
                             email,
-                            name,
+                            name: callingName.trim() || name.trim(),
                             pfNumber: employeeNumber,
                             initialPassword: employeeNumber,
                             loginUrl: typeof window !== 'undefined' ? window.location.origin : 'https://otclaim.vercel.app/',

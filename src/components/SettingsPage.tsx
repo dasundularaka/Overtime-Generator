@@ -88,6 +88,7 @@ import {
   getMakeWebhookDisplayInfo,
   sendTestEmailViaMake,
 } from '../services/makeEmailService';
+import { getCallingName } from '../utils/userNameHelper';
 
 type AdminSettingsCategoryId =
   | 'defaults'
@@ -1005,7 +1006,7 @@ export const SettingsPage: React.FC = () => {
                 <span className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">
                   Staff Name
                 </span>
-                <span className="font-bold text-slate-900">{userProfile?.name || 'Staff Member'}</span>
+                <span className="font-bold text-slate-900">{getCallingName(userProfile, 'Staff Member')}</span>
               </div>
               <div>
                 <span className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">
@@ -1084,7 +1085,7 @@ export const SettingsPage: React.FC = () => {
                   <span>Export My Personal Claims Data</span>
                 </h3>
                 <p className="text-[11px] text-slate-500 mt-1">
-                  Downloads a JSON file containing all overtime claims created by {userProfile?.name || 'you'}.
+                  Downloads a JSON file containing all overtime claims created by {getCallingName(userProfile, 'you')}.
                 </p>
               </div>
               <button
@@ -1932,8 +1933,8 @@ export const SettingsPage: React.FC = () => {
               try {
                 const res = await sendTestEmailViaMake({
                   to: testEmailRecipient,
-                  recipientName: userProfile?.name || 'Administrator',
-                  senderName: userProfile?.name || currentUser?.email || 'Administrator',
+                  recipientName: getCallingName(userProfile, 'Administrator'),
+                  senderName: getCallingName(userProfile, currentUser?.email || 'Administrator'),
                   senderEmail: userProfile?.email || currentUser?.email || '',
                   templateMode: testEmailTemplateMode,
                 });

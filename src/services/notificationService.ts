@@ -22,6 +22,7 @@ import {
 } from '../types';
 import { sanitizeFirestoreData } from '../utils/firestoreUtils';
 import { recordAuditLog } from '../utils/auditLogger';
+import { getCallingName } from '../utils/userNameHelper';
 import { sendNotificationEmailViaMake } from './makeEmailService';
 
 const NOTIFICATIONS_COLLECTION = 'notifications';
@@ -356,7 +357,7 @@ export async function sendNotification(
       : effectiveScope === 'branch'
       ? `${effectiveTargetBranch}${input.targetBranchCode ? ` (#${input.targetBranchCode})` : ''} · All Branch Users`
       : resolvedRecipients.length === 1
-      ? `${resolvedRecipients[0].name} (${resolvedRecipients[0].branch || effectiveTargetBranch})`
+      ? `${getCallingName(resolvedRecipients[0], 'Staff Member')} (${resolvedRecipients[0].branch || effectiveTargetBranch})`
       : `${resolvedRecipients.length} Selected Users (${effectiveTargetBranch === 'ALL' ? 'Multi-Branch' : effectiveTargetBranch})`;
 
   const id = `notif_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -379,7 +380,7 @@ export async function sendNotification(
     emailDispatchStatus: input.sendViaEmail ? 'sent' : 'not_requested',
     emailDispatchedCount: 0,
     senderId: input.sender.id,
-    senderName: (input.sender.name || 'Administrator').slice(0, 120),
+    senderName: getCallingName(input.sender, 'Administrator').slice(0, 120),
     ...(input.sender.email ? { senderEmail: input.sender.email.slice(0, 160) } : {}),
     senderRole: input.isSuperAdmin ? 'super_admin' : input.sender.role || 'admin',
     senderBranch: (senderBranch || 'Head Office').slice(0, 120),
@@ -408,7 +409,7 @@ export async function sendNotification(
           batch.map((recipient) =>
             sendNotificationEmailViaMake({
               to: recipient.email,
-              recipientName: recipient.name,
+              recipientName: getCallingName(recipient, 'Team Member'),
               notificationId: id,
               heading: notificationRecord.heading,
               body: notificationRecord.body,
@@ -479,7 +480,7 @@ export async function sendNotification(
 
 export type ReaderProfileSummary = Pick<
   UserProfile,
-  'name' | 'branch' | 'employeeNumber' | 'pfNumber'
+  'name' | 'callingName' | 'branch' | 'employeeNumber' | 'pfNumber'
 >;
 
 export async function markNotificationAsRead(
@@ -490,10 +491,11 @@ export async function markNotificationAsRead(
   if (!notificationId || !userId) return;
   const docPath = `${NOTIFICATIONS_COLLECTION}/${notificationId}`;
   const readAt = new Date().toISOString();
+  const displayReaderName = getCallingName(readerProfile, '').slice(0, 120);
   const receipt: NotificationReadReceipt = {
     userId,
     readAt,
-    ...(readerProfile?.name ? { userName: readerProfile.name.slice(0, 120) } : {}),
+    ...(displayReaderName ? { userName: displayReaderName } : {}),
     ...(readerProfile?.employeeNumber || readerProfile?.pfNumber
       ? {
           userPfNumber: String(
@@ -628,7 +630,7 @@ export function getNotificationReadSummary(
     const hasRead = validReaderSet.has(uid);
     return {
       userId: uid,
-      name: receipt?.userName || profile?.name || 'Staff Member',
+      name: profile ? getCallingName(profile, receipt?.userName || 'Staff Member') : (receipt?.userName || 'Staff Member'),
       pfNumber: receipt?.userPfNumber || profile?.employeeNumber || profile?.pfNumber,
       branch: receipt?.userBranch || profile?.branch || notification.targetBranch,
       hasRead,

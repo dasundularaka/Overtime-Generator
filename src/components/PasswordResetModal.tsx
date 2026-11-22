@@ -14,6 +14,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { recordAuditLog } from '../utils/auditLogger';
 import { formatPfNumber } from '../utils/pfHelper';
+import { getCallingName } from '../utils/userNameHelper';
 
 interface PasswordResetModalProps {
   isOpen: boolean;
@@ -174,7 +175,7 @@ export const PasswordResetModal: React.FC<PasswordResetModalProps> = ({
               Staff Member
             </span>
             <span className="font-semibold text-slate-700">
-              {userProfile?.name || 'Staff Member'}
+              {getCallingName(userProfile, 'Staff Member')}
             </span>
           </div>
         </div>

@@ -86,6 +86,7 @@ export interface UserProfile {
   id: string; // Firebase Auth UID
   email: string;
   name: string;
+  callingName?: string; // Preferred short name for dashboard, notifications & automated emails (never printed on OT/OP sheets)
   role: UserRole;
   roleId?: string; // Reference to assigned RoleRate definition
   roleName?: string; // Assigned role title (e.g. Senior Technical Officer)

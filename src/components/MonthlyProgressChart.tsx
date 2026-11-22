@@ -21,6 +21,8 @@ interface MonthlyProgressChartProps {
   subtitle: string;
   loading?: boolean;
   onCreateClaim?: () => void;
+  showYearSelector?: boolean;
+  focusedMonthIndex?: number | null;
 }
 
 function getNiceScaleMax(maxVal: number): number {
@@ -66,6 +68,8 @@ export const MonthlyProgressChart: React.FC<MonthlyProgressChartProps> = ({
   subtitle,
   loading = false,
   onCreateClaim,
+  showYearSelector = true,
+  focusedMonthIndex = null,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<{ width: number; height: number }>({ width: 720, height: 280 });
@@ -110,6 +114,11 @@ export const MonthlyProgressChart: React.FC<MonthlyProgressChartProps> = ({
   }, [data]);
 
   const [hoveredMonthIdx, setHoveredMonthIdx] = useState<number | null>(null);
+
+  useEffect(() => {
+    setHoveredMonthIdx(focusedMonthIndex ?? null);
+  }, [focusedMonthIndex, selectedYear]);
+
   const activeMonthIdx = hoveredMonthIdx !== null ? hoveredMonthIdx : defaultActiveIdx;
   const activeDatum = data.find(d => d.monthIndex === activeMonthIdx) || data[0];
 
@@ -234,28 +243,30 @@ export const MonthlyProgressChart: React.FC<MonthlyProgressChartProps> = ({
             </span>
           </div>
 
-          {/* Year Switcher */}
-          <div className="flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-2.5 py-1.5 shadow-2xs">
-            <Calendar className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-            <label htmlFor="progress-chart-year" className="sr-only">
-              Select chart year
-            </label>
-            <select
-              id="progress-chart-year"
-              value={selectedYear}
-              onChange={(e) => {
-                setHoveredMonthIdx(null);
-                onYearChange(Number(e.target.value));
-              }}
-              className="bg-transparent text-xs font-bold text-slate-900 focus:outline-hidden cursor-pointer tabular-nums"
-            >
-              {availableYears.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* Year Switcher (Hidden when controlled externally, e.g. Super Admin Filter) */}
+          {showYearSelector && (
+            <div className="flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-2.5 py-1.5 shadow-2xs">
+              <Calendar className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+              <label htmlFor="progress-chart-year" className="sr-only">
+                Select chart year
+              </label>
+              <select
+                id="progress-chart-year"
+                value={selectedYear}
+                onChange={(e) => {
+                  setHoveredMonthIdx(null);
+                  onYearChange(Number(e.target.value));
+                }}
+                className="bg-transparent text-xs font-bold text-slate-900 focus:outline-hidden cursor-pointer tabular-nums"
+              >
+                {availableYears.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </div>
 

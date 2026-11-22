@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Clock,
   FileText,
   Users,
   PlusCircle,
   Sparkles,
-  Calendar,
   CheckCircle2,
   Shield,
   Banknote,
@@ -15,6 +14,7 @@ import {
   Lock,
   Check,
   X,
+  ChevronDown,
 } from 'lucide-react';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../firebase/config';
@@ -26,6 +26,7 @@ import { useAuth } from '../context/AuthContext';
 import { subscribeToBranches } from '../utils/branchRoleManager';
 import { KpiGridSkeleton } from './Skeleton';
 import { MonthlyProgressChart, MonthlyProgressDatum } from './MonthlyProgressChart';
+import { getCallingName } from '../utils/userNameHelper';
 
 interface DashboardProps {
   onNavigate: (tab: NavigationTab) => void;
@@ -80,6 +81,246 @@ function getClaimAmount(c: ClaimRecord): number {
   return 0;
 }
 
+interface SuperAdminBranchOption {
+  key: string;
+  label: string;
+  code?: string;
+}
+
+interface SuperAdminUserOption {
+  id: string;
+  name: string;
+  fullName: string;
+  pf: string;
+  email: string;
+  branch: string;
+  branchCode?: string;
+}
+
+interface SearchableSingleSelectDropdownProps<T> {
+  label: string;
+  selectedValue: string;
+  allLabel: string;
+  placeholder: string;
+  emptyText: string;
+  options: T[];
+  getValue: (item: T) => string;
+  getTriggerText: (item: T) => string;
+  getSearchText: (item: T) => string;
+  renderOption: (item: T, isSelected: boolean) => React.ReactNode;
+  icon: React.ReactNode;
+  onChange: (value: string) => void;
+}
+
+function SearchableSingleSelectDropdown<T>({
+  label,
+  selectedValue,
+  allLabel,
+  placeholder,
+  emptyText,
+  options,
+  getValue,
+  getTriggerText,
+  getSearchText,
+  renderOption,
+  icon,
+  onChange,
+}: SearchableSingleSelectDropdownProps<T>) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setSearchTerm('');
+      setTimeout(() => searchInputRef.current?.focus(), 40);
+    }
+  }, [isOpen]);
+
+  const filteredOptions = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter((item) => getSearchText(item).toLowerCase().includes(q));
+  }, [options, searchTerm, getSearchText]);
+
+  const selectedItem = useMemo(() => {
+    if (selectedValue === 'ALL') return null;
+    return options.find((item) => getValue(item) === selectedValue) || null;
+  }, [options, selectedValue, getValue]);
+
+  const displayTriggerText = selectedItem ? getTriggerText(selectedItem) : allLabel;
+  const showAllRow = !searchTerm.trim() || allLabel.toLowerCase().includes(searchTerm.trim().toLowerCase());
+
+  return (
+    <div className="min-w-0">
+      <div className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 truncate">
+        {label}
+      </div>
+      <div
+        role="combobox"
+        tabIndex={0}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-label={label}
+        onClick={() => setIsOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setIsOpen(true);
+          }
+        }}
+        className={`w-full h-10 px-2.5 sm:px-3 rounded-xl border bg-white flex items-center justify-between gap-1.5 sm:gap-2 cursor-pointer select-none transition ${
+          isOpen
+            ? 'border-indigo-500 ring-2 ring-indigo-500/20'
+            : 'border-slate-300 hover:border-slate-400'
+        }`}
+      >
+        <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
+          <span className="shrink-0 text-indigo-600">{icon}</span>
+          <span className="text-xs sm:text-sm font-semibold text-slate-800 truncate">
+            {displayTriggerText}
+          </span>
+        </div>
+        <ChevronDown
+          className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${
+            isOpen ? 'rotate-180 text-indigo-600' : ''
+          }`}
+        />
+      </div>
+
+      {isOpen && (
+        <div
+          className="fixed inset-0 z-[95] modal-backdrop-safe flex items-center justify-center p-3 sm:p-4 bg-slate-950/45 backdrop-blur-xs animate-fade-in"
+          onClick={() => setIsOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full sm:max-w-md rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden animate-scale-in modal-panel-safe max-h-[82dvh] sm:max-h-[72dvh] flex flex-col"
+          >
+            <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between gap-2 shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-indigo-600 shrink-0">{icon}</span>
+                <span className="text-xs font-bold text-slate-900 truncate">{label}</span>
+              </div>
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setIsOpen(false)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setIsOpen(false);
+                  }
+                }}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition cursor-pointer"
+                aria-label={`Close ${label} selector`}
+              >
+                <X className="w-4 h-4" />
+              </div>
+            </div>
+
+            <div className="p-3 border-b border-slate-100 bg-white shrink-0">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder={placeholder}
+                  className="w-full pl-9 pr-8 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-slate-800"
+                />
+                {searchTerm && (
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSearchTerm('')}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSearchTerm('');
+                      }
+                    }}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    aria-label="Clear search"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-slate-100 py-1" role="listbox">
+              {showAllRow && (
+                <div
+                  role="option"
+                  tabIndex={0}
+                  aria-selected={selectedValue === 'ALL'}
+                  onClick={() => {
+                    onChange('ALL');
+                    setIsOpen(false);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onChange('ALL');
+                      setIsOpen(false);
+                    }
+                  }}
+                  className={`w-full px-4 py-2.5 text-left text-xs flex items-center justify-between gap-2 transition cursor-pointer ${
+                    selectedValue === 'ALL'
+                      ? 'bg-indigo-50 text-indigo-900 font-bold'
+                      : 'text-slate-700 hover:bg-slate-50 font-semibold'
+                  }`}
+                >
+                  <span>{allLabel}</span>
+                  {selectedValue === 'ALL' && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
+                </div>
+              )}
+
+              {filteredOptions.map((item) => {
+                const val = getValue(item);
+                const isSelected = selectedValue === val;
+                return (
+                  <div
+                    key={val}
+                    role="option"
+                    tabIndex={0}
+                    aria-selected={isSelected}
+                    onClick={() => {
+                      onChange(val);
+                      setIsOpen(false);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onChange(val);
+                        setIsOpen(false);
+                      }
+                    }}
+                    className={`w-full px-4 py-2.5 text-left text-xs flex items-center justify-between gap-2 transition cursor-pointer ${
+                      isSelected
+                        ? 'bg-indigo-50 text-indigo-900 font-bold'
+                        : 'text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">{renderOption(item, isSelected)}</div>
+                    {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
+                  </div>
+                );
+              })}
+
+              {filteredOptions.length === 0 && !showAllRow && (
+                <div className="p-4 text-center text-xs text-slate-500">{emptyText}</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export const Dashboard: React.FC<DashboardProps> = ({
   onNavigate,
 }) => {
@@ -94,9 +335,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // Scoped filter state:
   // - Standard User: strictly own claims only (no user/branch filters)
-  // - Admin: strictly same-branch users with 'all' | 'selected' mode
-  // - Super Admin: All Branches / Selected Branch + All Users / Selected Users
+  // - Regular Admin: strictly same-branch users with 'all' | 'selected' mode
+  // - Super Admin: searchable Branch ('ALL' default), searchable User ('ALL' default), Year & Month dropdowns
   const [selectedBranchKey, setSelectedBranchKey] = useState<string>('ALL');
+  const [superAdminUserKey, setSuperAdminUserKey] = useState<string>('ALL');
+  const [selectedMonthKey, setSelectedMonthKey] = useState<string>(String(lastMonthPeriod.monthIndex));
   const [userFilterMode, setUserFilterMode] = useState<'all' | 'selected'>('all');
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [userSearchQuery, setUserSearchQuery] = useState<string>('');
@@ -255,9 +498,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
     };
   }, [currentUser, userProfile, isAdmin, isSuperAdmin, myUid, myProfileId, myPf, adminBranchNorm, adminBranchCodeNorm]);
 
-  // Build unified Super Admin branch options (registered branches + any legacy branch names in claims/users)
-  const branchOptions = useMemo(() => {
-    const map = new Map<string, { key: string; label: string; code?: string }>();
+  // Build unified Super Admin branch options ordered by branch code ascending
+  const branchOptions = useMemo<SuperAdminBranchOption[]>(() => {
+    const map = new Map<string, SuperAdminBranchOption>();
     for (const b of branches) {
       const k = normalizeStr(b.name);
       if (k && !map.has(k)) {
@@ -271,16 +514,31 @@ export const Dashboard: React.FC<DashboardProps> = ({
     for (const u of directoryUsers) {
       const k = normalizeStr(u.branch);
       if (k && !map.has(k)) {
-        map.set(k, { key: u.branch, label: u.branch, code: u.branchCode });
+        map.set(k, {
+          key: u.branch,
+          label: u.branchCode ? `${u.branchCode} — ${u.branch}` : u.branch,
+          code: u.branchCode,
+        });
       }
     }
     for (const c of claims) {
       const k = normalizeStr(c.branch);
       if (k && !map.has(k)) {
-        map.set(k, { key: c.branch, label: c.branch, code: c.branchCode });
+        map.set(k, {
+          key: c.branch,
+          label: c.branchCode ? `${c.branchCode} — ${c.branch}` : c.branch,
+          code: c.branchCode,
+        });
       }
     }
-    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
+    return Array.from(map.values()).sort((a, b) => {
+      const codeA = (a.code || '').trim();
+      const codeB = (b.code || '').trim();
+      if (codeA && !codeB) return -1;
+      if (!codeA && codeB) return 1;
+      const cmp = codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
+      return cmp !== 0 ? cmp : a.key.localeCompare(b.key);
+    });
   }, [branches, directoryUsers, claims]);
 
   // Selected branch metadata for Super Admin
@@ -293,10 +551,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
     };
   }, [isSuperAdmin, selectedBranchKey, branchOptions]);
 
-  // Eligible selectable users based on active branch scope (also includes claim-derived synthetic users if any user missing from directory)
-  const selectableUsers = useMemo(() => {
+  // Eligible selectable users based on active branch scope, ordered by PF number ascending
+  const selectableUsers = useMemo<SuperAdminUserOption[]>(() => {
     if (!isAdmin) return [];
-    const userMap = new Map<string, { id: string; name: string; pf: string; branch: string; branchCode?: string }>();
+    const userMap = new Map<string, SuperAdminUserOption>();
 
     for (const u of directoryUsers) {
       if (isSuperAdmin && selectedBranchMeta) {
@@ -304,8 +562,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
       }
       userMap.set(u.id, {
         id: u.id,
-        name: u.name || u.email || 'Staff Member',
-        pf: (u.employeeNumber || u.pfNumber || '').trim(),
+        name: getCallingName(u, u.email || 'Staff Member'),
+        fullName: u.name || u.email || 'Staff Member',
+        pf: (u.employeeNumber || u.pfNumber || '').trim().toUpperCase(),
+        email: u.email || '',
         branch: u.branch || '',
         branchCode: u.branchCode,
       });
@@ -325,32 +585,51 @@ export const Dashboard: React.FC<DashboardProps> = ({
         userMap.set(c.userId, {
           id: c.userId,
           name: c.employeeName || 'Staff Member',
-          pf: (c.employeeNumber || '').trim(),
+          fullName: c.employeeName || 'Staff Member',
+          pf: (c.employeeNumber || '').trim().toUpperCase(),
+          email: '',
           branch: c.branch || '',
           branchCode: c.branchCode,
         });
       }
     }
 
-    return Array.from(userMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+    return Array.from(userMap.values()).sort((a, b) => {
+      const pfA = (a.pf || '').trim();
+      const pfB = (b.pf || '').trim();
+      if (pfA && !pfB) return -1;
+      if (!pfA && pfB) return 1;
+      const cmp = pfA.localeCompare(pfB, undefined, { numeric: true, sensitivity: 'base' });
+      return cmp !== 0 ? cmp : a.name.localeCompare(b.name);
+    });
   }, [isAdmin, isSuperAdmin, directoryUsers, claims, selectedBranchMeta]);
 
-  // Prune selectedUserIds if branch filter changes so selected users always match visible branch
+  // Prune selected user(s) if branch filter changes so selected user always matches visible branch
   useEffect(() => {
     if (!isAdmin) return;
+    if (isSuperAdmin) {
+      if (superAdminUserKey !== 'ALL' && !selectableUsers.some(u => u.id === superAdminUserKey)) {
+        setSuperAdminUserKey('ALL');
+      }
+      return;
+    }
     if (selectedUserIds.length === 0) return;
     const validSet = new Set(selectableUsers.map(u => u.id));
     const pruned = selectedUserIds.filter(id => validSet.has(id));
     if (pruned.length !== selectedUserIds.length) {
       setSelectedUserIds(pruned);
     }
-  }, [selectableUsers, isAdmin]);
+  }, [selectableUsers, isAdmin, isSuperAdmin, superAdminUserKey, selectedUserIds]);
 
   const filteredPickerUsers = useMemo(() => {
     const q = normalizeStr(userSearchQuery);
     if (!q) return selectableUsers;
     return selectableUsers.filter(
-      u => normalizeStr(u.name).includes(q) || normalizeStr(u.pf).includes(q) || normalizeStr(u.branch).includes(q)
+      u =>
+        normalizeStr(u.name).includes(q) ||
+        normalizeStr(u.fullName).includes(q) ||
+        normalizeStr(u.pf).includes(q) ||
+        normalizeStr(u.branch).includes(q)
     );
   }, [selectableUsers, userSearchQuery]);
 
@@ -395,7 +674,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
       });
     }
 
-    // 2. Selected Users filter for Admin / Super Admin
+    // 2. Super Admin single searchable user dropdown
+    if (isSuperAdmin) {
+      if (superAdminUserKey !== 'ALL') {
+        const chosenUser = selectableUsers.find(u => u.id === superAdminUserKey);
+        const chosenPf = normalizeStr(chosenUser?.pf);
+        result = result.filter(c => {
+          if (c.userId && c.userId === superAdminUserKey) return true;
+          const cPf = normalizeStr(c.employeeNumber);
+          if (chosenPf && cPf && cPf === chosenPf) return true;
+          return false;
+        });
+      }
+      return result;
+    }
+
+    // 3. Regular Branch Admin Selected Users filter
     if (userFilterMode === 'selected') {
       if (selectedUserMatchers.idSet.size === 0) {
         return [];
@@ -409,14 +703,53 @@ export const Dashboard: React.FC<DashboardProps> = ({
     }
 
     return result;
-  }, [claims, isAdmin, isSuperAdmin, selectedBranchMeta, selectableUsers, userFilterMode, selectedUserMatchers]);
+  }, [
+    claims,
+    isAdmin,
+    isSuperAdmin,
+    selectedBranchMeta,
+    selectableUsers,
+    superAdminUserKey,
+    userFilterMode,
+    selectedUserMatchers,
+  ]);
 
-  // Last Month Claimed Metrics (replacing all-time OT hours & OT pay cards)
+  // Period Claimed Metrics (Super Admin can inspect chosen Year + Month/'ALL'; regular users/admins see Last Month)
+  const activePeriod = useMemo(() => {
+    if (isSuperAdmin) {
+      if (selectedMonthKey === 'ALL') {
+        return {
+          year: chartYear,
+          monthIndex: null as number | null,
+          shortTitle: `${chartYear}`,
+          heading: `Full Year ${chartYear}`,
+        };
+      }
+      const mIdx = Math.min(11, Math.max(0, Number(selectedMonthKey) || 0));
+      const mName = MONTH_NAMES[mIdx] || lastMonthPeriod.month;
+      return {
+        year: chartYear,
+        monthIndex: mIdx,
+        shortTitle: mName,
+        heading: `${mName} ${chartYear}`,
+      };
+    }
+
+    return {
+      year: lastMonthPeriod.year,
+      monthIndex: lastMonthPeriod.monthIndex,
+      shortTitle: lastMonthPeriod.month,
+      heading: `${lastMonthPeriod.month} ${lastMonthPeriod.year}`,
+    };
+  }, [isSuperAdmin, selectedMonthKey, chartYear, lastMonthPeriod]);
+
   const lastMonthStats = useMemo(() => {
     const matching = scopedSubmittedClaims.filter(c => {
       const mIdx = normalizeMonthIndex(c.month);
       const y = Number(c.year);
-      return mIdx === lastMonthPeriod.monthIndex && y === lastMonthPeriod.year;
+      if (y !== activePeriod.year) return false;
+      if (activePeriod.monthIndex === null) return true;
+      return mIdx === activePeriod.monthIndex;
     });
 
     let totalMinutes = 0;
@@ -448,7 +781,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       uniqueUsersCount: uniqueClaimants.size,
       latestStatus,
     };
-  }, [scopedSubmittedClaims, lastMonthPeriod]);
+  }, [scopedSubmittedClaims, activePeriod]);
 
   // Available chart years (chronological descending)
   const availableChartYears = useMemo(() => {
@@ -531,7 +864,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
     if (isSuperAdmin) {
       const branchLabel = selectedBranchMeta ? selectedBranchMeta.key : 'All Branches';
-      if (userFilterMode === 'all') {
+      if (superAdminUserKey === 'ALL') {
         return {
           scopeTag: `${branchLabel} · All Users`,
           chartTitle: `Overtime Progress — ${branchLabel} (All Users)`,
@@ -539,19 +872,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
           isMultiUser: true,
         };
       }
-      const count = selectedUserIds.length;
-      const singleUser = count === 1 ? selectableUsers.find(u => u.id === selectedUserIds[0]) : null;
-      const userLabel =
-        count === 0
-          ? 'No Users Selected'
-          : count === 1 && singleUser
-          ? `${singleUser.name}${singleUser.pf ? ` (${singleUser.pf})` : ''}`
-          : `${count} Selected Users`;
+      const singleUser = selectableUsers.find(u => u.id === superAdminUserKey) || null;
+      const userLabel = singleUser
+        ? `${singleUser.name}${singleUser.pf ? ` (${singleUser.pf})` : ''}`
+        : 'Selected User';
       return {
         scopeTag: `${branchLabel} · ${userLabel}`,
         chartTitle: `Overtime Progress — ${userLabel}`,
         chartSubtitle: `${branchLabel} monthly claimed amount progression across ${chartYear}`,
-        isMultiUser: count !== 1,
+        isMultiUser: false,
       };
     }
 
@@ -579,7 +908,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
       chartSubtitle: `${ownBranch} branch · Monthly claimed amount across ${chartYear}`,
       isMultiUser: count !== 1,
     };
-  }, [isAdmin, isSuperAdmin, selectedBranchMeta, userFilterMode, selectedUserIds, selectableUsers, userProfile?.branch, chartYear]);
+  }, [
+    isAdmin,
+    isSuperAdmin,
+    selectedBranchMeta,
+    superAdminUserKey,
+    userFilterMode,
+    selectedUserIds,
+    selectableUsers,
+    userProfile?.branch,
+    chartYear,
+  ]);
 
   const userCap = userProfile?.maxOtHoursPerDay !== undefined ? userProfile.maxOtHoursPerDay : 2.0;
   const lastMonthHeading = `${lastMonthPeriod.month} ${lastMonthPeriod.year}`;
@@ -595,7 +934,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <span>Shift: 8:00 AM – 4:45 PM &bull; 15-Min Step Engine</span>
             </div>
             <h1 className="text-xl sm:text-3xl font-extrabold tracking-tight">
-              Welcome, {userProfile?.name || 'User'}!
+              Welcome, {getCallingName(userProfile, 'User')}!
             </h1>
             <p className="mt-2 text-xs sm:text-sm text-slate-300 leading-relaxed">
               General shift is 8:00 AM to 4:45 PM. Overtime is automatically generated in 15-minute intervals only for time worked after 4:45 PM, capped at your assigned limit ({userCap} hrs max/day).
@@ -639,105 +978,177 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {/* Role-Based Dashboard Scope & Chart Filter Bar (Admins: Same-Branch Only; Super Admins: All Branches & Users) */}
-      {isAdmin && (
+      {/* Super Admin Analytics Filter (Dropdowns Only: Searchable Branch & User in Line 1; Year & Month in Line 2) */}
+      {isSuperAdmin ? (
+        <div className="rounded-2xl sm:rounded-3xl bg-white p-4 sm:p-5 shadow-xs border border-slate-200 space-y-3.5">
+          <div className="flex items-center justify-between gap-3 pb-3 border-b border-slate-100">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl shrink-0 border bg-amber-500/10 text-amber-600 border-amber-500/20">
+                <Shield className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold text-slate-900">
+                  Super Admin Analytics Filter
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                  Filter progress chart and claimed metrics by branch, staff member, year, and month.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Row 1: Searchable Branch (ordered by branch code) & Searchable User (based on branch, ordered by PF number) */}
+          <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
+            <SearchableSingleSelectDropdown<SuperAdminBranchOption>
+              label="Branch"
+              selectedValue={selectedBranchKey}
+              allLabel="All"
+              placeholder="Search branch code or name..."
+              emptyText="No branches match your search."
+              options={branchOptions}
+              getValue={(b) => b.key}
+              getTriggerText={(b) => (b.code ? `${b.code} — ${b.key}` : b.key)}
+              getSearchText={(b) => `${b.code || ''} ${b.key} ${b.label}`}
+              icon={<Building2 className="w-4 h-4" />}
+              onChange={(branchVal) => {
+                setSelectedBranchKey(branchVal);
+                setSuperAdminUserKey('ALL');
+              }}
+              renderOption={(b) => (
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="font-mono text-[10px] font-bold text-slate-600 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded shrink-0 tabular-nums">
+                    {b.code || '—'}
+                  </span>
+                  <span className="truncate font-semibold">{b.key}</span>
+                </div>
+              )}
+            />
+
+            <SearchableSingleSelectDropdown<SuperAdminUserOption>
+              label="User"
+              selectedValue={superAdminUserKey}
+              allLabel="All"
+              placeholder="Search PF number, calling name, or name..."
+              emptyText="No users found in selected branch."
+              options={selectableUsers}
+              getValue={(u) => u.id}
+              getTriggerText={(u) => (u.pf ? `${u.pf} — ${u.name}` : u.name)}
+              getSearchText={(u) => `${u.pf} ${u.name} ${u.fullName} ${u.email} ${u.branch}`}
+              icon={<Users className="w-4 h-4" />}
+              onChange={(userVal) => setSuperAdminUserKey(userVal)}
+              renderOption={(u) => (
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="font-mono text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded shrink-0 tabular-nums">
+                      {u.pf || 'No PF'}
+                    </span>
+                    <span className="truncate font-semibold">{u.name}</span>
+                  </div>
+                  {(u.fullName && u.fullName !== u.name) || u.branch ? (
+                    <div className="text-[10px] text-slate-500 truncate mt-0.5">
+                      {u.fullName !== u.name ? `${u.fullName}${u.branch ? ' · ' : ''}` : ''}
+                      {u.branch || ''}
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            />
+          </div>
+
+          {/* Row 2: Year and Month dropdowns in one line */}
+          <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
+            <div className="min-w-0">
+              <label
+                htmlFor="super-admin-year-select"
+                className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 truncate"
+              >
+                Year
+              </label>
+              <select
+                id="super-admin-year-select"
+                value={chartYear}
+                onChange={(e) => setChartYear(Number(e.target.value))}
+                className="w-full h-10 px-2.5 sm:px-3 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm font-semibold text-slate-800 focus:outline-hidden focus:border-indigo-500 cursor-pointer tabular-nums"
+              >
+                {availableChartYears.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="min-w-0">
+              <label
+                htmlFor="super-admin-month-select"
+                className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 truncate"
+              >
+                Month
+              </label>
+              <select
+                id="super-admin-month-select"
+                value={selectedMonthKey}
+                onChange={(e) => setSelectedMonthKey(e.target.value)}
+                className="w-full h-10 px-2.5 sm:px-3 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm font-semibold text-slate-800 focus:outline-hidden focus:border-indigo-500 cursor-pointer"
+              >
+                <option value="ALL">All</option>
+                {MONTH_NAMES.map((mName, idx) => (
+                  <option key={mName} value={String(idx)}>
+                    {mName}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+      ) : isAdmin ? (
+        /* Regular Branch Admin Scope & Chart Filter Bar (Same-Branch Only) */
         <div className="rounded-2xl sm:rounded-3xl bg-white p-4 sm:p-5 shadow-xs border border-slate-200 space-y-4">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-100">
             <div className="flex items-center gap-2.5 min-w-0">
-              <div
-                className={`flex h-9 w-9 items-center justify-center rounded-xl shrink-0 border ${
-                  isSuperAdmin
-                    ? 'bg-amber-500/10 text-amber-600 border-amber-500/20'
-                    : 'bg-indigo-50 text-indigo-600 border-indigo-200'
-                }`}
-              >
-                {isSuperAdmin ? <Shield className="w-4 h-4" /> : <Users className="w-4 h-4" />}
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl shrink-0 border bg-indigo-50 text-indigo-600 border-indigo-200">
+                <Users className="w-4 h-4" />
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h3 className="text-sm font-bold text-slate-900">
-                    {isSuperAdmin ? 'Super Admin Analytics Filter' : 'Branch Analytics Filter'}
+                    Branch Analytics Filter
                   </h3>
-                  {!isSuperAdmin && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[11px] font-semibold border border-slate-200">
-                      <Lock className="w-3 h-3 text-slate-500" />
-                      <span>{userProfile?.branch || 'Assigned Branch'}</span>
-                    </span>
-                  )}
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[11px] font-semibold border border-slate-200">
+                    <Lock className="w-3 h-3 text-slate-500" />
+                    <span>{userProfile?.branch || 'Assigned Branch'}</span>
+                  </span>
                 </div>
                 <p className="text-[11px] text-slate-500 mt-0.5 truncate">
-                  {isSuperAdmin
-                    ? 'Filter progress chart and last month claimed metrics by branch and selected staff.'
-                    : `Inspect overtime progress for staff in ${userProfile?.branch || 'your branch'} only.`}
+                  Inspect overtime progress for staff in {userProfile?.branch || 'your branch'} only.
                 </p>
               </div>
             </div>
 
             {/* Quick Scope Presets */}
             <div className="flex flex-wrap items-center gap-1.5">
-              {isSuperAdmin ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => handleSelectPreset('all_branches_all_users')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
-                      selectedBranchKey === 'ALL' && userFilterMode === 'all'
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
-                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    All Branches · All Users
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSelectPreset('branch_all_users')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
-                      selectedBranchKey !== 'ALL' && userFilterMode === 'all'
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
-                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    Selected Branch · All Users
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSelectPreset('branch_selected_users')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
-                      selectedBranchKey !== 'ALL' && userFilterMode === 'selected'
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
-                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    Selected Branch · Selected Users
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => handleSelectPreset('branch_all_users')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
-                      userFilterMode === 'all'
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
-                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    All Users (Same Branch)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setUserFilterMode('selected')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
-                      userFilterMode === 'selected'
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
-                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    Selected Users
-                  </button>
-                </>
-              )}
-
+              <button
+                type="button"
+                onClick={() => handleSelectPreset('branch_all_users')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                  userFilterMode === 'all'
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                All Users (Same Branch)
+              </button>
+              <button
+                type="button"
+                onClick={() => setUserFilterMode('selected')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                  userFilterMode === 'selected'
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                Selected Users
+              </button>
               <button
                 type="button"
                 onClick={() => handleSelectPreset('only_me')}
@@ -748,33 +1159,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </div>
 
-          {/* Cascading Branch & User Filter Controls */}
+          {/* Branch Admin User Scope Controls */}
           <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-start">
-            {isSuperAdmin && (
-              <div className="md:col-span-5">
-                <label
-                  htmlFor="dashboard-branch-select"
-                  className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1"
-                >
-                  Branch Scope
-                </label>
-                <select
-                  id="dashboard-branch-select"
-                  value={selectedBranchKey}
-                  onChange={(e) => setSelectedBranchKey(e.target.value)}
-                  className="w-full h-10 px-3 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm font-semibold text-slate-800 focus:outline-hidden focus:border-indigo-500 cursor-pointer"
-                >
-                  <option value="ALL">All Branches ({branchOptions.length})</option>
-                  {branchOptions.map(b => (
-                    <option key={b.key} value={b.key}>
-                      {b.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            <div className={isSuperAdmin ? 'md:col-span-4' : 'md:col-span-6'}>
+            <div className="md:col-span-6">
               <label
                 htmlFor="dashboard-user-mode"
                 className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1"
@@ -788,20 +1175,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 className="w-full h-10 px-3 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm font-semibold text-slate-800 focus:outline-hidden focus:border-indigo-500 cursor-pointer"
               >
                 <option value="all">
-                  All Users ({selectableUsers.length} in {isSuperAdmin && selectedBranchKey === 'ALL' ? 'All Branches' : isSuperAdmin ? selectedBranchKey : userProfile?.branch || 'Branch'})
+                  All Users ({selectableUsers.length} in {userProfile?.branch || 'Branch'})
                 </option>
                 <option value="selected">Selected Users ({selectedUserIds.length} chosen)</option>
               </select>
             </div>
 
-            <div className={`${isSuperAdmin ? 'md:col-span-3' : 'md:col-span-6'} flex items-end justify-between md:justify-end gap-2 md:pt-5`}>
+            <div className="md:col-span-6 flex items-end justify-between md:justify-end gap-2 md:pt-5">
               <span className="text-xs text-slate-500 truncate">
                 Active: <strong className="text-slate-800">{activeScopeSummary.scopeTag}</strong>
               </span>
-              {((isSuperAdmin && selectedBranchKey !== 'ALL') || userFilterMode !== 'all' || selectedUserIds.length > 0) && (
+              {(userFilterMode !== 'all' || selectedUserIds.length > 0) && (
                 <button
                   type="button"
-                  onClick={() => handleSelectPreset(isSuperAdmin ? 'all_branches_all_users' : 'branch_all_users')}
+                  onClick={() => handleSelectPreset('branch_all_users')}
                   className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 hover:text-rose-700 shrink-0 cursor-pointer"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
@@ -811,7 +1198,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </div>
 
-          {/* Searchable Multi-User Picker (Expanded when Selected Users mode is active) */}
+          {/* Searchable Multi-User Picker */}
           {userFilterMode === 'selected' && (
             <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -843,7 +1230,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 </div>
               </div>
 
-              {/* Selected User Chips */}
               {selectedUserIds.length > 0 && (
                 <div className="flex flex-wrap items-center gap-1.5">
                   {selectedUserIds.map(uid => {
@@ -866,7 +1252,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 </div>
               )}
 
-              {/* Scrollable User Checklist */}
               {filteredPickerUsers.length === 0 ? (
                 <div className="py-4 text-center text-xs text-slate-500">
                   No staff found matching your branch/search criteria.
@@ -915,18 +1300,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
           )}
         </div>
-      )}
+      ) : null}
 
-      {/* Last Month Claimed Details Metric KPI Cards */}
+      {/* Period Claimed Details Metric KPI Cards */}
       {loading ? (
         <KpiGridSkeleton count={5} />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4">
-          {/* Card 1: Last Month Claimed OT Hours */}
+          {/* Card 1: Period Claimed OT Hours */}
           <div className="rounded-2xl bg-white p-4 sm:p-5 shadow-xs border border-slate-200">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 truncate">
-                Last Month Claimed OT
+                {isSuperAdmin ? `${activePeriod.shortTitle} Claimed OT` : 'Last Month Claimed OT'}
               </span>
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 shrink-0">
                 <Clock className="w-5 h-5" />
@@ -941,15 +1326,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </span>
             </div>
             <p className="mt-1 text-xs text-slate-400 truncate">
-              {lastMonthHeading} &bull; {lastMonthStats.totalOtDays} {lastMonthStats.totalOtDays === 1 ? 'day' : 'days'} claimed
+              {activePeriod.heading} &bull; {lastMonthStats.totalOtDays} {lastMonthStats.totalOtDays === 1 ? 'day' : 'days'} claimed
             </p>
           </div>
 
-          {/* Card 2: Last Month Claimed Pay */}
+          {/* Card 2: Period Claimed Pay */}
           <div className="rounded-2xl bg-white p-4 sm:p-5 shadow-xs border border-slate-200">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 truncate">
-                {lastMonthPeriod.month} Claimed Pay
+                {activePeriod.shortTitle} Claimed Pay
               </span>
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 shrink-0">
                 <Banknote className="w-5 h-5" />
@@ -961,15 +1346,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </span>
             </div>
             <p className="mt-1 text-xs text-slate-400 truncate">
-              {lastMonthHeading} Remuneration Due
+              {activePeriod.heading} Remuneration Due
             </p>
           </div>
 
-          {/* Card 3: Last Month Claim Status & Count */}
+          {/* Card 3: Period Claim Status & Count */}
           <div className="rounded-2xl bg-white p-4 sm:p-5 shadow-xs border border-slate-200 flex flex-col justify-between">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 truncate">
-                {lastMonthPeriod.month} Claim Status
+                {activePeriod.shortTitle} Claim Status
               </span>
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-600 shrink-0">
                 <FileText className="w-5 h-5" />
@@ -995,7 +1380,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               ) : (
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-sm font-bold text-slate-700">
-                    No {lastMonthPeriod.month} claim yet
+                    No {activePeriod.shortTitle} claim yet
                   </span>
                   {!activeScopeSummary.isMultiUser && (
                     <button
@@ -1009,7 +1394,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 </div>
               )}
               <p className="mt-1 text-xs text-slate-400 truncate">
-                Period: {lastMonthHeading} ({activeScopeSummary.scopeTag})
+                Period: {activePeriod.heading} ({activeScopeSummary.scopeTag})
               </p>
             </div>
           </div>
@@ -1062,7 +1447,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       )}
 
-      {/* Monthly Overtime Progress Chart (Replaces "My Recent Overtime Claims") */}
+      {/* Monthly Overtime Progress Chart */}
       <MonthlyProgressChart
         data={monthlyProgressData}
         selectedYear={chartYear}
@@ -1072,6 +1457,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
         subtitle={activeScopeSummary.chartSubtitle}
         loading={loading}
         onCreateClaim={() => onNavigate('new-claim')}
+        showYearSelector={!isSuperAdmin}
+        focusedMonthIndex={
+          isSuperAdmin && selectedMonthKey !== 'ALL' ? Number(selectedMonthKey) : null
+        }
       />
     </div>
   );

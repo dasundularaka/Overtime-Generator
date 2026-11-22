@@ -8,6 +8,7 @@ import {
   sendWelcomeEmailViaMake,
 } from './makeEmailService';
 import { recordAuditLog } from '../utils/auditLogger';
+import { getCallingName } from '../utils/userNameHelper';
 
 export interface AutomatedDispatchResult {
   success: boolean;
@@ -27,7 +28,7 @@ export async function triggerWelcomeEmailForUser(
 ): Promise<AutomatedDispatchResult> {
   const cleanEmail = (user.email || '').trim().toLowerCase();
   const cleanPf = (user.employeeNumber || user.pfNumber || '').trim().toUpperCase();
-  const name = user.name || 'User';
+  const name = getCallingName(user, 'User');
   const pass = initialPassword || cleanPf || 'PF1000';
 
   if (!cleanEmail || !cleanEmail.includes('@')) {
