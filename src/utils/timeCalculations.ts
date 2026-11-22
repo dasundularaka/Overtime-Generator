@@ -95,7 +95,8 @@ export function calculateShiftOvertime(
   shiftEndStr: string = GENERAL_SHIFT_END,
   shiftStartStr: string = GENERAL_SHIFT_START,
   isSpecialAssignment: boolean = false,
-  isHolidayOverride: boolean = false
+  isHolidayOverride: boolean = false,
+  daysPayOnlyOnOtherDays: boolean = false
 ): ShiftOvertimeResult {
   if (!startTime || !endTime) {
     return {
@@ -131,11 +132,28 @@ export function calculateShiftOvertime(
   // Deduct break from work diff
   const netWorkDuration = Math.max(0, totalWorkDiff - (breakMinutes || 0));
 
-  // Policy: Non-working days (Saturdays or other non-working days)
-  // Shift is valid for working days only.
-  // In saturdays or other non-working days, OT calculations start from 8:00 AM (480 mins)
-  // and calculate 15 min by 15 min. No 2-hour restriction applies to non-working days.
+  // Policy: Non-working days (Saturdays, Sundays, or Holidays)
+  // Locked-rate designations can ONLY claim Day's Pay (no OT hours) on non-working days including Saturdays.
+  // Unlocked-rate designations calculate OT from 8:00 AM in 15-min blocks with no 2-hour cap.
   if (isOtherDay) {
+    if (daysPayOnlyOnOtherDays) {
+      return {
+        totalWorkMinutes: netWorkDuration,
+        rawOtMinutes: 0,
+        totalMinutes: 0,
+        totalFormatted: '00:00',
+        isOvernight,
+        isCapped: false,
+        uncappedMinutes: 0,
+        lateDeductionMinutes: 0,
+        isLateDisqualified: false,
+        lateNote: isHolidayOverride
+          ? "Locked Designation: Day's Pay only (No Holiday OT hours)"
+          : "Locked Designation: Day's Pay only (No Non-Working Day OT hours)",
+        isDaysPayment: netWorkDuration > 0,
+      };
+    }
+
     // Overtime calculation starts from 8:00 AM (480 mins)
     const effectiveStartMin = Math.max(startMin, 480);
     let otDiff = 0;
@@ -237,9 +255,21 @@ export function calculateRowOvertime(
   breakMinutes: number = 0,
   forceOvernight?: boolean,
   maxOtHoursLimit?: number,
-  isOtherDay?: boolean
+  isOtherDay?: boolean,
+  daysPayOnlyOnOtherDays: boolean = false
 ): { totalMinutes: number; totalFormatted: string; isOvernight: boolean; isCapped: boolean; isDaysPayment?: boolean } {
-  const res = calculateShiftOvertime(startTime, endTime, breakMinutes, maxOtHoursLimit, isOtherDay);
+  const res = calculateShiftOvertime(
+    startTime,
+    endTime,
+    breakMinutes,
+    maxOtHoursLimit,
+    isOtherDay,
+    undefined,
+    undefined,
+    false,
+    false,
+    daysPayOnlyOnOtherDays
+  );
   return {
     totalMinutes: res.totalMinutes,
     totalFormatted: res.totalFormatted,

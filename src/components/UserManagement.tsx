@@ -230,7 +230,7 @@ export const UserManagement: React.FC = () => {
     setShiftStartTime('08:00');
     setShiftEndTime('16:45');
     setTotalRemuneration('');
-    setIsRatesLocked(false);
+    setIsRatesLocked(firstRole?.claimType !== 'OP' ? Boolean(firstRole?.isRatesLocked) : false);
     setDefaultWeekdayReason('');
     setDefaultSaturdayReason('Saturday Duty');
     setDefaultHolidayReason('');
@@ -293,8 +293,8 @@ export const UserManagement: React.FC = () => {
         if (hourlyRateNonWorkingDays === '' && found.hourlyRateNonWorkingDays !== undefined) {
           setHourlyRateNonWorkingDays(found.hourlyRateNonWorkingDays);
         }
-        if (editingUser?.isRatesLocked === undefined && found.isRatesLocked !== undefined) {
-          setIsRatesLocked(found.isRatesLocked);
+        if (found.isRatesLocked !== undefined && (!editingUser || editingUser.designation !== selectedDesignationName)) {
+          setIsRatesLocked(Boolean(found.isRatesLocked));
         }
       }
     }
@@ -1441,8 +1441,8 @@ export const UserManagement: React.FC = () => {
                               disabled={isTogglingUserLock === u.id}
                               title={
                                 u.isRatesLocked
-                                  ? 'Rates are LOCKED: Click to UNLOCK rates for this employee'
-                                  : 'Rates are UNLOCKED: Click to LOCK rates for this employee'
+                                  ? "Rates are LOCKED (Day's Pay only on non-working days incl. Saturdays): Click to UNLOCK"
+                                  : 'Rates are UNLOCKED: Click to LOCK rates & restrict non-working days to Day\'s Pay only'
                               }
                               className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer shrink-0 shadow-2xs ${
                                 u.isRatesLocked
@@ -2037,9 +2037,14 @@ export const UserManagement: React.FC = () => {
                           </h4>
                           <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
                             {isRatesLocked
-                              ? 'Rates are LOCKED: User cannot edit rates on claim sheets.'
-                              : 'Rates are UNLOCKED: User can adjust rates on claim sheets.'}
+                              ? "Rates are LOCKED: User cannot edit rates and can only claim Day's Pay (no OT hours) on non-working days including Saturdays."
+                              : 'Rates are UNLOCKED: User can adjust rates and claim OT hours on non-working days (unless assigned a locked designation).'}
                           </p>
+                          {!isRatesLocked && roleRates.some(r => r.name === designation && r.isRatesLocked) && (
+                            <p className="text-[10px] font-semibold text-amber-700 mt-1">
+                              Note: Selected designation &ldquo;{designation}&rdquo; is locked in Role Rates — Day&apos;s Pay-only policy still applies on non-working days.
+                            </p>
+                          )}
                         </div>
                       </div>
 

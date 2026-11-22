@@ -238,6 +238,7 @@ export async function generateOvertimePdf(
   };
 
   const isOutOfPocket = claim.claimType === 'OP' || template.id === OP_TEMPLATE_ID;
+  const isRatesLockedClaim = !isOutOfPocket && Boolean(claim.isRatesLocked || claim.isRatesUnlocked === false);
   const opTotalAmount = isOutOfPocket ? Number(claim.totalOtPayment || 0) : 0;
 
   const claimDataMap: Record<string, string> = {
@@ -262,7 +263,7 @@ export async function generateOvertimePdf(
     // Form 10756 Overtime-only fields (never populate on OP)
     hourlyRate: isOutOfPocket ? '' : formatRate(claim.hourlyRate),
     daysPay: isOutOfPocket ? '' : formatRate(claim.daysPay),
-    hourlyRateNonWorkingDays: isOutOfPocket ? '' : formatRate(claim.hourlyRateNonWorkingDays),
+    hourlyRateNonWorkingDays: (isOutOfPocket || isRatesLockedClaim) ? '' : formatRate(claim.hourlyRateNonWorkingDays),
     daysPayCount: isOutOfPocket ? '' : String(claim.daysPayCount || 0),
     daysPayTotal: isOutOfPocket ? '' : formatRate(claim.daysPayTotal),
     totalRemuneration: isOutOfPocket ? '' : formatRate(claim.totalRemuneration),
@@ -313,9 +314,10 @@ export async function generateOvertimePdf(
     // 4. Semantic aliases for rate and payment fields (e.g. user manually changed in new claim)
     if (normKey.includes('hourly') || normId.includes('hourly') || rawName.includes('hourly') || normKey === 'otrate' || normKey === 'rate') {
       if (normKey.includes('nonworking') || normId.includes('nonworking') || rawName.includes('non-working')) {
+        if (isRatesLockedClaim || isOutOfPocket) return '';
         return claimDataMap.hourlyRateNonWorkingDays || claimDataMap.hourlyRate || '';
       }
-      return claimDataMap.hourlyRate || '';
+      return isOutOfPocket ? '' : (claimDataMap.hourlyRate || '');
     }
 
     if (normKey.includes('dayspay') || normId.includes('dayspay') || normKey.includes('daypay') || normId.includes('daypay') || (rawName.includes('day') && rawName.includes('pay'))) {
@@ -421,17 +423,23 @@ export async function generateOvertimePdf(
         return hasTimes || hasOpAmount || hasDuration;
       }
 
-      const hasValidOt = (r.totalMinutes || 0) > 0;
-      const hasSpecialHours = Boolean(
-        r.specialAssignmentHours &&
-        r.specialAssignmentHours.trim() !== '' &&
-        r.specialAssignmentHours.trim() !== '0' &&
-        r.specialAssignmentHours.trim() !== '00:00'
-      );
       const isSat = r.dayOfWeek === 'Sat' || (r.date ? getDayOfWeek(r.date) === 'Sat' : false);
-      const isQualifiedSatDayPay = isSat && !!r.isDaysPayment && (r.totalWorkMinutes || 0) >= 360;
+      const isSun = r.dayOfWeek === 'Sun' || (r.date ? getDayOfWeek(r.date) === 'Sun' : false);
+      const isHol = Boolean(r.isHoliday || isSun);
+      const isOtherR = isSat || isHol || !!r.isDaysPayment;
+      const hasValidOt = !(isRatesLockedClaim && isOtherR) && (r.totalMinutes || 0) > 0;
+      const hasSpecialHours =
+        !(isRatesLockedClaim && isOtherR) &&
+        Boolean(
+          r.specialAssignmentHours &&
+          r.specialAssignmentHours.trim() !== '' &&
+          r.specialAssignmentHours.trim() !== '0' &&
+          r.specialAssignmentHours.trim() !== '00:00'
+        );
+      const isQualifiedSatDayPay = isSat && (!!r.isDaysPayment || isRatesLockedClaim) && (r.totalWorkMinutes || 0) >= 360;
+      const isQualifiedHolDayPay = isHol && !!r.isHolidayOverride && (r.totalWorkMinutes || 0) > 0;
 
-      return hasValidOt || hasSpecialHours || isQualifiedSatDayPay;
+      return hasValidOt || hasSpecialHours || isQualifiedSatDayPay || isQualifiedHolDayPay;
     });
     const effectiveRows = claimedRows;
 
@@ -445,7 +453,7 @@ export async function generateOvertimePdf(
     });
 
     const maxRowsToRender = Math.min(sortedRows.length, tbl.maxRows);
-    const isRatesUnlocked = !isOutOfPocket && Boolean(claim.isRatesUnlocked || claim.isRatesLocked === false);
+    const isRatesUnlocked = !isOutOfPocket && !isRatesLockedClaim;
 
     for (let i = 0; i < maxRowsToRender; i++) {
       const row = sortedRows[i];
@@ -487,7 +495,13 @@ export async function generateOvertimePdf(
         const isSat = row.dayOfWeek === 'Sat' || (row.date ? getDayOfWeek(row.date) === 'Sat' : false);
         const isSun = row.dayOfWeek === 'Sun' || (row.date ? getDayOfWeek(row.date) === 'Sun' : false);
         const isOtherDay = isSat || isSun || !!row.isHoliday || !!row.isDaysPayment;
-        const showPeriod = !isOtherDay || isRatesUnlocked || !!row.isHolidayOverride || (row.totalMinutes || 0) > 0;
+        const blockOtherDayOt = isRatesLockedClaim && isOtherDay;
+        const showPeriod =
+          !isOtherDay ||
+          isRatesUnlocked ||
+          !!row.isHolidayOverride ||
+          (row.totalMinutes || 0) > 0 ||
+          (blockOtherDayOt && (Boolean(row.startTime?.trim()) || (row.totalWorkMinutes || 0) > 0));
 
         rowValues = [
           { col: cols.date, val: row.date ? row.date.split('-').slice(1).join('/') : '' },
@@ -502,15 +516,17 @@ export async function generateOvertimePdf(
           },
           {
             col: cols.otHoursClaimed || (cols.breakMinutes ? undefined : cols.totalHours),
-            val: (!row.isSpecialAssignment && !row.isHolidayOverride && (row.totalMinutes || 0) > 0 && showPeriod)
+            val: (!blockOtherDayOt && !row.isSpecialAssignment && !row.isHolidayOverride && (row.totalMinutes || 0) > 0 && showPeriod)
               ? (row.totalFormatted || '')
               : '',
           },
           {
             col: cols.specialHoursClaimed,
-            val: ((row.isSpecialAssignment || row.isHolidayOverride) && (row.totalMinutes || 0) > 0)
-              ? (row.totalFormatted || '')
-              : (row.specialAssignmentHours || ''),
+            val: blockOtherDayOt
+              ? ''
+              : ((row.isSpecialAssignment || row.isHolidayOverride) && (row.totalMinutes || 0) > 0)
+                ? (row.totalFormatted || '')
+                : (row.specialAssignmentHours || ''),
           },
         ];
       }

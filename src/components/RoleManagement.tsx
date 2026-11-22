@@ -140,7 +140,13 @@ export const RoleManagement: React.FC = () => {
         },
         details: { isRatesLocked: nextLockState },
       });
-      setActionSuccess(`Role "${r.name}" rates are now ${nextLockState ? 'LOCKED (Users cannot edit)' : 'UNLOCKED (Users can edit)'}.`);
+      setActionSuccess(
+        `Role "${r.name}" rates are now ${
+          nextLockState
+            ? "LOCKED (Users cannot edit rates & can only claim Day's Pay on non-working days incl. Saturdays)"
+            : 'UNLOCKED (Users can edit rates & claim OT on non-working days)'
+        }.`
+      );
       setTimeout(() => setActionSuccess(null), 4000);
     } catch (err: any) {
       console.error('Toggle role lock error', err);
@@ -285,7 +291,7 @@ export const RoleManagement: React.FC = () => {
               </span>
             </div>
             <p className="text-xs sm:text-sm text-slate-500 mt-1">
-              Add corporate roles, assign overtime rates, and lock/unlock rate editing. When locked, users in that role cannot modify their rates in the New Claim tab.
+              Add corporate roles, assign overtime rates, and lock/unlock rate editing. Locked designations cannot modify rates and can only claim Day&apos;s Pay (no OT hours) on non-working days including Saturdays.
             </p>
           </div>
 
@@ -470,8 +476,8 @@ export const RoleManagement: React.FC = () => {
                   }`}
                   title={
                     role.isRatesLocked
-                      ? 'Unlock Rates: permit users with this role to edit their rates in New Claim'
-                      : 'Lock Rates: freeze rates so users with this role cannot modify them in New Claim'
+                      ? "Unlock Rates: permit users with this role to edit rates and claim OT hours on non-working days"
+                      : "Lock Rates: freeze rates and restrict non-working days (incl. Saturdays) to Day's Pay only (no OT hours)"
                   }
                 >
                   {role.isRatesLocked ? (
@@ -622,8 +628,8 @@ export const RoleManagement: React.FC = () => {
                           </h4>
                           <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
                             {isRatesLocked
-                              ? 'Rates are LOCKED: Users in this role CANNOT edit their overtime rates in the New Claim tab.'
-                              : 'Rates are UNLOCKED: Users in this role CAN edit their overtime rates in the New Claim tab.'}
+                              ? "Rates are LOCKED: Users in this designation cannot edit rates and can only claim Day's Pay (no OT hours) on non-working days including Saturdays."
+                              : 'Rates are UNLOCKED: Users in this role can edit their overtime rates and claim OT hours on non-working days.'}
                           </p>
                         </div>
                       </div>

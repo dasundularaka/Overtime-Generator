@@ -1916,31 +1916,62 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {viewingClaim.rows.map((row, i) => (
-                    <tr key={i} className="hover:bg-slate-50">
-                      <td className="py-2 px-2.5 font-medium">{row.date}</td>
-                      <td className="py-2 px-2 text-center font-semibold">{row.dayOfWeek}</td>
-                      <td className="py-2 px-3 text-slate-700">{row.reason || '-'}</td>
-                      <td className="py-2 px-2 text-center font-medium text-slate-600">{row.approvedBy || '-'}</td>
-                      <td className="py-2 px-2 text-center font-mono">{row.startTime || '-'}</td>
-                      <td className="py-2 px-2 text-center font-mono">{row.endTime || '-'}</td>
-                      <td className="py-2 px-2 text-center">{row.breakMinutes ? `${row.breakMinutes}m` : '-'}</td>
-                      <td className="py-2 px-2 text-center font-mono text-slate-600">
-                        {row.totalWorkMinutes ? `${Math.floor(row.totalWorkMinutes / 60)}h ${row.totalWorkMinutes % 60}m` : '-'}
-                      </td>
-                      <td className="py-2 px-2 text-center font-bold text-indigo-600 font-mono">
-                        {row.totalFormatted}
-                        {row.isCapped && (
-                          <span className="block text-[9px] text-amber-700 font-sans">
-                            Capped
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-2 px-2 text-center font-mono text-slate-600">
-                        {row.specialAssignmentHours || '-'}
-                      </td>
-                    </tr>
-                  ))}
+                  {viewingClaim.rows.map((row, i) => {
+                    const isLockedClaim =
+                      viewingClaim.claimType !== 'OP' &&
+                      Boolean(viewingClaim.isRatesLocked || viewingClaim.isRatesUnlocked === false);
+                    const isOtherDay =
+                      row.dayOfWeek === 'Sat' ||
+                      row.dayOfWeek === 'Sun' ||
+                      !!row.isHoliday ||
+                      !!row.isDaysPayment;
+                    const isQualifiedSatDayPay =
+                      row.dayOfWeek === 'Sat' &&
+                      (row.totalWorkMinutes || 0) >= 360 &&
+                      (!!row.isDaysPayment || isLockedClaim);
+                    const isQualifiedHolDayPay =
+                      (row.dayOfWeek === 'Sun' || !!row.isHoliday) &&
+                      !!row.isHolidayOverride &&
+                      (row.totalWorkMinutes || 0) > 0;
+                    const showDaysPayBadge =
+                      viewingClaim.claimType !== 'OP' &&
+                      ((isLockedClaim && isOtherDay && (isQualifiedSatDayPay || isQualifiedHolDayPay)) ||
+                        ((row.totalMinutes || 0) === 0 && (!!row.isDaysPayment || isQualifiedSatDayPay || isQualifiedHolDayPay)));
+
+                    return (
+                      <tr key={i} className="hover:bg-slate-50">
+                        <td className="py-2 px-2.5 font-medium">{row.date}</td>
+                        <td className="py-2 px-2 text-center font-semibold">{row.dayOfWeek}</td>
+                        <td className="py-2 px-3 text-slate-700">{row.reason || '-'}</td>
+                        <td className="py-2 px-2 text-center font-medium text-slate-600">{row.approvedBy || '-'}</td>
+                        <td className="py-2 px-2 text-center font-mono">{row.startTime || '-'}</td>
+                        <td className="py-2 px-2 text-center font-mono">{row.endTime || '-'}</td>
+                        <td className="py-2 px-2 text-center">{row.breakMinutes ? `${row.breakMinutes}m` : '-'}</td>
+                        <td className="py-2 px-2 text-center font-mono text-slate-600">
+                          {row.totalWorkMinutes ? `${Math.floor(row.totalWorkMinutes / 60)}h ${row.totalWorkMinutes % 60}m` : '-'}
+                        </td>
+                        <td className="py-2 px-2 text-center font-bold text-indigo-600 font-mono">
+                          {showDaysPayBadge ? (
+                            <span className="inline-block px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 font-sans text-[10px] font-bold">
+                              Day&apos;s Pay
+                            </span>
+                          ) : (
+                            <>
+                              {row.totalFormatted}
+                              {row.isCapped && (
+                                <span className="block text-[9px] text-amber-700 font-sans">
+                                  Capped
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </td>
+                        <td className="py-2 px-2 text-center font-mono text-slate-600">
+                          {isLockedClaim && isOtherDay ? '-' : (row.specialAssignmentHours || '-')}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1948,6 +1979,11 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
             <div className="mt-4 pt-3 border-t border-slate-200 flex items-center justify-between text-xs">
               <span className="text-slate-500">
                 Days: <strong>{viewingClaim.otDaysCount}</strong>
+                {(viewingClaim.daysPayCount || 0) > 0 && (
+                  <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 font-semibold text-[11px]">
+                    + {viewingClaim.daysPayCount} Day&apos;s Pay
+                  </span>
+                )}
               </span>
               <span className="font-bold text-slate-800">
                 Total Overtime: <strong className="text-indigo-600 text-sm font-black">{viewingClaim.totalHoursFormatted}</strong> ({viewingClaim.totalDecimalHours} hrs)
