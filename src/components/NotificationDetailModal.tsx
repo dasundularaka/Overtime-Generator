@@ -1,12 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   X,
-  Mail,
-  Bell,
   Clock,
-  Building2,
   User,
-  Users,
   Trash2,
   CheckCircle2,
   CheckCheck,
@@ -22,6 +18,7 @@ import { AppNotification, UserProfile } from '../types';
 import {
   deleteNotificationById,
   getNotificationReadSummary,
+  getNotificationSenderRoleLabel,
   getPriorityMeta,
   getUserReadTimestamp,
   hasUserReadNotification,
@@ -186,12 +183,9 @@ export const NotificationDetailModal: React.FC<NotificationDetailModalProps> = (
             <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-slate-500">
               <span className="inline-flex items-center gap-1">
                 <User className="w-3.5 h-3.5 text-slate-400" />
-                <span className="font-medium text-slate-700">{notification.senderName}</span>
-              </span>
-              <span aria-hidden="true">&middot;</span>
-              <span className="inline-flex items-center gap-1">
-                <Building2 className="w-3.5 h-3.5 text-slate-400" />
-                <span>{notification.senderBranch}</span>
+                <span className="font-medium text-slate-700">
+                  {getNotificationSenderRoleLabel(notification.senderRole)}
+                </span>
               </span>
               <span aria-hidden="true">&middot;</span>
               <span className="inline-flex items-center gap-1 tabular-nums">
@@ -244,43 +238,6 @@ export const NotificationDetailModal: React.FC<NotificationDetailModalProps> = (
           {/* Full Message Body */}
           <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap break-words">
             {notification.body}
-          </div>
-
-          {/* Delivery & Target Details */}
-          <div className="pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-            <div>
-              <span className="text-[11px] font-semibold text-slate-400 block">Target Audience</span>
-              <span className="mt-0.5 inline-flex items-center gap-1.5 font-semibold text-slate-800">
-                <Users className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                <span>{notification.targetLabel || notification.targetBranch || 'Targeted Staff'}</span>
-              </span>
-            </div>
-
-            <div>
-              <span className="text-[11px] font-semibold text-slate-400 block">Delivery Channels</span>
-              <div className="mt-0.5 flex flex-wrap items-center gap-3 text-slate-700 font-medium">
-                {notification.sendViaApp && (
-                  <span className="inline-flex items-center gap-1">
-                    <Bell className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>In-App Push</span>
-                  </span>
-                )}
-                {notification.sendViaEmail && (
-                  <span className="inline-flex items-center gap-1">
-                    <Mail className="w-3.5 h-3.5 text-blue-600" />
-                    <span>
-                      Email (Make)
-                      {typeof notification.emailDispatchedCount === 'number' &&
-                      notification.emailDispatchedCount > 0
-                        ? ` (${notification.emailDispatchedCount} sent)`
-                        : notification.emailDispatchStatus === 'failed'
-                        ? ' (Dispatch failed)'
-                        : ''}
-                    </span>
-                  </span>
-                )}
-              </div>
-            </div>
           </div>
 
           {/* Admin Read-Receipt Summary Section */}

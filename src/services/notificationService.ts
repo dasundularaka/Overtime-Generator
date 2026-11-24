@@ -74,6 +74,20 @@ export function getPriorityMeta(priority: NotificationPriority): PriorityMeta {
   }
 }
 
+export function getNotificationSenderRoleLabel(
+  senderRole?: string
+): 'Super Admin' | 'Branch Admin' {
+  const normalized = (senderRole || '').trim().toLowerCase();
+  if (
+    normalized === 'super_admin' ||
+    normalized === 'superadmin' ||
+    normalized === 'super admin'
+  ) {
+    return 'Super Admin';
+  }
+  return 'Branch Admin';
+}
+
 export function readCachedNotifications(): AppNotification[] {
   try {
     const raw = localStorage.getItem(LOCAL_NOTIFICATIONS_CACHE_KEY);
@@ -414,11 +428,9 @@ export async function sendNotification(
               heading: notificationRecord.heading,
               body: notificationRecord.body,
               priority: notificationRecord.priority,
-              targetLabel: notificationRecord.targetLabel,
               imageUrl: notificationRecord.imageUrl,
-              senderName: notificationRecord.senderName,
-              senderEmail: notificationRecord.senderEmail,
-              senderBranch: notificationRecord.senderBranch,
+              senderRole: notificationRecord.senderRole,
+              senderRoleLabel: getNotificationSenderRoleLabel(notificationRecord.senderRole),
             })
           )
         );

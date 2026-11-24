@@ -41,11 +41,9 @@ export interface MakeNotificationEmailPayload {
   heading: string;
   body: string;
   priority: NotificationPriority;
-  targetLabel?: string;
   imageUrl?: string;
-  senderName?: string;
-  senderEmail?: string;
-  senderBranch?: string;
+  senderRole?: string;
+  senderRoleLabel?: string;
   portalUrl?: string;
 }
 
@@ -494,13 +492,18 @@ export async function sendNotificationEmailViaMake(
   const portalUrl = sanitizeHttpUrl(params.portalUrl) || resolveDefaultAppUrl();
   const safeImageUrl = sanitizeHttpUrl(params.imageUrl);
   const recipientName = (params.recipientName || 'Team Member').trim();
-  const senderName = (params.senderName || 'Administrator').trim();
-  const senderBranch = (params.senderBranch || 'Head Office').trim();
+  const normalizedSenderRole = (params.senderRole || '').trim().toLowerCase();
+  const isSuperAdminRole =
+    normalizedSenderRole === 'super_admin' ||
+    normalizedSenderRole === 'superadmin' ||
+    normalizedSenderRole === 'super admin';
+  const senderRoleLabel =
+    (params.senderRoleLabel || '').trim() || (isSuperAdminRole ? 'Super Admin' : 'Branch Admin');
   const subject = `[${priorityConfig.label}] ${params.heading}`;
 
   const textBody = `Dear ${recipientName},
 
-You have received a new ${priorityConfig.label} notification from ${senderName} (${senderBranch}).
+You have received a new ${priorityConfig.label} notification from ${senderRoleLabel}.
 
 Heading: ${params.heading}
 
@@ -536,13 +539,12 @@ OT Claim Notification System`;
           : ''
       }
       <p style="margin:0;font-size:12px;color:#64748b;">
-        Sent by <strong>${escapeHtml(senderName)}</strong> &middot; ${escapeHtml(senderBranch)}
-        ${params.targetLabel ? ` &middot; Audience: ${escapeHtml(params.targetLabel)}` : ''}
+        Sent by <strong>${escapeHtml(senderRoleLabel)}</strong>
       </p>
     `,
     ctaLabel: 'Open Notification Center',
     ctaUrl: portalUrl,
-    footerNote: 'Sent automatically via OT Claim Notification System & Make Email Automation.',
+    footerNote: 'Sent automatically via OT Claim Notification System.',
   });
 
   return postToMakeWebhook({
@@ -561,12 +563,10 @@ OT Claim Notification System`;
     message: params.body,
     priority: params.priority,
     priorityLabel: priorityConfig.shortLabel,
-    targetLabel: params.targetLabel || '',
     imageUrl: safeImageUrl || '',
     hasEmbeddedImage: Boolean(!safeImageUrl && params.imageUrl),
-    senderName,
-    senderEmail: params.senderEmail || '',
-    senderBranch,
+    senderRole: isSuperAdminRole ? 'super_admin' : 'admin',
+    senderRoleLabel,
     portalUrl,
   });
 }

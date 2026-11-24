@@ -35,6 +35,7 @@ import {
   compressNotificationImage,
   deleteNotificationById,
   getNotificationReadSummary,
+  getNotificationSenderRoleLabel,
   getPriorityMeta,
   getUserReadTimestamp,
   hasUserReadNotification,
@@ -672,8 +673,7 @@ export const NotificationCenter: React.FC = () => {
     return (
       n.heading.toLowerCase().includes(q) ||
       n.body.toLowerCase().includes(q) ||
-      (n.senderName || '').toLowerCase().includes(q) ||
-      (n.targetLabel || '').toLowerCase().includes(q)
+      getNotificationSenderRoleLabel(n.senderRole).toLowerCase().includes(q)
     );
   };
 
@@ -780,14 +780,11 @@ export const NotificationCenter: React.FC = () => {
       });
 
       setIsBroadcastOpen(false);
-      const emailSummary = sendViaEmail
-        ? result.emailError
-          ? ` (Email note: ${result.emailError})`
-          : ` and emailed to ${result.emailSentCount} recipient${result.emailSentCount === 1 ? '' : 's'}`
-        : '';
       setStatusBanner({
         type: 'success',
-        text: `Notification "${result.notification.heading}" sent to ${result.notification.targetLabel}${emailSummary}.`,
+        text: result.emailError
+          ? `Notification "${result.notification.heading}" sent (Email note: ${result.emailError}).`
+          : `Notification "${result.notification.heading}" sent successfully.`,
       });
       setTimeout(() => setStatusBanner(null), 5000);
     } catch (err: any) {
@@ -952,29 +949,9 @@ export const NotificationCenter: React.FC = () => {
           {/* Quiet Unboxed Metadata & Read Receipt Controls */}
           <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
             <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-              {mode === 'received' ? (
-                <>
-                  <span className="font-medium text-slate-700 truncate">{notif.senderName}</span>
-                  <span aria-hidden="true">&middot;</span>
-                  <span className="truncate">{notif.senderBranch}</span>
-                </>
-              ) : (
-                <>
-                  <span className="font-medium text-slate-700 truncate">
-                    To: {notif.targetLabel || notif.targetBranch}
-                  </span>
-                  <span aria-hidden="true">&middot;</span>
-                  <span className="inline-flex items-center gap-1">
-                    {notif.sendViaApp && <Bell className="w-3 h-3 text-indigo-500" />}
-                    {notif.sendViaEmail && <Mail className="w-3 h-3 text-blue-500" />}
-                    <span>
-                      {[notif.sendViaApp ? 'App' : '', notif.sendViaEmail ? 'Email' : '']
-                        .filter(Boolean)
-                        .join(' & ')}
-                    </span>
-                  </span>
-                </>
-              )}
+              <span className="font-medium text-slate-700 truncate">
+                {getNotificationSenderRoleLabel(notif.senderRole)}
+              </span>
             </div>
 
             <div className="flex items-center gap-2.5 shrink-0">
@@ -1109,7 +1086,7 @@ export const NotificationCenter: React.FC = () => {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search notifications by heading, message, sender, or target..."
+            placeholder="Search notifications by heading, message, or sender role..."
             className="w-full pl-9 pr-8 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-slate-800"
           />
           {searchQuery && (
@@ -1646,8 +1623,8 @@ export const NotificationCenter: React.FC = () => {
             ? [
                 { label: 'Heading', value: notifPendingDelete.heading },
                 {
-                  label: 'Target',
-                  value: notifPendingDelete.targetLabel || notifPendingDelete.targetBranch || 'Recipients',
+                  label: 'Sender Role',
+                  value: getNotificationSenderRoleLabel(notifPendingDelete.senderRole),
                 },
               ]
             : undefined
