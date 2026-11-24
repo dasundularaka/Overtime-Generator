@@ -34,6 +34,8 @@ import {
   Briefcase,
   Eraser,
   ArrowRight,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import {
   collection,
@@ -160,10 +162,33 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
   const [cardFilter, setCardFilter] = useState<'all' | 'claimed' | 'weekdays' | 'nonworking' | 'leaves' | 'issues'>('all');
+  const [showRatesPanel, setShowRatesPanel] = useState<boolean>(true);
   // Only reveal visual issue banners/rings if user triggers Preview, Download, or Submit
   const [showValidationAttention, setShowValidationAttention] = useState(false);
   const [highlightedErrorRowId, setHighlightedErrorRowId] = useState<string | null>(null);
-  const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
+
+  // Horizontal carousel & smooth ease-out scroll state
+  const horizontalScrollRef = useRef<HTMLDivElement | null>(null);
+  const scrollAnimFrameRef = useRef<number | null>(null);
+  const isProgrammaticScrollRef = useRef<boolean>(false);
+  const dragScrollRef = useRef<{ active: boolean; startX: number; startScrollLeft: number; moved: boolean }>({
+    active: false,
+    startX: 0,
+    startScrollLeft: 0,
+    moved: false,
+  });
+  const [canScrollLeft, setCanScrollLeft] = useState<boolean>(false);
+  const [canScrollRight, setCanScrollRight] = useState<boolean>(false);
+  const [activeCarouselIdx, setActiveCarouselIdx] = useState<number>(0);
+
+  // Smart auto-advance tracking when a date card is completed (Time In + Time Out + Reason)
+  const openTimePickerCountRef = useRef<number>(0);
+  const pendingAutoAdvanceRowIdRef = useRef<string | null>(null);
+  const pendingReasonBlurAdvanceRef = useRef<string | null>(null);
+  const reasonIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevCompleteRowIdsRef = useRef<Set<string>>(new Set());
+  const hasInitializedCompleteMapRef = useRef<boolean>(false);
+  const lastEditedMetaRef = useRef<{ rowId: string; field: string } | null>(null);
 
   // Refs for smooth auto-scrolling & focusing on validation errors
   const employeeHeaderRef = useRef<HTMLDivElement | null>(null);
@@ -173,68 +198,14 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   const reasonInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const dateInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  // Monitor keyboard display on mobile devices so floating bars do not cover inputs
+  // Clean up any active animation frames / timers on unmount
   useEffect(() => {
-    const handleFocusIn = (e: FocusEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (
-        target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.tagName === 'SELECT' ||
-          target.isContentEditable)
-      ) {
-        setIsKeyboardOpen(true);
-      }
-    };
-
-    const handleFocusOut = () => {
-      setTimeout(() => {
-        const active = document.activeElement as HTMLElement | null;
-        const isInputFocused =
-          active &&
-          (active.tagName === 'INPUT' ||
-            active.tagName === 'TEXTAREA' ||
-            active.tagName === 'SELECT' ||
-            active.isContentEditable);
-        if (!isInputFocused) {
-          setIsKeyboardOpen(false);
-        }
-      }, 150);
-    };
-
-    const handleViewportResize = () => {
-      if (window.visualViewport) {
-        const windowHeight = window.innerHeight;
-        const viewportHeight = window.visualViewport.height;
-        if (windowHeight - viewportHeight > 120) {
-          setIsKeyboardOpen(true);
-        } else {
-          const active = document.activeElement as HTMLElement | null;
-          const isInputFocused =
-            active &&
-            (active.tagName === 'INPUT' ||
-              active.tagName === 'TEXTAREA' ||
-              active.tagName === 'SELECT' ||
-              active.isContentEditable);
-          if (!isInputFocused) {
-            setIsKeyboardOpen(false);
-          }
-        }
-      }
-    };
-
-    window.addEventListener('focusin', handleFocusIn);
-    window.addEventListener('focusout', handleFocusOut);
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', handleViewportResize);
-    }
-
     return () => {
-      window.removeEventListener('focusin', handleFocusIn);
-      window.removeEventListener('focusout', handleFocusOut);
-      if (window.visualViewport) {
-        window.visualViewport.removeEventListener('resize', handleViewportResize);
+      if (scrollAnimFrameRef.current !== null) {
+        cancelAnimationFrame(scrollAnimFrameRef.current);
+      }
+      if (reasonIdleTimerRef.current) {
+        clearTimeout(reasonIdleTimerRef.current);
       }
     };
   }, []);
@@ -502,52 +473,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   // Corporate Role Rates Subscription - initialized immediately from local cache
   const [roleRates, setRoleRates] = useState<RoleRate[]>(getLocalRoleRates());
 
-  // Scroll to bottom visibility for preview, submit and download action panel
-  const [isScrolledToBottom, setIsScrolledToBottom] = useState(false);
-  const bottomSentinelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      entries => {
-        const [entry] = entries;
-        if (entry) {
-          setIsScrolledToBottom(entry.isIntersecting);
-        }
-      },
-      {
-        root: null,
-        rootMargin: '140px',
-        threshold: 0.05,
-      }
-    );
-
-    if (bottomSentinelRef.current) {
-      observer.observe(bottomSentinelRef.current);
-    }
-
-    const handleScroll = () => {
-      const windowHeight = window.innerHeight;
-      const docHeight = document.documentElement.scrollHeight;
-      const scrollY = window.scrollY || document.documentElement.scrollTop;
-
-      // When user is near the bottom (within 240px), make buttons panel visible
-      if (docHeight - (scrollY + windowHeight) < 240) {
-        setIsScrolledToBottom(true);
-      } else if (bottomSentinelRef.current) {
-        const rect = bottomSentinelRef.current.getBoundingClientRect();
-        if (rect.top > windowHeight + 120) {
-          setIsScrolledToBottom(false);
-        }
-      }
-    };
-
-    window.addEventListener('scroll', handleScroll, { passive: true });
-
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('scroll', handleScroll);
-    };
-  }, []);
+  // Horizontal scroll indicator state is managed directly on the card carousel track
 
   useEffect(() => {
     fetchRoleRatesFromFirestore().then(list => {
@@ -831,42 +757,6 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
   const rowsWithIssuesCount = rowsWithIssues.length;
 
-  // Smooth auto-scroll & focus helper for validation errors
-  const scrollToErrorTarget = (target: {
-    type: 'employeeName' | 'row' | 'timesheet';
-    rowId?: string;
-    focusField?: 'date' | 'reason' | 'startTime' | 'endTime' | 'holidayOverride' | null;
-  }) => {
-    if (target.type === 'row' && target.rowId) {
-      setHighlightedErrorRowId(target.rowId);
-      setTimeout(() => {
-        const el = rowElementRefs.current[target.rowId!];
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        } else {
-          timesheetSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-        if (target.focusField === 'reason') {
-          reasonInputRefs.current[target.rowId!]?.focus({ preventScroll: true });
-        } else if (target.focusField === 'date') {
-          dateInputRefs.current[target.rowId!]?.focus({ preventScroll: true });
-        }
-      }, 90);
-      return;
-    }
-    if (target.type === 'employeeName') {
-      setHighlightedErrorRowId(null);
-      setTimeout(() => {
-        employeeHeaderRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 60);
-      return;
-    }
-    setHighlightedErrorRowId(null);
-    setTimeout(() => {
-      timesheetSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 60);
-  };
-
   // Clear highlight automatically once user fixes all issues
   useEffect(() => {
     if (highlightedErrorRowId) {
@@ -879,39 +769,6 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
       }
     }
   }, [rows, highlightedErrorRowId, rowsWithIssuesCount]);
-
-  // Visible rows for user-friendly Card View filtering
-  const visibleCardRows = useMemo(() => {
-    return rows
-      .map((row, originalIndex) => ({ row, originalIndex }))
-      .filter(({ row }) => {
-        if (cardFilter === 'issues') {
-          return getRowValidation(row).hasIssue;
-        }
-        if (cardFilter === 'leaves') {
-          return Boolean(row.isLeave);
-        }
-        if (cardFilter === 'claimed') {
-          if (isOpClaim) {
-            return !row.isLeave && !(isRowHoliday(row) && !row.isHolidayOverride) && ((row.totalWorkMinutes || 0) > 0 || (row.daysPaymentAmount || 0) > 0);
-          }
-          const isSatRow = row.dayOfWeek === 'Sat' || getDayOfWeek(row.date) === 'Sat';
-          const isHolRow = isRowHoliday(row);
-          const isOtherRow = isSatRow || isHolRow;
-          const isQualifiedSatDayPay = isSatRow && (!!row.isDaysPayment || isDaysPayOnlyNonWorking) && (row.totalWorkMinutes || 0) >= 360;
-          const isQualifiedHolDayPay = isHolRow && !!row.isHolidayOverride && (row.totalWorkMinutes || 0) > 0;
-          const hasValidOtRow = !(isDaysPayOnlyNonWorking && isOtherRow) && (row.totalMinutes || 0) > 0;
-          return !row.isLeave && !(isHolRow && !row.isHolidayOverride) && (hasValidOtRow || isQualifiedSatDayPay || isQualifiedHolDayPay);
-        }
-        if (cardFilter === 'weekdays') {
-          return isWeekdayWorkingDay(row);
-        }
-        if (cardFilter === 'nonworking') {
-          return isOtherDayRow(row);
-        }
-        return true;
-      });
-  }, [rows, cardFilter, holidayMap, dateOccurrences, userShiftStartTime, isOpClaim]);
 
   // Fetch users if admin (Admins only see users in their same branch; Super Admin sees all)
   useEffect(() => {
@@ -959,48 +816,38 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   // Find the corporate RoleRate definition matching the user's role/designation
   const userRelevantRole = useMemo(() => {
     if (!targetProfile && !designation) return null;
-    // 1. Match by roleId
     if (targetProfile?.roleId) {
       const byId = roleRates.find(r => r.id === targetProfile.roleId);
       if (byId) return byId;
     }
-    // 2. Match by roleName
     if (targetProfile?.roleName) {
       const targetRoleName = targetProfile.roleName.toLowerCase().trim();
       const byRoleName = roleRates.find(r => (r.name || '').toLowerCase().trim() === targetRoleName);
       if (byRoleName) return byRoleName;
     }
-    // 3. Match by designation (exact)
     const title = (targetProfile?.designation || designation || '').toLowerCase().trim();
     if (title) {
       const byDesig = roleRates.find(r => (r.name || '').toLowerCase().trim() === title);
       if (byDesig) return byDesig;
-      // 4. Match by substring / keyword (e.g. "Technical Officer", "Clerk", "Engineer")
       const bySub = roleRates.find(r => {
         const rn = (r.name || '').toLowerCase().trim();
         return (rn.length > 2 && title.includes(rn)) || (title.length > 2 && rn.includes(title));
       });
       if (bySub) return bySub;
     }
-    // 5. Fallback check in default role rates
     const fallbackDef = DEFAULT_ROLE_RATES.find(dr => {
       const drn = dr.name.toLowerCase().trim();
       return dr.id === targetProfile?.roleId || (title && (drn === title || title.includes(drn) || drn.includes(title)));
     });
     if (fallbackDef) {
-      // Find matching live role from Firestore roleRates to ensure updated isRatesLocked is honored
       const liveRole = roleRates.find(r => r.id === fallbackDef.id || (r.name && r.name.toLowerCase().trim() === fallbackDef.name.toLowerCase().trim()));
       return liveRole || fallbackDef;
     }
-
     return null;
   }, [targetProfile, designation, roleRates]);
 
-  // Lock status calculation:
-  // 1. Check if the active target user account is explicitly locked by admin
   const isUserExplicitlyLocked = Boolean(targetProfile ? targetProfile.isRatesLocked : userProfile?.isRatesLocked);
 
-  // 2. Check if assigned corporate role or designation is locked by admin (via Role Management tool)
   const normalizeRoleKey = (val?: string | null) => (val || '').toLowerCase().trim();
   const targetRoleId = targetProfile?.roleId;
   const targetRoleNameKey = normalizeRoleKey(targetProfile?.roleName);
@@ -1025,12 +872,407 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     }))
   );
 
-  // If EITHER the user's profile is locked OR their assigned role is locked by admin, rates are LOCKED!
   const isTargetUserRatesLocked = isUserExplicitlyLocked || isRoleLocked;
 
   // Locked-rate designations (and locked user profiles) can ONLY claim Day's Pay on non-working days
   // including Saturdays, Sundays, and Holidays — they CANNOT claim hourly OT on non-working days.
   const isDaysPayOnlyNonWorking = !isOpClaim && isTargetUserRatesLocked;
+
+  // Visible rows for user-friendly Card View filtering
+  const visibleCardRows = useMemo(() => {
+    return rows
+      .map((row, originalIndex) => ({ row, originalIndex }))
+      .filter(({ row }) => {
+        if (cardFilter === 'issues') {
+          return getRowValidation(row).hasIssue;
+        }
+        if (cardFilter === 'leaves') {
+          return Boolean(row.isLeave);
+        }
+        if (cardFilter === 'claimed') {
+          if (isOpClaim) {
+            return !row.isLeave && !(isRowHoliday(row) && !row.isHolidayOverride) && ((row.totalWorkMinutes || 0) > 0 || (row.daysPaymentAmount || 0) > 0);
+          }
+          const isSatRow = row.dayOfWeek === 'Sat' || getDayOfWeek(row.date) === 'Sat';
+          const isHolRow = isRowHoliday(row);
+          const isOtherRow = isSatRow || isHolRow;
+          const isQualifiedSatDayPay = isSatRow && (!!row.isDaysPayment || isDaysPayOnlyNonWorking) && (row.totalWorkMinutes || 0) >= 360;
+          const isQualifiedHolDayPay = isHolRow && !!row.isHolidayOverride && (row.totalWorkMinutes || 0) > 0;
+          const hasValidOtRow = !(isDaysPayOnlyNonWorking && isOtherRow) && (row.totalMinutes || 0) > 0;
+          return !row.isLeave && !(isHolRow && !row.isHolidayOverride) && (hasValidOtRow || isQualifiedSatDayPay || isQualifiedHolDayPay);
+        }
+        if (cardFilter === 'weekdays') {
+          return isWeekdayWorkingDay(row);
+        }
+        if (cardFilter === 'nonworking') {
+          return isOtherDayRow(row);
+        }
+        return true;
+      });
+  }, [rows, cardFilter, holidayMap, dateOccurrences, userShiftStartTime, isOpClaim, isDaysPayOnlyNonWorking]);
+
+  // =========================================================================
+  // HORIZONTAL CAROUSEL SCROLL ENGINE (Ease-out smooth scroll + swipe + arrows)
+  // =========================================================================
+  const updateHorizontalScrollState = () => {
+    const container = horizontalScrollRef.current;
+    if (!container) return;
+    const { scrollLeft, scrollWidth, clientWidth } = container;
+    setCanScrollLeft(scrollLeft > 6);
+    setCanScrollRight(scrollLeft < scrollWidth - clientWidth - 6);
+
+    if (visibleCardRows.length > 0) {
+      const containerRect = container.getBoundingClientRect();
+      const viewportCenter = containerRect.left + containerRect.width / 2;
+      let closestIdx = 0;
+      let minDelta = Infinity;
+      visibleCardRows.forEach(({ row }, idx) => {
+        const el = rowElementRefs.current[row.id];
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        const cardCenter = rect.left + rect.width / 2;
+        const delta = Math.abs(cardCenter - viewportCenter);
+        if (delta < minDelta) {
+          minDelta = delta;
+          closestIdx = idx;
+        }
+      });
+      setActiveCarouselIdx(closestIdx);
+    } else {
+      setActiveCarouselIdx(0);
+    }
+  };
+
+  const cancelHorizontalAnimation = () => {
+    if (scrollAnimFrameRef.current !== null) {
+      cancelAnimationFrame(scrollAnimFrameRef.current);
+      scrollAnimFrameRef.current = null;
+    }
+    isProgrammaticScrollRef.current = false;
+    if (horizontalScrollRef.current) {
+      horizontalScrollRef.current.style.scrollSnapType = '';
+    }
+  };
+
+  const smoothScrollHorizontalTo = (targetLeft: number, durationMs: number = 540, onComplete?: () => void) => {
+    const container = horizontalScrollRef.current;
+    if (!container) return;
+
+    cancelHorizontalAnimation();
+
+    const maxScroll = Math.max(0, container.scrollWidth - container.clientWidth);
+    const clampedTarget = Math.max(0, Math.min(maxScroll, targetLeft));
+    const startLeft = container.scrollLeft;
+    const distance = clampedTarget - startLeft;
+
+    if (Math.abs(distance) < 2) {
+      container.scrollLeft = clampedTarget;
+      updateHorizontalScrollState();
+      onComplete?.();
+      return;
+    }
+
+    const prefersReducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (prefersReducedMotion) {
+      container.scrollLeft = clampedTarget;
+      updateHorizontalScrollState();
+      onComplete?.();
+      return;
+    }
+
+    isProgrammaticScrollRef.current = true;
+    container.style.scrollSnapType = 'none';
+
+    const startTime = performance.now();
+    // Smooth ease-out cubic deceleration curve
+    const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+
+    const step = (now: number) => {
+      if (!isProgrammaticScrollRef.current) return;
+      const elapsed = now - startTime;
+      const progress = Math.min(1, elapsed / durationMs);
+      const eased = easeOutCubic(progress);
+      container.scrollLeft = startLeft + distance * eased;
+
+      if (progress < 1) {
+        scrollAnimFrameRef.current = requestAnimationFrame(step);
+      } else {
+        container.scrollLeft = clampedTarget;
+        isProgrammaticScrollRef.current = false;
+        scrollAnimFrameRef.current = null;
+        container.style.scrollSnapType = '';
+        updateHorizontalScrollState();
+        onComplete?.();
+      }
+    };
+
+    scrollAnimFrameRef.current = requestAnimationFrame(step);
+  };
+
+  const scrollToCardByRowId = (rowId: string, durationMs: number = 540, onComplete?: () => void) => {
+    const container = horizontalScrollRef.current;
+    const cardEl = rowElementRefs.current[rowId];
+    if (!container || !cardEl) {
+      onComplete?.();
+      return;
+    }
+    const containerRect = container.getBoundingClientRect();
+    const cardRect = cardEl.getBoundingClientRect();
+    const cardOffsetInTrack = cardRect.left - containerRect.left + container.scrollLeft;
+    const centeredLeft = cardOffsetInTrack - (container.clientWidth - cardEl.offsetWidth) / 2;
+    smoothScrollHorizontalTo(centeredLeft, durationMs, onComplete);
+  };
+
+  const scrollCarouselByStep = (direction: 'left' | 'right') => {
+    const container = horizontalScrollRef.current;
+    if (!container || visibleCardRows.length === 0) return;
+
+    const isNarrow = container.clientWidth < 768;
+    if (isNarrow) {
+      const nextIdx = Math.max(
+        0,
+        Math.min(visibleCardRows.length - 1, activeCarouselIdx + (direction === 'right' ? 1 : -1))
+      );
+      const targetRow = visibleCardRows[nextIdx]?.row;
+      if (targetRow) {
+        scrollToCardByRowId(targetRow.id, 460);
+        return;
+      }
+    }
+
+    const firstEl = rowElementRefs.current[visibleCardRows[0].row.id];
+    const cardStep = firstEl ? firstEl.offsetWidth + 16 : 360;
+    const stepDistance = Math.max(cardStep, Math.floor(container.clientWidth * 0.72));
+    const targetLeft = container.scrollLeft + (direction === 'right' ? stepDistance : -stepDistance);
+    smoothScrollHorizontalTo(targetLeft, 480);
+  };
+
+  const autoScrollToNextCard = (completedRowId: string) => {
+    if (viewMode !== 'cards') return;
+    const currentIdx = visibleCardRows.findIndex(({ row }) => row.id === completedRowId);
+    if (currentIdx === -1 || currentIdx >= visibleCardRows.length - 1) return;
+    const nextRow = visibleCardRows[currentIdx + 1]?.row;
+    if (!nextRow) return;
+    scrollToCardByRowId(nextRow.id, 580);
+  };
+
+  // Sync horizontal scroll arrows & active card indicator on resize/filter/row changes
+  useEffect(() => {
+    if (viewMode !== 'cards') return;
+    const timer = setTimeout(() => {
+      updateHorizontalScrollState();
+    }, 60);
+    const handleResize = () => updateHorizontalScrollState();
+    window.addEventListener('resize', handleResize);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [viewMode, visibleCardRows.length, cardFilter, rows]);
+
+  // Desktop mouse drag-to-scroll handlers on empty areas of the horizontal track
+  const handleCarouselMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('input, button, select, textarea, label, a, [role="button"]')) {
+      return;
+    }
+    const container = horizontalScrollRef.current;
+    if (!container) return;
+    cancelHorizontalAnimation();
+    dragScrollRef.current = {
+      active: true,
+      startX: e.clientX,
+      startScrollLeft: container.scrollLeft,
+      moved: false,
+    };
+  };
+
+  useEffect(() => {
+    const handleWindowMouseMove = (e: MouseEvent) => {
+      if (!dragScrollRef.current.active) return;
+      const container = horizontalScrollRef.current;
+      if (!container) return;
+      const deltaX = e.clientX - dragScrollRef.current.startX;
+      if (Math.abs(deltaX) > 4) {
+        dragScrollRef.current.moved = true;
+      }
+      container.scrollLeft = dragScrollRef.current.startScrollLeft - deltaX;
+    };
+
+    const handleWindowMouseUp = () => {
+      if (!dragScrollRef.current.active) return;
+      dragScrollRef.current.active = false;
+      updateHorizontalScrollState();
+    };
+
+    window.addEventListener('mousemove', handleWindowMouseMove);
+    window.addEventListener('mouseup', handleWindowMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleWindowMouseMove);
+      window.removeEventListener('mouseup', handleWindowMouseUp);
+    };
+  }, [visibleCardRows]);
+
+  // Helper: Detect if a date card has complete data (Time In, Time Out, Reason, and zero errors)
+  const isRowCompleteWithData = (r: OvertimeRow): boolean => {
+    if (!r || r.isLeave) return false;
+    const isHol = isRowHoliday(r);
+    if (isHol && !r.isHolidayOverride) return false;
+    const hasIn = Boolean(toSafeStr(r.startTime).trim());
+    const hasOut = Boolean(toSafeStr(r.endTime).trim());
+    const hasReason = Boolean(toSafeStr(r.reason).trim());
+    if (!hasIn || !hasOut || !hasReason) return false;
+    return !getRowValidation(r).hasIssue;
+  };
+
+  // Auto-scroll smoothly (ease-out) to next date card whenever a date transitions to complete (In + Out + Reason)
+  useEffect(() => {
+    const nextCompleteSet = new Set<string>();
+    for (const r of rows) {
+      if (isRowCompleteWithData(r)) {
+        nextCompleteSet.add(r.id);
+      }
+    }
+
+    if (!hasInitializedCompleteMapRef.current || !hasUserModifiedRef.current) {
+      prevCompleteRowIdsRef.current = nextCompleteSet;
+      hasInitializedCompleteMapRef.current = true;
+      return;
+    }
+
+    const lastEdit = lastEditedMetaRef.current;
+    if (viewMode === 'cards' && lastEdit) {
+      const { rowId, field } = lastEdit;
+      const wasComplete = prevCompleteRowIdsRef.current.has(rowId);
+      const isNowComplete = nextCompleteSet.has(rowId);
+
+      if (!wasComplete && isNowComplete) {
+        if (reasonIdleTimerRef.current) {
+          clearTimeout(reasonIdleTimerRef.current);
+          reasonIdleTimerRef.current = null;
+        }
+
+        if (openTimePickerCountRef.current > 0) {
+          // Wait until user finishes & closes the Time Picker modal
+          pendingAutoAdvanceRowIdRef.current = rowId;
+        } else if (
+          field === 'reason' &&
+          typeof document !== 'undefined' &&
+          document.activeElement === reasonInputRefs.current[rowId]
+        ) {
+          // Wait for Enter / blur or typing pause so we don't jump mid-word
+          pendingReasonBlurAdvanceRef.current = rowId;
+          reasonIdleTimerRef.current = setTimeout(() => {
+            pendingReasonBlurAdvanceRef.current = null;
+            reasonIdleTimerRef.current = null;
+            const inputEl = reasonInputRefs.current[rowId];
+            if (inputEl && document.activeElement === inputEl) {
+              inputEl.blur();
+            }
+            autoScrollToNextCard(rowId);
+          }, 1450);
+        } else {
+          setTimeout(() => {
+            autoScrollToNextCard(rowId);
+          }, 220);
+        }
+      } else if (!isNowComplete) {
+        if (pendingAutoAdvanceRowIdRef.current === rowId) {
+          pendingAutoAdvanceRowIdRef.current = null;
+        }
+        if (pendingReasonBlurAdvanceRef.current === rowId) {
+          pendingReasonBlurAdvanceRef.current = null;
+        }
+      }
+    }
+
+    prevCompleteRowIdsRef.current = nextCompleteSet;
+  }, [rows, viewMode, visibleCardRows]);
+
+  const handleTimePickerOpenChange = (rowId: string, isOpen: boolean) => {
+    if (isOpen) {
+      openTimePickerCountRef.current += 1;
+    } else {
+      openTimePickerCountRef.current = Math.max(0, openTimePickerCountRef.current - 1);
+      if (openTimePickerCountRef.current === 0 && pendingAutoAdvanceRowIdRef.current === rowId) {
+        const targetId = pendingAutoAdvanceRowIdRef.current;
+        pendingAutoAdvanceRowIdRef.current = null;
+        setTimeout(() => {
+          const targetRow = rows.find(r => r.id === targetId);
+          if (targetRow && isRowCompleteWithData(targetRow)) {
+            autoScrollToNextCard(targetId);
+          }
+        }, 220);
+      }
+    }
+  };
+
+  // Smooth auto-scroll (vertical + horizontal ease-out) & focus helper for validation errors
+  const scrollToErrorTarget = (target: {
+    type: 'employeeName' | 'row' | 'timesheet';
+    rowId?: string;
+    focusField?: 'date' | 'reason' | 'startTime' | 'endTime' | 'holidayOverride' | null;
+  }) => {
+    if (target.type === 'row' && target.rowId) {
+      const targetRowId = target.rowId;
+      setHighlightedErrorRowId(targetRowId);
+      setTimeout(() => {
+        if (viewMode === 'cards') {
+          const sectionEl = timesheetSectionRef.current;
+          if (sectionEl) {
+            sectionEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+          setTimeout(() => {
+            scrollToCardByRowId(targetRowId, 560, () => {
+              if (target.focusField === 'reason') {
+                reasonInputRefs.current[targetRowId]?.focus({ preventScroll: true });
+              } else if (target.focusField === 'date') {
+                dateInputRefs.current[targetRowId]?.focus({ preventScroll: true });
+              }
+            });
+          }, 140);
+        } else {
+          const el = rowElementRefs.current[targetRowId];
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          } else {
+            timesheetSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+          if (target.focusField === 'reason') {
+            reasonInputRefs.current[targetRowId]?.focus({ preventScroll: true });
+          } else if (target.focusField === 'date') {
+            dateInputRefs.current[targetRowId]?.focus({ preventScroll: true });
+          }
+        }
+      }, 90);
+      return;
+    }
+    if (target.type === 'employeeName') {
+      setHighlightedErrorRowId(null);
+      setTimeout(() => {
+        employeeHeaderRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 60);
+      return;
+    }
+    setHighlightedErrorRowId(null);
+    setTimeout(() => {
+      const scrollTarget = validationBannerRef.current || timesheetSectionRef.current;
+      scrollTarget?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (viewMode === 'cards' && visibleCardRows.length > 0) {
+        const firstWorkRow = visibleCardRows.find(({ row }) => !row.isLeave && !isRowHoliday(row)) || visibleCardRows[0];
+        if (firstWorkRow) {
+          setTimeout(() => {
+            scrollToCardByRowId(firstWorkRow.row.id, 520);
+          }, 160);
+        }
+      }
+    }, 80);
+  };
+
+
 
   // Standard non-admin users are strictly prevented from editing locked rates
   const isRoleRatesLocked = !isAdmin && isTargetUserRatesLocked;
@@ -1357,6 +1599,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   };
 
   const handleMonthChange = (newMonth: string) => {
+    lastEditedMetaRef.current = null;
     setClaimMonth(newMonth);
     markUserModified();
     if (!initialClaim) {
@@ -1366,6 +1609,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
   const handleYearChange = (newYear: number) => {
     if (!Number.isFinite(newYear)) return;
+    lastEditedMetaRef.current = null;
     setClaimYear(newYear);
     markUserModified();
     if (!initialClaim && newYear >= 1900 && newYear <= 2100) {
@@ -1374,6 +1618,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   };
 
   const handleToggleSpecialAssignedOt = (newValue: boolean) => {
+    lastEditedMetaRef.current = null;
     markUserModified();
     setIsSpecialAssignedOt(newValue);
     setRows(prevRows =>
@@ -1446,6 +1691,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
   // User-friendly Day Status switcher: Workday / Leave / Holiday
   const setRowDayStatus = (index: number, status: 'workday' | 'leave' | 'holiday') => {
+    const rowAtIdx = rows[index];
+    if (rowAtIdx) {
+      lastEditedMetaRef.current = { rowId: rowAtIdx.id, field: 'dayStatus' };
+    }
     markUserModified();
     setRows(prevRows => {
       const updated = [...prevRows];
@@ -1641,6 +1890,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
   // Toggle holiday override to enter In/Out times and claim overtime / OP work
   const toggleHolidayOverride = (index: number) => {
+    const rowAtIdx = rows[index];
+    if (rowAtIdx) {
+      lastEditedMetaRef.current = { rowId: rowAtIdx.id, field: 'holidayOverride' };
+    }
     markUserModified();
     setRows(prevRows => {
       const updated = [...prevRows];
@@ -1709,6 +1962,10 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
   // Row update with employee shift and 15-minute generation
   const updateRowField = (index: number, field: keyof OvertimeRow, value: any) => {
+    const rowAtIdx = rows[index];
+    if (rowAtIdx) {
+      lastEditedMetaRef.current = { rowId: rowAtIdx.id, field: String(field) };
+    }
     markUserModified();
     setRows(prevRows => {
       const updated = [...prevRows];
@@ -3159,87 +3416,107 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
   }
 
   return (
-    <div className="space-y-6 pb-16">
-      {/* Top Card */}
-      <div className="rounded-2xl bg-white p-5 sm:p-6 shadow-xs border border-slate-200">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-slate-100">
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+    <div className="space-y-4 sm:space-y-5 pb-6">
+      {/* Top Header & Claimant Profile Card */}
+      <div className="rounded-2xl bg-white p-4 sm:p-5 border border-slate-200 shadow-xs space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">
                 {isOpClaim ? 'Timesheet & Out of Pocket Entry' : 'Timesheet & Overtime Entry'}
               </h1>
               {initialClaim?.status === 'draft' && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-xs bg-amber-100 text-amber-800 border border-amber-300">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-semibold text-[11px] bg-amber-50 text-amber-800 border border-amber-200">
                   <Clock className="w-3 h-3 text-amber-600" />
-                  Draft
+                  <span>Draft</span>
                 </span>
               )}
+              <span
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-semibold text-[11px] border ${
+                  isOpClaim
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    : 'bg-indigo-50 text-indigo-800 border-indigo-200'
+                }`}
+              >
+                <Lock className="w-2.5 h-2.5 opacity-75" />
+                <span>{claimFormMeta.shortLabel}</span>
+              </span>
             </div>
-            <p className="text-xs sm:text-sm text-slate-500 mt-1">
+            <p className="text-xs text-slate-500 mt-1">
               {isOpClaim
-                ? 'Log your daily worked times and out-of-pocket allowance details under Monthly Out of Pocket (Form 10610).'
-                : 'Enter your daily starting and ending times to calculate overtime claims and generate print-ready sheets.'}
+                ? 'Log daily worked times and out-of-pocket allowances under Monthly Out of Pocket (Form 10610).'
+                : 'Enter daily Time In, Time Out, and Duties to calculate overtime claims and generate print-ready A4 sheets.'}
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold border border-emerald-200">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Full Month Auto-Populated</span>
+          <div className="flex items-center gap-2 flex-wrap shrink-0">
+            {isSuperAdmin && onNavigateToDesigner && (
+              <button
+                type="button"
+                onClick={onNavigateToDesigner}
+                className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition cursor-pointer whitespace-nowrap"
+              >
+                Customize Form Layout
+              </button>
+            )}
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 text-[11px] font-semibold border border-slate-200 whitespace-nowrap">
+              <Calendar className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              <span>Full Month Auto-Filled</span>
             </span>
           </div>
         </div>
 
-        {/* Option: Auto-save uncompleted OT sheet as draft */}
-        <div className="mt-4 p-3.5 rounded-2xl bg-gradient-to-r from-slate-50 to-indigo-50/40 border border-slate-200/90 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs shadow-2xs">
-          <div className="flex items-center gap-3">
-            {/* Toggle switch for Auto-save uncompleted sheet as draft */}
-            <label className="relative inline-flex items-center cursor-pointer select-none shrink-0" title="Toggle automatic draft saving for uncompleted sheets">
+        {/* Auto-Save Toggle Strip */}
+        <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+          <div className="flex items-center gap-3 min-w-0">
+            <label
+              className="relative inline-flex items-center cursor-pointer select-none shrink-0"
+              title="Toggle automatic draft saving for uncompleted sheets"
+            >
               <input
                 type="checkbox"
                 checked={autoSaveDraftEnabled}
                 onChange={e => handleToggleAutoSave(e.target.checked)}
                 className="sr-only peer"
               />
-              <div className="w-10 h-5.5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4.5 after:w-4.5 after:transition-all peer-checked:bg-indigo-600"></div>
+              <div className="w-10 h-5.5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4.5 after:w-4.5 after:transition-all peer-checked:bg-indigo-600" />
             </label>
 
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-bold text-slate-900 text-xs">
-                  Auto-save uncompleted sheet as draft
+                <span className="font-semibold text-slate-900 text-xs">
+                  Auto-save draft
                 </span>
                 {autoSaveDraftEnabled ? (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700">
                     <Cloud className="w-3 h-3 text-emerald-600" />
-                    <span>Auto-Save Enabled</span>
+                    <span>Enabled</span>
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 border border-slate-300">
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500">
                     <CloudOff className="w-3 h-3 text-slate-400" />
-                    <span>Disabled</span>
+                    <span>Paused</span>
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-slate-500 mt-0.5">
+              <p className="text-[11px] text-slate-500 truncate">
                 {autoSaveDraftEnabled
-                  ? 'Uncompleted timesheets are automatically saved as drafts and can be resumed from History.'
-                  : 'Automatic draft saving is paused. Enable to automatically save your progress.'}
+                  ? 'Changes save automatically to Drafts and can be resumed anytime.'
+                  : 'Automatic draft saving is paused for this session.'}
               </p>
             </div>
           </div>
 
-          {/* Status Indicator & Save Draft Action */}
-          <div className="flex items-center gap-2 self-start md:self-auto shrink-0 flex-wrap">
+          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
             {isAutoSaving ? (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-100/70 text-indigo-700 font-bold text-[11px] border border-indigo-200 animate-pulse">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 font-semibold text-[11px] border border-indigo-200">
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
-                <span>Saving draft...</span>
+                <span>Saving...</span>
               </span>
             ) : lastAutoSaveTime ? (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 font-medium text-[11px] border border-slate-200">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white text-slate-600 font-medium text-[11px] border border-slate-200 tabular-nums">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Draft auto-saved at {lastAutoSaveTime}</span>
+                <span>Saved at {lastAutoSaveTime}</span>
               </span>
             ) : hasUnsavedChanges && autoSaveDraftEnabled && hasUserModified ? (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 font-medium text-[11px] border border-amber-200">
@@ -3247,53 +3524,46 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                 <span>Unsaved changes</span>
               </span>
             ) : null}
-
-            
           </div>
         </div>
 
-        {/* Resumed Draft Alert if user is resuming a draft */}
+        {/* Status Alerts & Error Banner */}
         {(initialClaim?.status === 'draft' || (toSafeStr(activeClaimId).startsWith('clm_draft_') && hasUserModified) || draftToastMessage) && (
-          <div className="mt-3 p-3 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-between gap-2 text-xs text-amber-900">
-            <div className="flex items-center gap-2">
+          <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-900">
+            <div className="flex items-center gap-2 min-w-0">
               <Clock className="w-4 h-4 text-amber-600 shrink-0" />
               <span>
-                <strong>Draft in Progress:</strong> Working on draft claim <strong>{activeClaimNumber || initialClaim?.claimNumber}</strong> ({claimMonth} {claimYear}). Incomplete changes auto-save to Drafts.
+                <strong>Draft in Progress:</strong> {activeClaimNumber || initialClaim?.claimNumber} ({claimMonth} {claimYear})
               </span>
             </div>
-            <span className="px-2 py-0.5 rounded-full bg-amber-200/80 text-amber-900 font-bold text-[10px] uppercase tracking-wider shrink-0">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-800 shrink-0">
               1 Draft / Month
             </span>
           </div>
         )}
 
-        {/* Notice when editing a previously saved item */}
         {initialClaim && initialClaim.status !== 'draft' && hasUnsavedChanges && (
-          <div className="mt-3 p-3 rounded-xl bg-amber-50/90 border border-amber-200 flex items-center justify-between gap-2 text-xs text-amber-900">
-            <div className="flex items-center gap-2">
+          <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-900">
+            <div className="flex items-center gap-2 min-w-0">
               <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
               <span>
-                <strong>Editing Saved Claim:</strong> You have uncommitted changes on <strong>{initialClaim.claimNumber}</strong>. If you exit without finalizing, this claim will appear in your Drafts list until resubmitted.
+                <strong>Editing Saved Claim:</strong> Uncommitted edits on <strong>{initialClaim.claimNumber}</strong> move to Drafts until resubmitted.
               </span>
             </div>
-            <span className="px-2 py-0.5 rounded-full bg-amber-200/80 text-amber-900 font-bold text-[10px] uppercase tracking-wider shrink-0">
-              Moved to Drafts on Edit
-            </span>
           </div>
         )}
-        {/* Draft Notification Toast */}
+
         {draftToastMessage && (
-          <div className="mt-3 p-3 rounded-xl bg-indigo-50 border border-indigo-200 text-xs text-indigo-900 flex items-center gap-2 animate-scale-in">
+          <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-200 text-xs text-indigo-900 flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-indigo-600 shrink-0" />
             <span>{draftToastMessage}</span>
           </div>
         )}
 
-        {/* Validation Error Alert with Jump-to-Error */}
         {validationError && (
           <div
             ref={validationBannerRef}
-            className="mt-4 p-3.5 rounded-xl bg-rose-50 border border-rose-300 flex flex-wrap items-center justify-between gap-2 text-xs text-rose-900 shadow-2xs"
+            className="p-3.5 rounded-xl bg-rose-50 border border-rose-300 flex flex-wrap items-center justify-between gap-2 text-xs text-rose-900"
           >
             <div className="flex items-center gap-2 min-w-0">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
@@ -3311,7 +3581,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                     }
                     scrollToErrorTarget({ type: 'row', rowId: firstIssue.id, focusField: firstVal.focusTarget });
                   }}
-                  className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px] transition cursor-pointer inline-flex items-center gap-1"
+                  className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-semibold text-[11px] transition cursor-pointer inline-flex items-center gap-1 whitespace-nowrap"
                 >
                   <span>Go to Error</span>
                   <ArrowRight className="w-3 h-3" />
@@ -3320,7 +3590,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
               <button
                 type="button"
                 onClick={() => setValidationError(null)}
-                className="font-bold text-rose-600 hover:text-rose-800 px-1.5 py-1 cursor-pointer"
+                className="font-semibold text-rose-700 hover:text-rose-900 px-1.5 py-1 cursor-pointer"
               >
                 Dismiss
               </button>
@@ -3328,52 +3598,23 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           </div>
         )}
 
-        {/* Success Alert */}
         {claimSavedSuccess && (
-          <div className="mt-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2 text-xs text-emerald-800">
+          <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2 text-xs text-emerald-800">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>Overtime claim saved to database successfully!</span>
           </div>
         )}
 
-        {/* Official Form Layout Bound Automatically by Claim Type (OT -> Form 10756, OP -> Form 10610) */}
-        <div className="mt-3 p-2.5 rounded-xl bg-white border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs shadow-2xs">
-          <div className="flex items-center gap-2 flex-wrap">
-            <FileText className={`w-4 h-4 ${isOpClaim ? 'text-emerald-600' : 'text-indigo-600'}`} />
-            <span className="font-semibold text-slate-700">Assigned Form Layout:</span>
-            <span
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-semibold border ${
-                isOpClaim
-                  ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
-                  : 'bg-indigo-50 text-indigo-900 border-indigo-200'
-              }`}
-            >
-              <Lock className="w-3 h-3 opacity-70" />
-              <span>{claimFormMeta.shortLabel} &bull; {activeTemplate?.name || claimFormMeta.templateName}</span>
-            </span>
-          </div>
-
-          {isSuperAdmin && onNavigateToDesigner && (
-            <button
-              type="button"
-              onClick={onNavigateToDesigner}
-              className="self-end sm:self-auto px-2.5 py-1 rounded-lg text-[11px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition cursor-pointer"
-            >
-              Customize in Designer
-            </button>
-          )}
-        </div>
-
-        {/* Admin User Picker (Only visible to admins) */}
+        {/* Admin User Picker */}
         {isAdmin && allUsers.length > 0 && (
-          <div className="mt-4 bg-purple-50/60 p-3 rounded-2xl border border-purple-200 text-xs">
-            <label className="block font-bold text-purple-900 mb-1">
-              Admin: Select Employee Profile
+          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs">
+            <label className="block font-semibold text-slate-700 mb-1.5">
+              Admin: Prepare Claim for Employee
             </label>
             <select
               value={selectedUserId}
               onChange={e => setSelectedUserId(e.target.value)}
-              className="w-full rounded-xl border border-purple-300 bg-white py-1.5 px-3 text-xs text-slate-800 font-semibold"
+              className="w-full rounded-lg border border-slate-300 bg-white py-2 px-3 text-xs text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
             >
               {allUsers.map(u => (
                 <option key={u.id} value={u.id}>
@@ -3386,54 +3627,57 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           </div>
         )}
 
-        {/* Read-Only Verified Claimant Particulars (No Change Access) & Period / Special OT Controls */}
+        {/* Claimant Profile + Period + Special OT */}
         <div
           ref={employeeHeaderRef}
-          className="mt-4 p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs"
+          className="p-3.5 sm:p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 text-xs"
         >
-          {/* Claimant Identity (Locked & Verified from Profile) */}
-          <div className="flex items-center gap-3">
-            <div className={`flex h-11 w-11 items-center justify-center rounded-2xl text-white font-bold text-base shadow-sm shrink-0 ${isOpClaim ? 'bg-emerald-600' : 'bg-indigo-600'}`}>
+          <div className="flex items-center gap-3 min-w-0">
+            <div
+              className={`flex h-10 w-10 items-center justify-center rounded-xl text-white font-bold text-sm shrink-0 ${
+                isOpClaim ? 'bg-emerald-600' : 'bg-indigo-600'
+              }`}
+            >
               {toSafeStr(employeeName).trim() ? toSafeStr(employeeName).trim().charAt(0).toUpperCase() : 'U'}
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-bold text-slate-900 text-sm">{employeeName || 'Staff Member'}</span>
-                <span className="px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 font-mono font-bold text-[11px] border border-indigo-200">
+                <span className="font-bold text-slate-900 text-sm truncate">
+                  {employeeName || 'Staff Member'}
+                </span>
+                <span className="px-2 py-0.5 rounded-md bg-white text-indigo-700 font-mono font-bold text-[11px] border border-slate-200 tabular-nums">
                   {employeeNumber || 'PF Number'}
                 </span>
-                <span className={`px-2 py-0.5 rounded-md font-bold text-[10px] border ${isOpClaim ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-indigo-50 text-indigo-800 border-indigo-200'}`}>
-                  {claimFormMeta.shortLabel}
-                </span>
-                <span className="px-2 py-0.5 rounded-md bg-slate-200 text-slate-600 font-semibold text-[10px] flex items-center gap-1">
-                  <Lock className="w-2.5 h-2.5" />
-                  <span>Profile Locked</span>
+                <span className="text-[11px] text-slate-500 inline-flex items-center gap-1">
+                  <Lock className="w-3 h-3 text-slate-400" />
+                  <span>Profile Verified</span>
                 </span>
               </div>
-              <div className="text-[11px] text-slate-500 mt-1 flex flex-wrap items-center gap-2">
-                <span>{designation || 'Staff Member'}</span>
-                <span>&bull;</span>
+              <div className="text-[11px] text-slate-500 mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <span className="font-medium text-slate-700">{designation || 'Staff Member'}</span>
+                <span className="text-slate-300">&bull;</span>
                 <span>{branch || 'Head Office'}</span>
-                <span>&bull;</span>
+                <span className="text-slate-300">&bull;</span>
                 <span>{department || 'IT Operations'}</span>
                 {!isOpClaim && (
                   <>
-                    <span>&bull;</span>
-                    <span className="font-medium text-slate-600">Shift: {userShiftStartTime} - {userShiftEndTime}</span>
+                    <span className="text-slate-300">&bull;</span>
+                    <span className="font-medium text-slate-700 tabular-nums">
+                      Shift {userShiftStartTime} – {userShiftEndTime}
+                    </span>
                   </>
                 )}
               </div>
             </div>
           </div>
 
-          {/* Month, Year & Special Assigned OT Toggle Controls (Special OT is Form 10756 only) */}
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-2 bg-white border border-slate-300 rounded-xl px-3 py-1.5 shadow-2xs">
-              <label className="font-bold text-slate-600 text-[11px] uppercase tracking-wider">Month:</label>
+          <div className="flex items-center gap-2.5 flex-wrap shrink-0">
+            <div className="flex items-center gap-2 bg-white border border-slate-300 rounded-xl px-3 py-1.5">
+              <label className="font-semibold text-slate-500 text-[11px] uppercase tracking-wider">Period</label>
               <select
                 value={claimMonth}
                 onChange={e => handleMonthChange(e.target.value)}
-                className="bg-transparent font-bold text-slate-800 text-xs focus:outline-hidden cursor-pointer"
+                className="bg-transparent font-bold text-slate-800 text-xs focus:outline-none cursor-pointer"
               >
                 {MONTH_NAMES.map(m => (
                   <option key={m} value={m}>{m}</option>
@@ -3445,7 +3689,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                 max={2100}
                 value={Number.isFinite(claimYear) ? claimYear : new Date().getFullYear()}
                 onChange={e => handleYearChange(parseInt(e.target.value, 10) || new Date().getFullYear())}
-                className="w-16 bg-transparent font-bold text-slate-800 text-xs font-mono text-center focus:outline-hidden border-l border-slate-200 pl-2"
+                className="w-15 bg-transparent font-bold text-slate-800 text-xs font-mono tabular-nums text-center focus:outline-none border-l border-slate-200 pl-2"
               />
             </div>
 
@@ -3453,371 +3697,362 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
               <button
                 type="button"
                 onClick={() => handleToggleSpecialAssignedOt(!isSpecialAssignedOt)}
-                className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer whitespace-nowrap ${
                   isSpecialAssignedOt
-                    ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
+                    ? 'bg-emerald-600 text-white border-emerald-700'
                     : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
                 }`}
-                title="Special Assigned OT (No limit / No break / No manager initial)"
+                title="Special Assigned OT (No limit / Col B)"
               >
                 <Check className={`w-3.5 h-3.5 ${isSpecialAssignedOt ? 'text-white' : 'text-slate-400'}`} />
-                <span>Special Assigned OT</span>
-                {isSpecialAssignedOt && <span className="text-[10px] bg-emerald-700 text-white px-1.5 py-0.2 rounded font-mono">No Limit</span>}
+                <span>Special OT</span>
+                {isSpecialAssignedOt && (
+                  <span className="text-[10px] bg-emerald-700 text-white px-1.5 py-0.5 rounded font-mono">
+                    No Limit
+                  </span>
+                )}
               </button>
             )}
           </div>
         </div>
       </div>
 
-      {/* Claim Rates / Template Rules Panel (Strictly isolated between OT Form 10756 & OP Form 10610) */}
+      {/* Collapsible Rates / OP Allowance Bar */}
       {isOpClaim ? (
-        <div className="rounded-2xl p-4 sm:p-5 border border-emerald-200 bg-emerald-50/40 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div className="p-2.5 rounded-xl bg-emerald-100 text-emerald-800 shrink-0">
-              <Banknote className="w-5 h-5" />
+        <div className="rounded-2xl p-4 border border-emerald-200 bg-white shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-3 min-w-0">
+            <div className="p-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+              <Banknote className="w-4 h-4" />
             </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-sm font-bold text-slate-900">
-                  Monthly Out of Pocket Allowance (Form 10610)
-                </h3>
-                <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-bold border border-emerald-200">
-                  Isolated OP Rules
-                </span>
-              </div>
-              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                This profile is assigned to Claim Type <strong>OP</strong> with <strong>{claimFormMeta.templateName}</strong>. Form 10756 overtime shift hours, hourly OT rates, daily OT caps, and Column A/B calculations are kept strictly separated from OP claims.
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold text-slate-900">
+                Monthly Out of Pocket Allowance (Form 10610)
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Isolated OP rules active under {claimFormMeta.templateName}. Daily overtime caps do not apply.
               </p>
             </div>
           </div>
 
-          <div className="shrink-0 bg-white border border-emerald-200 rounded-xl px-4 py-2.5 text-right shadow-2xs">
-            <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500">
+          <div className="shrink-0 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2 text-right">
+            <span className="block text-[10px] font-bold uppercase tracking-wider text-emerald-700">
               Logged OP Amount
             </span>
-            <span className="text-lg font-black text-emerald-700 font-mono">
+            <span className="text-base sm:text-lg font-bold text-emerald-900 font-mono tabular-nums">
               Rs. {opSummary.totalAmountRs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           </div>
         </div>
       ) : (
-        <div className={`rounded-2xl p-4 sm:p-5 border transition-all ${
-          isTargetUserRatesLocked
-            ? 'bg-amber-50/60 border-amber-200 shadow-2xs'
-            : 'bg-white border-slate-200 shadow-xs'
-        }`}>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
-            <div className="flex items-center gap-2.5">
-              <div className={`p-2 rounded-xl shrink-0 ${
-                isTargetUserRatesLocked
-                  ? 'bg-amber-100 text-amber-800'
-                  : 'bg-indigo-50 text-indigo-700'
-              }`}>
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowRatesPanel(prev => !prev)}
+            className="w-full px-4 sm:px-5 py-3 flex flex-wrap items-center justify-between gap-3 text-left hover:bg-slate-50/70 transition cursor-pointer"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div
+                className={`p-2 rounded-xl shrink-0 border ${
+                  isTargetUserRatesLocked
+                    ? 'bg-amber-50 text-amber-700 border-amber-200'
+                    : 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                }`}
+              >
                 <Banknote className="w-4 h-4" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="text-sm font-bold text-slate-900">
-                    Overtime Payment Rates
-                  </h3>
+                  <h3 className="text-sm font-bold text-slate-900">Overtime Payment Rates</h3>
                   {userRelevantRole && (
-                    <span className="text-[11px] font-semibold text-slate-600">
-                      &bull; Role: <strong className="text-slate-900">{userRelevantRole.name}</strong>
+                    <span className="text-xs text-slate-500 font-medium">
+                      &bull; {userRelevantRole.name}
                     </span>
                   )}
+                  <span
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold border ${
+                      isTargetUserRatesLocked
+                        ? 'bg-amber-50 text-amber-800 border-amber-200'
+                        : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    }`}
+                  >
+                    {isTargetUserRatesLocked ? (
+                      <>
+                        <Lock className="w-3 h-3" />
+                        <span>Rates Locked</span>
+                      </>
+                    ) : (
+                      <>
+                        <Unlock className="w-3 h-3" />
+                        <span>Editable</span>
+                      </>
+                    )}
+                  </span>
                 </div>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  Official overtime rate matrix for working days, non-working days &amp; monthly remuneration.
+                <p className="text-[11px] text-slate-500 mt-0.5 tabular-nums truncate">
+                  Hourly: Rs. {hourlyRate !== '' && Number.isFinite(Number(hourlyRate)) ? Number(hourlyRate).toFixed(2) : '—'}
+                  {' • '}Day&apos;s Pay: Rs. {daysPay !== '' && Number.isFinite(Number(daysPay)) ? Number(daysPay).toFixed(2) : '—'}
+                  {isDaysPayOnlyNonWorking ? " • Non-Working: Day's Pay Only" : ''}
                 </p>
               </div>
             </div>
 
-            {/* Role Rates Lock Status Pill */}
-            <div className="flex items-center gap-2 shrink-0 flex-wrap">
-              {isTargetUserRatesLocked ? (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-900 text-xs font-bold border border-amber-300 shadow-2xs">
-                  <Lock className="w-3.5 h-3.5 text-amber-700 shrink-0" />
-                  <span>Rates Locked by Admin</span>
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 text-xs font-bold border border-emerald-300 shadow-2xs">
-                  <Unlock className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                  <span>Rates Unlocked (Editable)</span>
-                </span>
-              )}
-              {isAdmin && isTargetUserRatesLocked && (
-                <span className="text-[10px] bg-purple-100 text-purple-800 px-2 py-0.5 rounded font-bold border border-purple-200">
-                  Admin Override Active
-                </span>
-              )}
+            <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 shrink-0">
+              <span>{showRatesPanel ? 'Hide Rates' : 'View / Edit Rates'}</span>
+              <ChevronDown
+                className={`w-4 h-4 text-slate-500 transition-transform duration-200 ${
+                  showRatesPanel ? 'rotate-180' : ''
+                }`}
+              />
             </div>
-          </div>
+          </button>
 
-          {/* Lock Notice when Role/User Rates Are Locked */}
-          {isTargetUserRatesLocked ? (
-            <div className="mt-3 p-3 rounded-xl bg-amber-100/70 border border-amber-200/80 text-amber-900 text-xs flex items-center gap-2">
-              <Lock className="w-4 h-4 text-amber-700 shrink-0" />
-              <p className="leading-relaxed">
-                {isAdmin ? (
-                  <>
-                    Overtime rates are <strong>locked by corporate administration</strong> for this role (<strong>{userRelevantRole?.name || designation || 'Staff'}</strong>). Standard users cannot edit these rates, and on <strong>non-working days (including Saturdays, Sundays &amp; Holidays) only Day&apos;s Pay</strong> can be claimed (non-working day OT hours are disabled).
-                  </>
-                ) : (
-                  <>
-                    Your overtime rates are <strong>locked by corporate administration</strong> for your assigned role (<strong>{userRelevantRole?.name || designation || 'Staff'}</strong>). You cannot edit these rates, and on <strong>non-working days (including Saturdays, Sundays &amp; Holidays) you can only claim Day&apos;s Pay</strong> (hourly OT cannot be claimed on non-working days).
-                  </>
-                )}
-              </p>
-            </div>
-          ) : (
-            <div className="mt-3 p-2.5 rounded-xl bg-emerald-50/70 border border-emerald-200 text-emerald-900 text-xs flex items-center gap-2">
-              <Unlock className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-              <p className="leading-relaxed">
-                Overtime rates are <strong>unlocked</strong> for your role (<strong>{userRelevantRole?.name || designation || 'Staff'}</strong>). You are authorized to edit these rates if authorized by your manager.
-              </p>
+          {showRatesPanel && (
+            <div className="px-4 sm:px-5 pb-4 pt-3 border-t border-slate-100 space-y-3 bg-slate-50/40">
+              {isTargetUserRatesLocked ? (
+                <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2">
+                  <Lock className="w-3.5 h-3.5 text-amber-700 shrink-0 mt-0.5" />
+                  <p className="leading-relaxed">
+                    Rates are locked for <strong>{userRelevantRole?.name || designation || 'this designation'}</strong>. On non-working days (including Saturdays, Sundays &amp; Holidays), only <strong>Day&apos;s Pay</strong> applies.
+                  </p>
+                </div>
+              ) : (
+                <div className="p-2.5 rounded-xl bg-emerald-50/70 border border-emerald-200 text-emerald-900 text-xs flex items-center gap-2">
+                  <Unlock className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>
+                    Rates are unlocked for <strong>{userRelevantRole?.name || designation || 'your role'}</strong>.
+                  </span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="font-semibold text-slate-700 text-[11px]">
+                      Working Days Hourly Rate <span className="text-rose-500">*</span>
+                    </label>
+                    {!canEditRates && <Lock className="w-3 h-3 text-slate-400" />}
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-2.5 top-2 text-slate-400 font-mono text-xs">Rs.</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      disabled={!canEditRates}
+                      readOnly={!canEditRates}
+                      value={hourlyRate === '' || !Number.isFinite(Number(hourlyRate)) ? '' : hourlyRate}
+                      onChange={e => {
+                        if (!canEditRates) return;
+                        setHourlyRate(toSafeRate(e.target.value));
+                        markUserModified();
+                      }}
+                      placeholder="e.g. 1850.00"
+                      className={`w-full rounded-lg border py-1.5 pl-9 pr-2.5 font-mono tabular-nums font-bold text-xs ${
+                        !canEditRates
+                          ? 'border-slate-200 bg-slate-100 text-slate-600 cursor-not-allowed select-none'
+                          : 'border-slate-300 bg-white text-slate-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
+                      }`}
+                    />
+                  </div>
+                  <span className="text-[10px] text-slate-400 block truncate">Column A &amp; Weekday OT</span>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="font-semibold text-slate-700 text-[11px]">
+                      Non-Working Days Payment <span className="text-rose-500">*</span>
+                    </label>
+                    {!canEditRates && <Lock className="w-3 h-3 text-slate-400" />}
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-2.5 top-2 text-slate-400 font-mono text-xs">Rs.</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      disabled={!canEditRates}
+                      readOnly={!canEditRates}
+                      value={daysPay === '' || !Number.isFinite(Number(daysPay)) ? '' : daysPay}
+                      onChange={e => {
+                        if (!canEditRates) return;
+                        setDaysPay(toSafeRate(e.target.value));
+                        markUserModified();
+                      }}
+                      placeholder="e.g. 12500.00"
+                      className={`w-full rounded-lg border py-1.5 pl-9 pr-2.5 font-mono tabular-nums font-bold text-xs ${
+                        !canEditRates
+                          ? 'border-slate-200 bg-slate-100 text-slate-600 cursor-not-allowed select-none'
+                          : 'border-slate-300 bg-white text-slate-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
+                      }`}
+                    />
+                  </div>
+                  <span className="text-[10px] text-slate-400 block truncate">Sat (min 6h) / Sun / Holiday</span>
+                </div>
+
+                <div className={`rounded-xl border border-slate-200 bg-white p-3 space-y-1 ${isDaysPayOnlyNonWorking ? 'opacity-75' : ''}`}>
+                  <div className="flex items-center justify-between">
+                    <label className="font-semibold text-slate-700 text-[11px]">
+                      Non-Working Hourly Rate {!isDaysPayOnlyNonWorking && <span className="text-rose-500">*</span>}
+                    </label>
+                    {(!canEditRates || isDaysPayOnlyNonWorking) && <Lock className="w-3 h-3 text-slate-400" />}
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-2.5 top-2 text-slate-400 font-mono text-xs">Rs.</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      disabled={!canEditRates || isDaysPayOnlyNonWorking}
+                      readOnly={!canEditRates || isDaysPayOnlyNonWorking}
+                      value={
+                        isDaysPayOnlyNonWorking
+                          ? ''
+                          : hourlyRateNonWorkingDays === '' || !Number.isFinite(Number(hourlyRateNonWorkingDays))
+                          ? ''
+                          : hourlyRateNonWorkingDays
+                      }
+                      onChange={e => {
+                        if (!canEditRates || isDaysPayOnlyNonWorking) return;
+                        setHourlyRateNonWorkingDays(toSafeRate(e.target.value));
+                        markUserModified();
+                      }}
+                      placeholder={isDaysPayOnlyNonWorking ? "N/A (Day's Pay only)" : 'e.g. 2312.50'}
+                      className={`w-full rounded-lg border py-1.5 pl-9 pr-2.5 font-mono tabular-nums font-bold text-xs ${
+                        !canEditRates || isDaysPayOnlyNonWorking
+                          ? 'border-slate-200 bg-slate-100 text-slate-600 cursor-not-allowed select-none'
+                          : 'border-slate-300 bg-white text-slate-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
+                      }`}
+                    />
+                  </div>
+                  <span className="text-[10px] text-slate-400 block truncate">
+                    {isDaysPayOnlyNonWorking ? "Disabled for locked role" : 'Column B / Holiday override'}
+                  </span>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="font-semibold text-slate-700 text-[11px]">
+                      Monthly Remuneration
+                    </label>
+                    {!canEditRates && <Lock className="w-3 h-3 text-slate-400" />}
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-2.5 top-2 text-slate-400 font-mono text-xs">Rs.</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      disabled={!canEditRates}
+                      readOnly={!canEditRates}
+                      value={totalRemuneration === '' || !Number.isFinite(Number(totalRemuneration)) ? '' : totalRemuneration}
+                      onChange={e => {
+                        if (!canEditRates) return;
+                        handleRemunerationChange(e.target.value);
+                      }}
+                      placeholder="e.g. 275000.00"
+                      className={`w-full rounded-lg border py-1.5 pl-9 pr-2.5 font-mono tabular-nums text-xs ${
+                        !canEditRates
+                          ? 'border-slate-200 bg-slate-100 text-slate-600 cursor-not-allowed select-none'
+                          : 'border-slate-300 bg-white text-slate-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
+                      }`}
+                    />
+                  </div>
+                  <span className="text-[10px] text-slate-400 block truncate">Pay/22 day, Day/8 hr</span>
+                </div>
+              </div>
             </div>
           )}
-
-          {/* 4 Rates Inputs */}
-          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
-            {/* 1. Working Days Hourly Rate */}
-            <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-1">
-              <div className="flex items-center justify-between">
-                <label className="font-bold text-slate-700 text-[11px] flex items-center gap-1">
-                  <span>Working Days Hourly Rate</span>
-                  <span className="text-rose-500">*</span>
-                </label>
-                {!canEditRates && <Lock className="w-3 h-3 text-slate-400" />}
-              </div>
-              <div className="relative">
-                <span className="absolute left-2.5 top-2 text-slate-400 font-mono text-xs">Rs.</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  disabled={!canEditRates}
-                  readOnly={!canEditRates}
-                  value={hourlyRate === '' || !Number.isFinite(Number(hourlyRate)) ? '' : hourlyRate}
-                  onChange={e => {
-                    if (!canEditRates) return;
-                    setHourlyRate(toSafeRate(e.target.value)); markUserModified();
-                  }}
-                  placeholder="e.g. 1850.00"
-                  className={`w-full rounded-lg border py-1.5 pl-9 pr-2.5 font-mono font-bold text-xs ${
-                    !canEditRates
-                      ? 'border-slate-200 bg-slate-100 text-slate-600 cursor-not-allowed select-none'
-                      : 'border-blue-300 bg-blue-50/30 text-blue-950 focus:border-blue-500 focus:ring-1 focus:ring-blue-500'
-                  }`}
-                />
-              </div>
-              <span className="text-[10px] text-slate-400 block truncate">Column A &amp; Weekday overtime</span>
-            </div>
-
-            {/* 2. Non-Working Days Daily Payment */}
-            <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-1">
-              <div className="flex items-center justify-between">
-                <label className="font-bold text-slate-700 text-[11px] flex items-center gap-1">
-                  <span>Non-Working Days Payment</span>
-                  <span className="text-rose-500">*</span>
-                </label>
-                {!canEditRates && <Lock className="w-3 h-3 text-slate-400" />}
-              </div>
-              <div className="relative">
-                <span className="absolute left-2.5 top-2 text-slate-400 font-mono text-xs">Rs.</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  disabled={!canEditRates}
-                  readOnly={!canEditRates}
-                  value={daysPay === '' || !Number.isFinite(Number(daysPay)) ? '' : daysPay}
-                  onChange={e => {
-                    if (!canEditRates) return;
-                    setDaysPay(toSafeRate(e.target.value)); markUserModified();
-                  }}
-                  placeholder="e.g. 12500.00"
-                  className={`w-full rounded-lg border py-1.5 pl-9 pr-2.5 font-mono font-bold text-xs ${
-                    !canEditRates
-                      ? 'border-slate-200 bg-slate-100 text-slate-600 cursor-not-allowed select-none'
-                      : 'border-amber-300 bg-amber-50/30 text-amber-950 focus:border-amber-500 focus:ring-1 focus:ring-amber-500'
-                  }`}
-                />
-              </div>
-              <span className="text-[10px] text-slate-400 block truncate">Sat (min 6h) / Sun / Holiday day payment</span>
-            </div>
-
-            {/* 3. Non-Working Days Hourly Rate */}
-            <div className={`rounded-xl border border-slate-200 bg-white p-3 space-y-1 ${isDaysPayOnlyNonWorking ? 'opacity-75' : ''}`}>
-              <div className="flex items-center justify-between">
-                <label className="font-bold text-slate-700 text-[11px] flex items-center gap-1">
-                  <span>Non-Working Days Hourly Rate</span>
-                  {!isDaysPayOnlyNonWorking && <span className="text-rose-500">*</span>}
-                </label>
-                {(!canEditRates || isDaysPayOnlyNonWorking) && <Lock className="w-3 h-3 text-slate-400" />}
-              </div>
-              <div className="relative">
-                <span className="absolute left-2.5 top-2 text-slate-400 font-mono text-xs">Rs.</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  disabled={!canEditRates || isDaysPayOnlyNonWorking}
-                  readOnly={!canEditRates || isDaysPayOnlyNonWorking}
-                  value={isDaysPayOnlyNonWorking ? '' : (hourlyRateNonWorkingDays === '' || !Number.isFinite(Number(hourlyRateNonWorkingDays)) ? '' : hourlyRateNonWorkingDays)}
-                  onChange={e => {
-                    if (!canEditRates || isDaysPayOnlyNonWorking) return;
-                    setHourlyRateNonWorkingDays(toSafeRate(e.target.value)); markUserModified();
-                  }}
-                  placeholder={isDaysPayOnlyNonWorking ? "N/A (Day's Pay only)" : 'e.g. 2312.50'}
-                  className={`w-full rounded-lg border py-1.5 pl-9 pr-2.5 font-mono font-bold text-xs ${
-                    !canEditRates || isDaysPayOnlyNonWorking
-                      ? 'border-slate-200 bg-slate-100 text-slate-600 cursor-not-allowed select-none'
-                      : 'border-purple-300 bg-purple-50/30 text-purple-950 focus:border-purple-500 focus:ring-1 focus:ring-purple-500'
-                  }`}
-                />
-              </div>
-              <span className="text-[10px] text-slate-400 block truncate">
-                {isDaysPayOnlyNonWorking
-                  ? "Disabled for locked role (Day's Pay only)"
-                  : 'Column B / Holiday override hourly'}
-              </span>
-            </div>
-
-            {/* 4. Total Monthly Remuneration (Auto-calculator) */}
-            <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-1">
-              <div className="flex items-center justify-between">
-                <label className="font-bold text-slate-700 text-[11px]">
-                  Monthly Remuneration (Salary)
-                </label>
-                {!canEditRates && <Lock className="w-3 h-3 text-slate-400" />}
-              </div>
-              <div className="relative">
-                <span className="absolute left-2.5 top-2 text-slate-400 font-mono text-xs">Rs.</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  disabled={!canEditRates}
-                  readOnly={!canEditRates}
-                  value={totalRemuneration === '' || !Number.isFinite(Number(totalRemuneration)) ? '' : totalRemuneration}
-                  onChange={e => {
-                    if (!canEditRates) return;
-                    handleRemunerationChange(e.target.value);
-                  }}
-                  placeholder="e.g. 275000.00"
-                  className={`w-full rounded-lg border py-1.5 pl-9 pr-2.5 font-mono text-xs ${
-                    !canEditRates
-                      ? 'border-slate-200 bg-slate-100 text-slate-600 cursor-not-allowed select-none'
-                      : 'border-emerald-300 bg-emerald-50/30 text-emerald-950 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500'
-                  }`}
-                />
-              </div>
-              <span className="text-[10px] text-slate-400 block truncate">Formula: Pay/22, Hourly=Day/8</span>
-            </div>
-          </div>
         </div>
       )}
 
       {/* KPI Summary Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {isOpClaim ? (
           <>
-            <div className="rounded-2xl bg-white p-4 shadow-xs border border-slate-200">
+            <div className="rounded-2xl bg-white p-3.5 sm:p-4 border border-slate-200 shadow-xs">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                   Worked Duration
                 </span>
                 <Clock className="w-4 h-4 text-emerald-600" />
               </div>
-              <div className="mt-2 flex items-baseline gap-1.5">
-                <span className="text-2xl font-black text-slate-900 tracking-tight">
+              <div className="mt-1.5 flex items-baseline gap-1.5 tabular-nums">
+                <span className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
                   {opSummary.totalHoursFormatted}
                 </span>
-                <span className="text-xs font-medium text-slate-500">
-                  ({opSummary.totalDecimalHours}h)
-                </span>
+                <span className="text-xs text-slate-500">({opSummary.totalDecimalHours}h)</span>
               </div>
-              <p className="mt-1 text-[11px] text-slate-400">
-                Form 10610 elapsed hours
-              </p>
+              <p className="mt-1 text-[11px] text-slate-400">Form 10610 elapsed hours</p>
             </div>
 
-            <div className="rounded-2xl bg-white p-4 shadow-xs border border-slate-200">
+            <div className="rounded-2xl bg-white p-3.5 sm:p-4 border border-slate-200 shadow-xs">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                   Logged Days
                 </span>
                 <Calendar className="w-4 h-4 text-emerald-600" />
               </div>
-              <div className="mt-2 flex items-baseline gap-1.5">
-                <span className="text-2xl font-black text-slate-900 tracking-tight">
+              <div className="mt-1.5 flex items-baseline gap-1.5 tabular-nums">
+                <span className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
                   {opSummary.loggedDaysCount}
                 </span>
-                <span className="text-xs font-medium text-slate-500">Days</span>
+                <span className="text-xs text-slate-500">Days</span>
               </div>
-              <p className="mt-1 text-[11px] text-slate-400">
-                Monthly Out of Pocket days
-              </p>
+              <p className="mt-1 text-[11px] text-slate-400">Out of Pocket entries</p>
             </div>
 
-            <div className="rounded-2xl bg-white p-4 shadow-xs border border-slate-200">
+            <div className="rounded-2xl bg-white p-3.5 sm:p-4 border border-slate-200 shadow-xs">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                   Total Allowance
                 </span>
                 <Banknote className="w-4 h-4 text-emerald-600" />
               </div>
-              <div className="mt-2 flex items-baseline gap-1">
-                <span className="text-xl font-black text-emerald-700 tracking-tight font-mono">
+              <div className="mt-1.5 tabular-nums">
+                <span className="text-lg sm:text-xl font-bold text-emerald-700 font-mono">
                   Rs. {opSummary.totalAmountRs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
               </div>
-              <p className="mt-1 text-[11px] text-slate-400">
-                Isolated Form 10610 calculation
-              </p>
+              <p className="mt-1 text-[11px] text-slate-400">Isolated Form 10610 total</p>
             </div>
           </>
         ) : (
           <>
-            {/* Total Overtime */}
-            <div className="rounded-2xl bg-white p-4 shadow-xs border border-slate-200">
+            <div className="rounded-2xl bg-white p-3.5 sm:p-4 border border-slate-200 shadow-xs">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                   Total Overtime
                 </span>
                 <Clock className="w-4 h-4 text-indigo-600" />
               </div>
-              <div className="mt-2 flex items-baseline gap-1.5">
-                <span className="text-2xl font-black text-slate-900 tracking-tight">
+              <div className="mt-1.5 flex items-baseline gap-1.5 tabular-nums">
+                <span className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
                   {summary.totalHoursFormatted}
                 </span>
-                <span className="text-xs font-medium text-slate-500">
-                  ({summary.totalDecimalHours}h)
-                </span>
+                <span className="text-xs text-slate-500">({summary.totalDecimalHours}h)</span>
               </div>
-              <div className="mt-1 flex items-center gap-2 text-[11px] font-medium">
+              <div className="mt-1 flex items-center gap-2 text-[11px] font-medium tabular-nums">
                 <span className="text-indigo-600">Col A: {summary.colAFormatted}</span>
                 <span className="text-slate-300">&bull;</span>
-                <span className="text-emerald-700 font-semibold">Col B: {summary.colBFormatted}</span>
+                <span className="text-emerald-700">Col B: {summary.colBFormatted}</span>
               </div>
             </div>
 
-            {/* Days Claimed */}
-            <div className="rounded-2xl bg-white p-4 shadow-xs border border-slate-200">
+            <div className="rounded-2xl bg-white p-3.5 sm:p-4 border border-slate-200 shadow-xs">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                   Days Claimed
                 </span>
                 <Calendar className="w-4 h-4 text-emerald-600" />
               </div>
-              <div className="mt-2 flex items-baseline gap-1.5 flex-wrap">
-                <span className="text-2xl font-black text-slate-900 tracking-tight">
+              <div className="mt-1.5 flex items-baseline gap-1.5 flex-wrap tabular-nums">
+                <span className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
                   {summary.otDaysCount}
                 </span>
-                <span className="text-xs font-medium text-slate-500">OT Days</span>
+                <span className="text-xs text-slate-500">OT Days</span>
                 {summary.daysPayCount > 0 && (
-                  <span className="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md">
+                  <span className="text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md">
                     +{summary.daysPayCount} Day&apos;s Pay
                   </span>
                 )}
               </div>
-              <p className="mt-1 text-[11px] text-slate-400">
+              <p className="mt-1 text-[11px] text-slate-400 truncate">
                 {summary.daysPayCount > 0
                   ? `${summary.daysPayCount} non-working Day's Pay${summary.cappedCount > 0 ? ` • ${summary.cappedCount} capped` : ''}`
                   : summary.cappedCount > 0
@@ -3826,170 +4061,165 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
               </p>
             </div>
 
-            {/* Assigned Cap */}
-            <div className="rounded-2xl bg-white p-4 shadow-xs border border-slate-200">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                Assigned Limit
-              </span>
-              <div className="mt-2 flex items-baseline gap-1.5">
-                <span className="text-2xl font-black text-emerald-700 tracking-tight">
+            <div className="rounded-2xl bg-white p-3.5 sm:p-4 border border-slate-200 shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  Assigned Limit
+                </span>
+                <Layers className="w-4 h-4 text-slate-400" />
+              </div>
+              <div className="mt-1.5 flex items-baseline gap-1.5 tabular-nums">
+                <span className="text-xl sm:text-2xl font-bold text-emerald-700 tracking-tight">
                   {maxOtLimitHours}h
                 </span>
-                <span className="text-xs font-medium text-slate-500">max/day</span>
+                <span className="text-xs text-slate-500">max / day</span>
               </div>
-              <p className="mt-1 text-[11px] text-slate-400">
-                Admin can adjust in User Management
-              </p>
+              <p className="mt-1 text-[11px] text-slate-400 truncate">Configured per user profile</p>
             </div>
           </>
         )}
 
-        {/* Auto Fill Month Button */}
-        <div className="rounded-2xl bg-gradient-to-br from-indigo-50 to-blue-50 p-4 border border-indigo-100 flex flex-col justify-between">
+        <div className="rounded-2xl bg-indigo-50/70 p-3.5 sm:p-4 border border-indigo-200/80 flex flex-col justify-between">
           <div>
-            <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-900">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-950">
               <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Auto-Fill Month</span>
+              <span>Month Generator</span>
             </div>
-            <p className="text-[11px] text-indigo-700/80 mt-1">
-              Generate dates for {claimMonth} {claimYear}.
+            <p className="text-[11px] text-indigo-800/80 mt-0.5">
+              Populate dates for {claimMonth} {claimYear}.
             </p>
           </div>
           <button
+            type="button"
             onClick={handleAutoFillMonth}
-            className="mt-2 w-full py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
+            className="mt-2.5 w-full py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold transition cursor-pointer whitespace-nowrap"
           >
             Auto Fill Month
           </button>
         </div>
       </div>
 
-
-
-      {/* Timesheet Daily Entries Table */}
+      {/* Daily Timesheet Entries Workspace */}
       <div
         ref={timesheetSectionRef}
-        className="rounded-2xl bg-white shadow-xs border border-slate-200 overflow-hidden"
+        className="rounded-2xl bg-white border border-slate-200 shadow-xs overflow-hidden"
       >
-        {/* Quick summary strip of active default reasons */}
-        <div className="px-5 py-2.5 bg-gradient-to-r from-amber-50/50 via-slate-50 to-indigo-50/30 border-b border-slate-200/80 flex flex-wrap items-center justify-between gap-2 text-xs">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="font-bold text-slate-800 flex items-center gap-1 text-[11px] uppercase tracking-wider">
+        {/* Default Reasons Strip */}
+        <div className="px-4 sm:px-5 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <span className="font-semibold text-slate-700 inline-flex items-center gap-1 text-[11px] uppercase tracking-wider">
               <Tag className="w-3 h-3 text-amber-600" />
-              Default Reasons:
+              <span>Defaults:</span>
             </span>
             <span className="inline-flex items-center gap-1 text-[11px] text-slate-600">
-              <span className="font-semibold text-slate-500">Mon–Fri:</span>
-              <span className="font-bold text-slate-800 bg-white px-2 py-0.5 rounded-md border border-slate-200 shadow-3xs">
+              <span className="text-slate-500">Mon–Fri:</span>
+              <span className="font-semibold text-slate-800 bg-white px-2 py-0.5 rounded-md border border-slate-200">
                 {defaultWeekdayReason || '<Blank>'}
               </span>
             </span>
             <span className="inline-flex items-center gap-1 text-[11px] text-slate-600">
-              <span className="font-semibold text-slate-500">Sat:</span>
-              <span className="font-bold text-slate-800 bg-white px-2 py-0.5 rounded-md border border-slate-200 shadow-3xs">
+              <span className="text-slate-500">Sat:</span>
+              <span className="font-semibold text-slate-800 bg-white px-2 py-0.5 rounded-md border border-slate-200">
                 {defaultSaturdayReason || 'Saturday Duty'}
               </span>
             </span>
             <span className="inline-flex items-center gap-1 text-[11px] text-slate-600">
-              <span className="font-semibold text-slate-500">Holidays:</span>
-              <span className="font-bold text-slate-800 bg-white px-2 py-0.5 rounded-md border border-slate-200 shadow-3xs">
-                {defaultHolidayReason || '<Official Holiday Name>'}
+              <span className="text-slate-500">Holidays:</span>
+              <span className="font-semibold text-slate-800 bg-white px-2 py-0.5 rounded-md border border-slate-200">
+                {defaultHolidayReason || '<Holiday Name>'}
               </span>
             </span>
           </div>
           <button
             type="button"
             onClick={handleOpenDefaultReasonsModal}
-            className="text-xs font-bold text-indigo-600 hover:text-indigo-800 transition cursor-pointer hover:underline inline-flex items-center gap-1"
+            className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition cursor-pointer inline-flex items-center gap-1 whitespace-nowrap"
           >
-            <SlidersHorizontal className="w-3 h-3" />
-            <span>Customize Default Reasons</span>
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <span>Edit Defaults</span>
           </button>
         </div>
 
-        <div className="px-5 py-4 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
+        {/* Timesheet Header & View Controls */}
+        <div className="px-4 sm:px-5 py-3.5 bg-white border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 flex-wrap">
             <h2 className="text-base font-bold text-slate-900">
               Daily Timesheet Entries
             </h2>
-            <span className="text-xs text-slate-500">
-              ({rows.length} rows)
+            <span className="text-xs font-semibold text-slate-500 tabular-nums">
+              ({rows.length} days)
             </span>
+            {viewMode === 'cards' && visibleCardRows.length > 0 && (
+              <span className="px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200 text-[11px] font-semibold tabular-nums">
+                Card {Math.min(activeCarouselIdx + 1, visibleCardRows.length)} / {visibleCardRows.length}
+              </span>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {/* Configure Default Reasons Button */}
             <button
               type="button"
               onClick={handleOpenDefaultReasonsModal}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-amber-300 bg-amber-50/90 hover:bg-amber-100 text-amber-900 text-xs font-semibold cursor-pointer transition select-none shadow-2xs"
-              title="Configure default overtime reasons for Weekdays (Mon-Fri), Saturdays, and Holidays"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold cursor-pointer transition whitespace-nowrap"
+              title="Configure default reasons for Weekdays, Saturdays, and Holidays"
             >
-              <Tag className="w-3.5 h-3.5 text-amber-700" />
+              <Tag className="w-3.5 h-3.5 text-amber-600" />
               <span>Default Reasons</span>
-              {(defaultWeekdayReason || defaultSaturdayReason !== 'Saturday Duty' || defaultHolidayReason) && (
-                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-              )}
             </button>
 
-            {/* Special Assigned Overtime Modern Tick Option (Form 10756 OT only) */}
             {!isOpClaim && (
-              <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50/80 hover:bg-indigo-100/70 text-indigo-900 text-xs font-semibold cursor-pointer transition select-none">
+              <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50/70 hover:bg-indigo-100/70 text-indigo-900 text-xs font-semibold cursor-pointer transition select-none whitespace-nowrap">
                 <input
                   type="checkbox"
                   checked={isSpecialAssignedOt}
                   onChange={e => handleToggleSpecialAssignedOt(e.target.checked)}
                   className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 border-indigo-300 cursor-pointer"
                 />
-                <Sparkles className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                <span>Special Assigned OT (No Limit)</span>
+                <span>Special OT (No Limit)</span>
               </label>
             )}
 
-            {/* View Mode Toggle: Cards View vs Table View (Prominent for all screen sizes) */}
-            <div className="flex items-center rounded-xl bg-slate-200/90 p-0.5 text-xs font-semibold shadow-2xs">
+            <div className="flex items-center rounded-xl bg-slate-100 p-0.5 text-xs font-semibold border border-slate-200">
               <button
                 type="button"
                 onClick={() => setViewMode('cards')}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer select-none ${
+                className={`inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg transition cursor-pointer select-none whitespace-nowrap ${
                   viewMode === 'cards'
-                    ? 'bg-white text-indigo-700 shadow-xs font-bold'
+                    ? 'bg-white text-indigo-700 shadow-2xs font-bold'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
-                title="View daily timesheet entries as separated user-friendly cards"
               >
                 <LayoutGrid className="w-3.5 h-3.5" />
-                <span>Cards View</span>
+                <span>Cards</span>
               </button>
               <button
                 type="button"
                 onClick={() => setViewMode('table')}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer select-none ${
+                className={`inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg transition cursor-pointer select-none whitespace-nowrap ${
                   viewMode === 'table'
-                    ? 'bg-white text-indigo-700 shadow-xs font-bold'
+                    ? 'bg-white text-indigo-700 shadow-2xs font-bold'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
-                title="View daily timesheet entries in tabular spreadsheet format"
               >
                 <TableIcon className="w-3.5 h-3.5" />
-                <span>Table View</span>
+                <span>Table</span>
               </button>
             </div>
 
             <button
               type="button"
               onClick={() => setIsConfirmResetOpen(true)}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs font-semibold transition cursor-pointer"
-              title="Clear all rows and reset timesheet"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs font-semibold transition cursor-pointer whitespace-nowrap"
+              title="Reset timesheet rows"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Reset Entries</span>
+              <span className="hidden sm:inline">Reset</span>
             </button>
 
             <button
               type="button"
               onClick={handleAddRow}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition cursor-pointer"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition cursor-pointer whitespace-nowrap"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Add Day</span>
@@ -3997,46 +4227,47 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           </div>
         </div>
 
-        {/* Separated Days as Cards View (User-friendly grid on all screen sizes) */}
+        {/* Horizontal Day Cards Carousel View */}
         {viewMode === 'cards' && (
-          <div className="p-4 sm:p-5 md:p-6 bg-slate-50/70 border-b border-slate-200 space-y-4">
-            {/* Quick Filter Bar & Stats */}
-            <div className="flex flex-wrap items-center justify-between gap-2.5 pb-1">
-              <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold">
-                <span className="text-slate-500 mr-1 text-[11px] uppercase tracking-wider font-bold">Filter Days:</span>
+          <div className="p-3.5 sm:p-5 bg-slate-50/70 border-b border-slate-200 space-y-3.5">
+            {/* Filter Bar + Swipe Hint */}
+            <div className="flex flex-wrap items-center justify-between gap-2.5">
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5 text-xs font-semibold">
                 <button
                   type="button"
                   onClick={() => setCardFilter('all')}
-                  className={`px-3 py-1 rounded-lg transition cursor-pointer select-none ${
+                  className={`px-3 py-1.5 rounded-xl transition cursor-pointer select-none whitespace-nowrap ${
                     cardFilter === 'all'
-                      ? 'bg-indigo-600 text-white shadow-2xs font-bold'
+                      ? 'bg-indigo-600 text-white font-bold'
                       : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
                   }`}
                 >
-                  All Days ({rows.length})
+                  All ({rows.length})
                 </button>
                 <button
                   type="button"
                   onClick={() => setCardFilter('claimed')}
-                  className={`px-3 py-1 rounded-lg transition cursor-pointer select-none flex items-center gap-1.5 ${
+                  className={`px-3 py-1.5 rounded-xl transition cursor-pointer select-none inline-flex items-center gap-1.5 whitespace-nowrap ${
                     cardFilter === 'claimed'
-                      ? 'bg-emerald-600 text-white shadow-2xs font-bold'
+                      ? 'bg-emerald-600 text-white font-bold'
                       : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
                   }`}
                 >
-                  <span>{isOpClaim ? 'Logged Days' : 'Claimed OT'}</span>
-                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
-                    cardFilter === 'claimed' ? 'bg-white/25 text-white' : 'bg-emerald-100 text-emerald-800'
-                  }`}>
+                  <span>{isOpClaim ? 'Logged' : 'Claimed OT'}</span>
+                  <span
+                    className={`px-1.5 py-0.2 rounded-full text-[10px] tabular-nums ${
+                      cardFilter === 'claimed' ? 'bg-white/25 text-white' : 'bg-emerald-100 text-emerald-800'
+                    }`}
+                  >
                     {rows.filter(isClaimedRow).length}
                   </span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setCardFilter('weekdays')}
-                  className={`px-3 py-1 rounded-lg transition cursor-pointer select-none ${
+                  className={`px-3 py-1.5 rounded-xl transition cursor-pointer select-none whitespace-nowrap ${
                     cardFilter === 'weekdays'
-                      ? 'bg-indigo-600 text-white shadow-2xs font-bold'
+                      ? 'bg-indigo-600 text-white font-bold'
                       : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
                   }`}
                 >
@@ -4045,27 +4276,29 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                 <button
                   type="button"
                   onClick={() => setCardFilter('nonworking')}
-                  className={`px-3 py-1 rounded-lg transition cursor-pointer select-none ${
+                  className={`px-3 py-1.5 rounded-xl transition cursor-pointer select-none whitespace-nowrap ${
                     cardFilter === 'nonworking'
-                      ? 'bg-amber-600 text-white shadow-2xs font-bold'
+                      ? 'bg-amber-600 text-white font-bold'
                       : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
                   }`}
                 >
-                  Saturdays &amp; Holidays ({rows.filter(r => isOtherDayRow(r)).length})
+                  Sat &amp; Holidays ({rows.filter(r => isOtherDayRow(r)).length})
                 </button>
                 <button
                   type="button"
                   onClick={() => setCardFilter('leaves')}
-                  className={`px-3 py-1 rounded-lg transition cursor-pointer select-none flex items-center gap-1.5 ${
+                  className={`px-3 py-1.5 rounded-xl transition cursor-pointer select-none inline-flex items-center gap-1.5 whitespace-nowrap ${
                     cardFilter === 'leaves'
-                      ? 'bg-sky-600 text-white shadow-2xs font-bold'
+                      ? 'bg-sky-600 text-white font-bold'
                       : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
                   }`}
                 >
                   <span>Leaves</span>
-                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
-                    cardFilter === 'leaves' ? 'bg-white/25 text-white' : 'bg-sky-100 text-sky-800'
-                  }`}>
+                  <span
+                    className={`px-1.5 py-0.2 rounded-full text-[10px] tabular-nums ${
+                      cardFilter === 'leaves' ? 'bg-white/25 text-white' : 'bg-sky-100 text-sky-800'
+                    }`}
+                  >
                     {rows.filter(isRowLeave).length}
                   </span>
                 </button>
@@ -4073,35 +4306,30 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                   <button
                     type="button"
                     onClick={() => setCardFilter('issues')}
-                    className={`px-3 py-1 rounded-lg transition cursor-pointer select-none flex items-center gap-1.5 ${
+                    className={`px-3 py-1.5 rounded-xl transition cursor-pointer select-none inline-flex items-center gap-1.5 whitespace-nowrap ${
                       cardFilter === 'issues'
-                        ? 'bg-rose-600 text-white shadow-2xs font-bold'
+                        ? 'bg-rose-600 text-white font-bold'
                         : 'bg-rose-50 text-rose-800 hover:bg-rose-100 border border-rose-300'
                     }`}
                   >
                     <AlertCircle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
-                    <span>Attention Needed</span>
-                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
-                      cardFilter === 'issues' ? 'bg-white/30 text-white' : 'bg-rose-200 text-rose-900'
-                    }`}>
-                      {rowsWithIssuesCount}
-                    </span>
+                    <span>Issues ({rowsWithIssuesCount})</span>
                   </button>
                 )}
               </div>
 
-              <div className="flex items-center gap-2 text-xs text-slate-500">
-                <span>Showing <strong>{visibleCardRows.length}</strong> of {rows.length} days</span>
+              <div className="hidden md:flex items-center gap-1.5 text-[11px] text-slate-500 font-medium">
+                <span>Swipe, drag, or use arrows &bull; Auto-advances on complete date</span>
               </div>
             </div>
 
-            {/* Visual Callout Banner if any day card has issues (only shown after action attempt) */}
+            {/* Issue Callout Banner */}
             {showValidationAttention && rowsWithIssuesCount > 0 && (
-              <div className="p-3 bg-rose-50/90 border border-rose-200 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs text-rose-900 shadow-2xs">
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex flex-wrap items-center justify-between gap-2.5 text-xs text-rose-900">
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
                   <span>
-                    <strong>{rowsWithIssuesCount} {rowsWithIssuesCount === 1 ? 'day entry needs' : 'day entries need'} attention</strong> before submitting or downloading.
+                    <strong>{rowsWithIssuesCount} {rowsWithIssuesCount === 1 ? 'date needs' : 'dates need'} attention</strong> before submitting or downloading.
                   </span>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -4111,19 +4339,22 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       const firstIssue = rowsWithIssues[0];
                       if (firstIssue) {
                         const firstVal = getRowValidation(firstIssue);
+                        if (cardFilter !== 'all' && cardFilter !== 'issues') {
+                          setCardFilter('all');
+                        }
                         scrollToErrorTarget({ type: 'row', rowId: firstIssue.id, focusField: firstVal.focusTarget });
                       }
                     }}
-                    className="text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 px-3 py-1 rounded-lg transition cursor-pointer inline-flex items-center gap-1"
+                    className="text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 px-3 py-1 rounded-lg transition cursor-pointer inline-flex items-center gap-1 whitespace-nowrap"
                   >
-                    <span>Jump to Issue</span>
+                    <span>Jump to Error</span>
                     <ArrowRight className="w-3 h-3" />
                   </button>
                   {cardFilter !== 'issues' && (
                     <button
                       type="button"
                       onClick={() => setCardFilter('issues')}
-                      className="text-xs font-bold text-rose-900 bg-rose-200/80 hover:bg-rose-300 px-2.5 py-1 rounded-lg transition cursor-pointer"
+                      className="text-xs font-semibold text-rose-900 bg-rose-200/80 hover:bg-rose-300 px-2.5 py-1 rounded-lg transition cursor-pointer whitespace-nowrap"
                     >
                       Filter ({rowsWithIssuesCount})
                     </button>
@@ -4132,1051 +4363,1183 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
               </div>
             )}
 
-            {/* Empty state when filtering by issues and all are valid */}
-            {cardFilter === 'issues' && visibleCardRows.length === 0 && (
-              <div className="p-8 text-center text-emerald-800 bg-emerald-50 rounded-2xl border border-emerald-200">
-                <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-emerald-600" />
-                <p className="font-bold text-sm">All day cards are valid!</p>
-                <p className="text-xs text-emerald-600 mt-1">No missing fields or conflicting shift entries detected.</p>
+            {/* Empty State when filtered */}
+            {visibleCardRows.length === 0 && (
+              <div className="p-8 text-center bg-white rounded-2xl border border-slate-200">
+                {cardFilter === 'issues' ? (
+                  <>
+                    <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-emerald-600" />
+                    <p className="font-bold text-sm text-emerald-900">All day cards are valid!</p>
+                    <p className="text-xs text-slate-500 mt-1">No missing fields or conflicting entries detected.</p>
+                  </>
+                ) : (
+                  <>
+                    <Calendar className="w-8 h-8 mx-auto mb-2 text-slate-400" />
+                    <p className="font-bold text-sm text-slate-800">No days match this filter</p>
+                    <p className="text-xs text-slate-500 mt-1">Switch back to All Days to view your full monthly entries.</p>
+                  </>
+                )}
                 <button
                   type="button"
                   onClick={() => setCardFilter('all')}
-                  className="mt-3 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold shadow-2xs hover:bg-emerald-700 transition cursor-pointer"
+                  className="mt-3 px-3.5 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 transition cursor-pointer"
                 >
                   View All Days
                 </button>
               </div>
             )}
 
-            {/* Grid of Separated Day Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {visibleCardRows.map(({ row, originalIndex: index }) => {
-                const val = getRowValidation(row);
-                const hasVisualIssue = showValidationAttention && val.hasIssue;
-                const isScrolledTarget = highlightedErrorRowId === row.id && val.hasIssue;
-                const isLeave = Boolean(row.isLeave);
-                const hasOt = !isLeave && (row.totalMinutes || 0) > 0;
-                const isSat = row.dayOfWeek === 'Sat' || getDayOfWeek(row.date) === 'Sat';
-                const isSun = row.dayOfWeek === 'Sun' || getDayOfWeek(row.date) === 'Sun';
-                const isHol = isRowHoliday(row);
-                const isOther = !isLeave && (isSat || isSun || isHol);
-                const isRowSpecial = row.isSpecialAssignment ?? isSpecialAssignedOt;
-                const holidayInfo = holidayMap.get(row.date);
-                const dayStatus: 'workday' | 'leave' | 'holiday' = isLeave ? 'leave' : isHol ? 'holiday' : 'workday';
-                const hasWorkedNoOt = !isLeave && !(isHol && !row.isHolidayOverride) && !isOther && Boolean(row.startTime && row.endTime) && (row.totalMinutes || 0) === 0;
+            {/* Horizontal Scroll Carousel with Middle-Left & Middle-Right Floating Arrow Buttons */}
+            {visibleCardRows.length > 0 && (
+              <div className="relative group/carousel">
+                {/* Middle-Left Arrow Button */}
+                <button
+                  type="button"
+                  onClick={() => scrollCarouselByStep('left')}
+                  disabled={!canScrollLeft}
+                  aria-label="Scroll left to previous dates"
+                  title="Previous date"
+                  className={`absolute left-1 sm:left-2 top-1/2 -translate-y-1/2 z-20 w-9 h-9 sm:w-11 sm:h-11 rounded-full flex items-center justify-center border backdrop-blur-md transition-all duration-200 ${
+                    canScrollLeft
+                      ? 'bg-white/95 border-slate-200 text-slate-700 shadow-lg hover:bg-indigo-600 hover:text-white hover:border-indigo-600 hover:scale-105 active:scale-95 cursor-pointer opacity-100'
+                      : 'bg-white/60 border-slate-200/60 text-slate-300 shadow-xs cursor-not-allowed opacity-40 pointer-events-none'
+                  }`}
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
 
-                return (
-                  <div
-                    key={row.id}
-                    ref={el => {
-                      rowElementRefs.current[row.id] = el;
-                    }}
-                    className={`rounded-2xl border p-4 bg-white transition-all shadow-2xs hover:shadow-md flex flex-col justify-between space-y-3 relative ${
-                      isScrolledTarget
-                        ? 'border-rose-500 ring-4 ring-rose-400/50 bg-linear-to-b from-rose-50/40 via-white to-white'
-                        : hasVisualIssue
-                        ? 'border-rose-400 ring-2 ring-rose-300/60 bg-linear-to-b from-rose-50/25 via-white to-white'
-                        : isLeave
-                        ? 'border-sky-300 bg-linear-to-b from-sky-50/35 to-white'
-                        : hasOt
-                        ? 'border-indigo-300 ring-1 ring-indigo-200/60 bg-linear-to-b from-indigo-50/25 to-white'
-                        : isSat
-                        ? 'border-amber-200 bg-linear-to-b from-amber-50/20 to-white'
-                        : isSun
-                        ? 'border-purple-200 bg-linear-to-b from-purple-50/20 to-white'
-                        : isHol
-                        ? 'border-rose-200 bg-linear-to-b from-rose-50/20 to-white'
-                        : 'border-slate-200/90 hover:border-slate-300'
-                    }`}
-                  >
-                    {/* 1. Card Top Bar: Day Index, Date, Day Label & Row Actions */}
-                    <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
-                      <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                        <span className="font-mono text-xs font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-md">
-                          #{index + 1}
-                        </span>
+                {/* Middle-Right Arrow Button */}
+                <button
+                  type="button"
+                  onClick={() => scrollCarouselByStep('right')}
+                  disabled={!canScrollRight}
+                  aria-label="Scroll right to next dates"
+                  title="Next date"
+                  className={`absolute right-1 sm:right-2 top-1/2 -translate-y-1/2 z-20 w-9 h-9 sm:w-11 sm:h-11 rounded-full flex items-center justify-center border backdrop-blur-md transition-all duration-200 ${
+                    canScrollRight
+                      ? 'bg-white/95 border-slate-200 text-slate-700 shadow-lg hover:bg-indigo-600 hover:text-white hover:border-indigo-600 hover:scale-105 active:scale-95 cursor-pointer opacity-100'
+                      : 'bg-white/60 border-slate-200/60 text-slate-300 shadow-xs cursor-not-allowed opacity-40 pointer-events-none'
+                  }`}
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
 
-                        <input
-                          ref={el => {
-                            dateInputRefs.current[row.id] = el;
-                          }}
-                          type="date"
-                          value={toSafeStr(row.date)}
-                          onChange={e => updateRowField(index, 'date', e.target.value)}
-                          className={`font-mono text-xs font-semibold px-2 py-0.5 rounded-lg border bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                            hasVisualIssue && val.isDuplicateDate ? 'border-rose-500 bg-rose-50/50 text-rose-900 ring-1 ring-rose-400' : 'border-slate-200'
-                          }`}
-                        />
+                {/* Horizontal Scroll Track (Swipe + Drag + Arrows) */}
+                <div
+                  ref={horizontalScrollRef}
+                  onScroll={updateHorizontalScrollState}
+                  onMouseDown={handleCarouselMouseDown}
+                  onTouchStart={cancelHorizontalAnimation}
+                  onWheel={e => {
+                    if (Math.abs(e.deltaX) > 2) {
+                      cancelHorizontalAnimation();
+                    }
+                  }}
+                  className="flex items-stretch gap-3.5 sm:gap-4 overflow-x-auto no-scrollbar snap-x snap-mandatory touch-pan-x px-3 sm:px-6 py-2 select-none"
+                >
+                  {visibleCardRows.map(({ row, originalIndex: index }, cardIdx) => {
+                    const val = getRowValidation(row);
+                    const hasVisualIssue = showValidationAttention && val.hasIssue;
+                    const isScrolledTarget = highlightedErrorRowId === row.id && val.hasIssue;
+                    const isLeave = Boolean(row.isLeave);
+                    const hasOt = !isLeave && (row.totalMinutes || 0) > 0;
+                    const isSat = row.dayOfWeek === 'Sat' || getDayOfWeek(row.date) === 'Sat';
+                    const isSun = row.dayOfWeek === 'Sun' || getDayOfWeek(row.date) === 'Sun';
+                    const isHol = isRowHoliday(row);
+                    const isOther = !isLeave && (isSat || isSun || isHol);
+                    const isRowSpecial = row.isSpecialAssignment ?? isSpecialAssignedOt;
+                    const holidayInfo = holidayMap.get(row.date);
+                    const dayStatus: 'workday' | 'leave' | 'holiday' = isLeave ? 'leave' : isHol ? 'holiday' : 'workday';
+                    const hasWorkedNoOt =
+                      !isLeave &&
+                      !(isHol && !row.isHolidayOverride) &&
+                      !isOther &&
+                      Boolean(row.startTime && row.endTime) &&
+                      (row.totalMinutes || 0) === 0;
+                    const isCompleteCard = isRowCompleteWithData(row);
+                    const isActiveCard = cardIdx === activeCarouselIdx;
 
-                        <span
-                          className={`inline-block px-2 py-0.5 rounded-md text-xs font-bold tracking-tight ${
-                            isLeave
-                              ? 'bg-sky-100 text-sky-800 border border-sky-200'
-                              : isHol
-                              ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                              : isSun
-                              ? 'bg-purple-100 text-purple-800 border border-purple-200'
-                              : isSat
-                              ? 'bg-amber-100 text-amber-900 border border-amber-200'
-                              : 'bg-slate-100 text-slate-700 border border-slate-200'
-                          }`}
-                        >
-                          {row.dayOfWeek || '-'}
-                        </span>
-
-                        {hasVisualIssue && (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1 shadow-2xs">
-                            <AlertCircle className="w-3 h-3 text-rose-600 shrink-0" />
-                            <span>{val.primaryIssue}</span>
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-1 shrink-0">
-                        {/* Duplicate Day */}
-                        <button
-                          type="button"
-                          onClick={() => handleDuplicateRow(index)}
-                          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
-                          title="Duplicate day entry"
-                        >
-                          <Copy className="w-3.5 h-3.5" />
-                        </button>
-
-                        {/* Delete Row */}
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteRow(index)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                          title="Delete day"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* 1B. Clear, Plain-Language Day Status Selector (Workday / Leave / Holiday) */}
-                    <div className="flex items-center justify-between gap-2 bg-slate-100/80 p-1 rounded-xl border border-slate-200/80 text-[11px] font-semibold">
-                      <button
-                        type="button"
-                        onClick={() => setRowDayStatus(index, 'workday')}
-                        className={`flex-1 inline-flex items-center justify-center gap-1 py-1 px-2 rounded-lg transition cursor-pointer ${
-                          dayStatus === 'workday'
-                            ? 'bg-white text-indigo-700 shadow-2xs font-bold border border-slate-200/80'
-                            : 'text-slate-600 hover:text-slate-900'
+                    return (
+                      <div
+                        key={row.id}
+                        ref={el => {
+                          rowElementRefs.current[row.id] = el;
+                        }}
+                        className={`flex-none w-[86%] min-w-[266px] sm:w-[345px] md:w-[365px] lg:w-[380px] snap-center sm:snap-start rounded-2xl border p-4 bg-white transition-all flex flex-col justify-between space-y-3 select-text ${
+                          isScrolledTarget
+                            ? 'border-rose-500 ring-4 ring-rose-400/40 bg-rose-50/20 shadow-md'
+                            : hasVisualIssue
+                            ? 'border-rose-400 ring-2 ring-rose-300/60 bg-rose-50/10'
+                            : isLeave
+                            ? 'border-sky-300 bg-sky-50/20'
+                            : hasOt
+                            ? 'border-indigo-300 shadow-xs'
+                            : isSat
+                            ? 'border-amber-200'
+                            : isSun
+                            ? 'border-purple-200'
+                            : isHol
+                            ? 'border-rose-200'
+                            : isActiveCard
+                            ? 'border-slate-300 shadow-xs'
+                            : 'border-slate-200'
                         }`}
                       >
-                        <Briefcase className="w-3 h-3 shrink-0" />
-                        <span>Workday</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setRowDayStatus(index, 'leave')}
-                        className={`flex-1 inline-flex items-center justify-center gap-1 py-1 px-2 rounded-lg transition cursor-pointer ${
-                          dayStatus === 'leave'
-                            ? 'bg-sky-600 text-white shadow-2xs font-bold'
-                            : 'text-slate-600 hover:text-sky-700'
-                        }`}
-                      >
-                        <CalendarOff className="w-3 h-3 shrink-0" />
-                        <span>Leave</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setRowDayStatus(index, 'holiday')}
-                        className={`flex-1 inline-flex items-center justify-center gap-1 py-1 px-2 rounded-lg transition cursor-pointer ${
-                          dayStatus === 'holiday'
-                            ? 'bg-rose-600 text-white shadow-2xs font-bold'
-                            : 'text-slate-600 hover:text-rose-700'
-                        }`}
-                      >
-                        <Calendar className="w-3 h-3 shrink-0" />
-                        <span>Holiday</span>
-                      </button>
-                    </div>
+                        {/* 1. Card Top Bar */}
+                        <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
+                          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                            <span className="font-mono tabular-nums text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                              #{index + 1}
+                            </span>
 
-                    {/* Leave Mode Box */}
-                    {isLeave && (
-                      <div className="p-3 rounded-xl bg-sky-50 border border-sky-200 space-y-2.5 text-xs">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-bold text-sky-900 flex items-center gap-1.5">
-                            <CalendarOff className="w-3.5 h-3.5 text-sky-600" />
-                            <span>On Leave</span>
-                          </span>
-                          <span className="text-[10px] font-semibold text-sky-700">
-                            Excluded from OT sheet PDF
-                          </span>
-                        </div>
+                            <input
+                              ref={el => {
+                                dateInputRefs.current[row.id] = el;
+                              }}
+                              type="date"
+                              value={toSafeStr(row.date)}
+                              onChange={e => updateRowField(index, 'date', e.target.value)}
+                              className={`font-mono tabular-nums text-xs font-semibold px-2 py-1 rounded-lg border bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                                hasVisualIssue && val.isDuplicateDate
+                                  ? 'border-rose-500 bg-rose-50 text-rose-900 ring-1 ring-rose-400'
+                                  : 'border-slate-200'
+                              }`}
+                            />
 
-                        <div className="grid grid-cols-2 gap-2 items-center">
-                          <label className="text-[11px] font-semibold text-slate-600">Leave Type:</label>
-                          <select
-                            value={row.leaveType || 'Full Day'}
-                            onChange={e => updateRowLeaveType(index, e.target.value)}
-                            className="rounded-lg border border-sky-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-sky-500 cursor-pointer"
-                          >
-                            <option value="Full Day">Full Day Leave</option>
-                            <option value="Half Day">Half Day Leave</option>
-                            <option value="Annual Leave">Annual Leave</option>
-                            <option value="Casual Leave">Casual Leave</option>
-                            <option value="Medical Leave">Medical Leave</option>
-                            <option value="Short Leave">Short Leave</option>
-                          </select>
-                        </div>
+                            <span
+                              className={`inline-block px-2 py-0.5 rounded-md text-xs font-bold ${
+                                isLeave
+                                  ? 'bg-sky-100 text-sky-800'
+                                  : isHol
+                                  ? 'bg-rose-100 text-rose-800'
+                                  : isSun
+                                  ? 'bg-purple-100 text-purple-800'
+                                  : isSat
+                                  ? 'bg-amber-100 text-amber-900'
+                                  : 'bg-slate-100 text-slate-700'
+                              }`}
+                            >
+                              {row.dayOfWeek || '-'}
+                            </span>
 
-                        <input
-                          type="text"
-                          value={toSafeStr(row.reason)}
-                          onChange={e => updateRowField(index, 'reason', e.target.value)}
-                          placeholder="Optional leave note (not printed)..."
-                          className="w-full rounded-lg border border-sky-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                        />
-                      </div>
-                    )}
+                            {isCompleteCard && !hasVisualIssue && (
+                              <span
+                                className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-emerald-700"
+                                title="Date complete (Time In, Time Out, and Duties)"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              </span>
+                            )}
 
-                    {/* Holiday Banner with Clear Plain-Language Toggle */}
-                    {!isLeave && isHol && (
-                      <div className={`p-2.5 rounded-xl border text-xs space-y-1.5 transition ${
-                        row.isHolidayOverride
-                          ? 'bg-amber-50 border-amber-300 text-amber-950'
-                          : 'bg-rose-50/60 border-rose-200 text-rose-900'
-                      }`}>
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="text-[11px] font-bold truncate">
-                              {row.holidayName || holidayInfo?.name || (isSun ? 'Sunday' : 'Public Holiday')}
-                            </p>
-                            <p className="text-[10px] opacity-80">
-                              {row.isHolidayOverride
-                                ? (isDaysPayOnlyNonWorking
-                                    ? "Worked on holiday — enter duties & times below to claim Day's Pay (No OT hours)"
-                                    : 'Worked on holiday — enter duties & times below to claim OT')
-                                : "Holiday off-day (won't print on OT sheet)"}
-                            </p>
-                          </div>
-                        </div>
-                        <label className="flex items-center gap-2 pt-1 border-t border-black/10 cursor-pointer select-none">
-                          <input
-                            type="checkbox"
-                            checked={!!row.isHolidayOverride}
-                            onChange={() => toggleHolidayOverride(index)}
-                            className="w-3.5 h-3.5 rounded text-amber-600 focus:ring-amber-500 border-amber-400 cursor-pointer"
-                          />
-                          <span className="text-[11px] font-bold">
-                            {row.isHolidayOverride
-                              ? (isDaysPayOnlyNonWorking ? "Claiming Day's Pay (Active)" : 'Claiming Holiday OT (Active)')
-                              : (isDaysPayOnlyNonWorking ? "I worked on this holiday — Claim Day's Pay" : 'I worked on this holiday — Claim OT')}
-                          </span>
-                        </label>
-                      </div>
-                    )}
-
-                    {/* 2 & 3. Duties + Times (Hidden/disabled gracefully when on Leave) */}
-                    {!isLeave && (
-                      <>
-                        {/* 2. Duties & Nature of Work */}
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between text-[11px]">
-                            <label className="font-bold text-slate-600">
-                              Duties / Nature of Work
-                            </label>
-                            {isSat && !row.reason && (
-                              <span className="text-[10px] text-amber-700 font-medium">Saturday Duty</span>
+                            {hasVisualIssue && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-100 text-rose-800 border border-rose-300 inline-flex items-center gap-1">
+                                <AlertCircle className="w-3 h-3 text-rose-600 shrink-0" />
+                                <span>{val.primaryIssue}</span>
+                              </span>
                             )}
                           </div>
-                          <input
-                            ref={el => {
-                              reasonInputRefs.current[row.id] = el;
-                            }}
-                            type="text"
-                            disabled={isHol && !row.isHolidayOverride}
-                            value={toSafeStr(row.reason)}
-                            onChange={e => updateRowField(index, 'reason', e.target.value)}
-                              placeholder={
-                                isHol && !row.isHolidayOverride
-                                  ? 'Tick "I worked on this holiday" above to edit'
-                                  : (isSat && !isOpClaim ? 'Saturday Duty...' : 'Enter duties performed...')
-                              }
-                            className={`w-full rounded-xl border px-3 py-1.5 text-xs transition ${
-                              hasVisualIssue && val.isMissingReason
-                                ? 'border-rose-500 ring-2 ring-rose-300 bg-rose-50/40 text-slate-900 focus:border-rose-600'
-                                : isHol && !row.isHolidayOverride
-                                ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed select-none'
-                                : 'border-slate-200 bg-white text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleDuplicateRow(index)}
+                              className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                              title="Duplicate day entry"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteRow(index)}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                              title="Delete day"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* 1B. Day Status Selector */}
+                        <div className="flex items-center justify-between gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200/80 text-[11px] font-semibold">
+                          <button
+                            type="button"
+                            onClick={() => setRowDayStatus(index, 'workday')}
+                            className={`flex-1 inline-flex items-center justify-center gap-1 py-1 px-2 rounded-lg transition cursor-pointer ${
+                              dayStatus === 'workday'
+                                ? 'bg-white text-indigo-700 shadow-2xs font-bold'
+                                : 'text-slate-600 hover:text-slate-900'
                             }`}
-                          />
+                          >
+                            <Briefcase className="w-3 h-3 shrink-0" />
+                            <span>Workday</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRowDayStatus(index, 'leave')}
+                            className={`flex-1 inline-flex items-center justify-center gap-1 py-1 px-2 rounded-lg transition cursor-pointer ${
+                              dayStatus === 'leave'
+                                ? 'bg-sky-600 text-white shadow-2xs font-bold'
+                                : 'text-slate-600 hover:text-sky-700'
+                            }`}
+                          >
+                            <CalendarOff className="w-3 h-3 shrink-0" />
+                            <span>Leave</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRowDayStatus(index, 'holiday')}
+                            className={`flex-1 inline-flex items-center justify-center gap-1 py-1 px-2 rounded-lg transition cursor-pointer ${
+                              dayStatus === 'holiday'
+                                ? 'bg-rose-600 text-white shadow-2xs font-bold'
+                                : 'text-slate-600 hover:text-rose-700'
+                            }`}
+                          >
+                            <Calendar className="w-3 h-3 shrink-0" />
+                            <span>Holiday</span>
+                          </button>
                         </div>
 
-                        {/* 3. Modern Scrollable Time In & Time Out section with AM/PM */}
-                        <div className="grid grid-cols-2 gap-2.5 pt-0.5">
-                          <div>
-                            <div className="flex items-center justify-between mb-1">
-                              <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
-                                <span>Time In</span>
-                              </label>
+                        {/* Leave Mode Panel */}
+                        {isLeave && (
+                          <div className="p-3 rounded-xl bg-sky-50 border border-sky-200 space-y-2.5 text-xs flex-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-bold text-sky-900 inline-flex items-center gap-1.5">
+                                <CalendarOff className="w-3.5 h-3.5 text-sky-600" />
+                                <span>On Leave</span>
+                              </span>
+                              <span className="text-[10px] font-semibold text-sky-700">
+                                Excluded from PDF
+                              </span>
                             </div>
-                            <ScrollableTimePicker
-                              isTimeIn={true}
-                              disabled={isHol && !row.isHolidayOverride}
-                              value={(isHol && !row.isHolidayOverride) ? '' : row.startTime}
-                              onChange={val => updateRowField(index, 'startTime', val)}
-                              label="Time In (Start)"
-                              placeholder="Select In"
-                            />
-                          </div>
 
-                          <div>
-                            <div className="flex items-center justify-between mb-1">
-                              <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
-                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 inline-block"></span>
-                                <span>Time Out</span>
-                              </label>
+                            <div className="grid grid-cols-2 gap-2 items-center">
+                              <label className="text-[11px] font-semibold text-slate-600">Leave Type:</label>
+                              <select
+                                value={row.leaveType || 'Full Day'}
+                                onChange={e => updateRowLeaveType(index, e.target.value)}
+                                className="rounded-lg border border-sky-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-sky-500 cursor-pointer"
+                              >
+                                <option value="Full Day">Full Day Leave</option>
+                                <option value="Half Day">Half Day Leave</option>
+                                <option value="Annual Leave">Annual Leave</option>
+                                <option value="Casual Leave">Casual Leave</option>
+                                <option value="Medical Leave">Medical Leave</option>
+                                <option value="Short Leave">Short Leave</option>
+                              </select>
                             </div>
-                            <ScrollableTimePicker
-                              isTimeIn={false}
-                              disabled={isHol && !row.isHolidayOverride}
-                              value={(isHol && !row.isHolidayOverride) ? '' : row.endTime}
-                              onChange={val => updateRowField(index, 'endTime', val)}
-                              label="Time Out (End)"
-                              placeholder="Select Out"
-                              disableSession={isOpClaim ? null : (row.startTime ? parse24To12(row.startTime).period : null)}
-                              autoSession={isOpClaim ? 'PM' : (row.startTime ? (parse24To12(row.startTime).period === 'AM' ? 'PM' : 'AM') : 'PM')}
-                            />
-                          </div>
-                        </div>
 
-                        {/* Friendly Inline Error Guidance + 1-Click Fix Buttons */}
-                        {hasVisualIssue && val.friendlyMessage && (
-                          <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-300 text-rose-900 text-[11px] space-y-2">
-                            <div className="flex items-start gap-1.5 font-semibold">
-                              <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0 mt-0.5" />
-                              <span>{val.friendlyMessage}</span>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              {val.hasSameSession && (
-                                <button
-                                  type="button"
-                                  onClick={() => fixSameSessionRow(index)}
-                                  className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] cursor-pointer transition"
-                                >
-                                  Switch Out to {row.startTime && parse24To12(row.startTime).period === 'AM' ? 'PM' : 'AM'}
-                                </button>
-                              )}
-                              {val.isMissingTimeIn && (
-                                <button
-                                  type="button"
-                                  onClick={() => updateRowField(index, 'startTime', userShiftStartTime || GENERAL_SHIFT_START)}
-                                  className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] cursor-pointer transition"
-                                >
-                                  Set Time In ({userShiftStartTime || GENERAL_SHIFT_START})
-                                </button>
-                              )}
-                              {val.isMissingReason && defaultWeekdayReason && (
-                                <button
-                                  type="button"
-                                  onClick={() => updateRowField(index, 'reason', isSat ? (defaultSaturdayReason || 'Saturday Duty') : defaultWeekdayReason)}
-                                  className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] cursor-pointer transition"
-                                >
-                                  Fill Default Duties
-                                </button>
-                              )}
-                              {val.isHolidayNotOverridden && (
-                                <button
-                                  type="button"
-                                  onClick={() => toggleHolidayOverride(index)}
-                                  className="px-2 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] cursor-pointer transition"
-                                >
-                                  Enable Holiday OT
-                                </button>
-                              )}
-                              {val.isDuplicateDate && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteRow(index)}
-                                  className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] cursor-pointer transition"
-                                >
-                                  Remove Duplicate
-                                </button>
-                              )}
-                              {(val.isMissingTimeOut || val.isMissingTimeIn || val.isZeroDuration || val.isHolidayNotOverridden) && (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() => clearRowEntry(index)}
-                                    className="px-2 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 font-semibold text-[10px] cursor-pointer inline-flex items-center gap-1 transition"
-                                  >
-                                    <Eraser className="w-2.5 h-2.5" />
-                                    <span>Clear Times</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setRowDayStatus(index, 'leave')}
-                                    className="px-2 py-1 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-300 font-semibold text-[10px] cursor-pointer transition"
-                                  >
-                                    Mark Leave
-                                  </button>
-                                </>
-                              )}
-                            </div>
+                            <input
+                              type="text"
+                              value={toSafeStr(row.reason)}
+                              onChange={e => updateRowField(index, 'reason', e.target.value)}
+                              placeholder="Optional leave note (not printed)..."
+                              className="w-full rounded-lg border border-sky-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                            />
                           </div>
                         )}
 
-                        {/* Worked-but-no-OT notice (Form 10756 OT only) */}
-                        {!isOpClaim && hasWorkedNoOt && (
-                          <div className="px-2.5 py-1.5 rounded-lg bg-slate-100 border border-slate-200 text-[10px] font-medium text-slate-600">
-                            Normal shift / &lt;15m OT (0:00 OT) — will not print on OT sheet
-                          </div>
-                        )}
-
-                        {/* 4. Card Bottom Strip: Strictly Isolated OP (Form 10610) vs OT (Form 10756) */}
-                        {isOpClaim ? (
-                          <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between gap-2 flex-wrap text-xs">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              {row.totalWorkMinutes > 0 ? (
-                                <span className="text-[11px] font-mono font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                                  {formatMinutesToTime(row.totalWorkMinutes, otDisplayFormat)} worked
-                                </span>
-                              ) : (
-                                <span className="text-[11px] text-slate-400">No hours logged</span>
-                              )}
+                        {/* Holiday Banner */}
+                        {!isLeave && isHol && (
+                          <div
+                            className={`p-2.5 rounded-xl border text-xs space-y-1.5 transition ${
+                              row.isHolidayOverride
+                                ? 'bg-amber-50 border-amber-300 text-amber-950'
+                                : 'bg-rose-50/70 border-rose-200 text-rose-900'
+                            }`}
+                          >
+                            <div className="min-w-0">
+                              <p className="text-[11px] font-bold truncate">
+                                {row.holidayName || holidayInfo?.name || (isSun ? 'Sunday' : 'Public Holiday')}
+                              </p>
+                              <p className="text-[10px] opacity-85">
+                                {row.isHolidayOverride
+                                  ? isDaysPayOnlyNonWorking
+                                    ? "Worked on holiday — Day's Pay (No OT hours)"
+                                    : 'Worked on holiday — enter duties & times below'
+                                  : "Holiday off-day (won't print on sheet)"}
+                              </p>
                             </div>
-
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[10px] font-bold text-slate-500 uppercase">Amount Rs.</span>
+                            <label className="flex items-center gap-2 pt-1 border-t border-black/10 cursor-pointer select-none">
                               <input
-                                type="number"
-                                step="0.01"
-                                min="0"
+                                type="checkbox"
+                                checked={!!row.isHolidayOverride}
+                                onChange={() => toggleHolidayOverride(index)}
+                                className="w-3.5 h-3.5 rounded text-amber-600 focus:ring-amber-500 border-amber-400 cursor-pointer"
+                              />
+                              <span className="text-[11px] font-bold">
+                                {row.isHolidayOverride
+                                  ? isDaysPayOnlyNonWorking
+                                    ? "Claiming Day's Pay (Active)"
+                                    : 'Claiming Holiday OT (Active)'
+                                  : isDaysPayOnlyNonWorking
+                                  ? "I worked on this holiday — Claim Day's Pay"
+                                  : 'I worked on this holiday — Claim OT'}
+                              </span>
+                            </label>
+                          </div>
+                        )}
+
+                        {/* 2 & 3. Duties + Times */}
+                        {!isLeave && (
+                          <>
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-[11px]">
+                                <label className="font-semibold text-slate-700">
+                                  Duties / Nature of Work
+                                </label>
+                                {isSat && !row.reason && (
+                                  <span className="text-[10px] text-amber-700 font-medium">Saturday Duty</span>
+                                )}
+                              </div>
+                              <input
+                                ref={el => {
+                                  reasonInputRefs.current[row.id] = el;
+                                }}
+                                type="text"
                                 disabled={isHol && !row.isHolidayOverride}
-                                value={row.daysPaymentAmount ? row.daysPaymentAmount : ''}
-                                onChange={e => updateRowField(index, 'daysPaymentAmount', e.target.value)}
-                                placeholder="0.00"
-                                className="w-24 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-mono font-bold text-slate-800 text-right focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 disabled:bg-slate-100 disabled:text-slate-400"
+                                value={toSafeStr(row.reason)}
+                                onChange={e => updateRowField(index, 'reason', e.target.value)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    if (reasonIdleTimerRef.current) {
+                                      clearTimeout(reasonIdleTimerRef.current);
+                                      reasonIdleTimerRef.current = null;
+                                    }
+                                    pendingReasonBlurAdvanceRef.current = null;
+                                    e.currentTarget.blur();
+                                    if (isRowCompleteWithData(row)) {
+                                      autoScrollToNextCard(row.id);
+                                    }
+                                  }
+                                }}
+                                onBlur={() => {
+                                  if (reasonIdleTimerRef.current) {
+                                    clearTimeout(reasonIdleTimerRef.current);
+                                    reasonIdleTimerRef.current = null;
+                                  }
+                                  if (
+                                    pendingReasonBlurAdvanceRef.current === row.id &&
+                                    openTimePickerCountRef.current === 0 &&
+                                    isRowCompleteWithData(row)
+                                  ) {
+                                    pendingReasonBlurAdvanceRef.current = null;
+                                    autoScrollToNextCard(row.id);
+                                  }
+                                }}
+                                placeholder={
+                                  isHol && !row.isHolidayOverride
+                                    ? 'Tick "I worked on this holiday" above to edit'
+                                    : isSat && !isOpClaim
+                                    ? 'Saturday Duty...'
+                                    : 'Enter duties performed...'
+                                }
+                                className={`w-full rounded-xl border px-3 py-2 text-xs transition ${
+                                  hasVisualIssue && val.isMissingReason
+                                    ? 'border-rose-500 ring-2 ring-rose-300 bg-rose-50/40 text-slate-900 focus:border-rose-600'
+                                    : isHol && !row.isHolidayOverride
+                                    ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed select-none'
+                                    : 'border-slate-200 bg-white text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
+                                }`}
                               />
                             </div>
-                          </div>
-                        ) : (
-                          <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between gap-2 flex-wrap text-xs">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              {row.totalWorkMinutes > 0 ? (
-                                <span className="text-[11px] font-mono font-semibold text-slate-600 bg-white px-2 py-0.5 rounded-md border border-slate-200">
-                                  {formatMinutesToTime(row.totalWorkMinutes, 'hhmm')} worked
-                                </span>
-                              ) : (
-                                <span className="text-[11px] text-slate-400">-</span>
-                              )}
 
-                              {isDaysPayOnlyNonWorking && isOther ? (
-                                row.totalWorkMinutes > 0 && !(isHol && !row.isHolidayOverride) ? (
-                                  isSat && row.totalWorkMinutes < 360 ? (
-                                    <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded border bg-slate-100 text-slate-600 border-slate-200">
-                                      Worked &lt; 6h (Min 6h for Day&apos;s Pay &bull; No OT)
-                                    </span>
-                                  ) : (
-                                    <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded border bg-amber-50 text-amber-900 border-amber-300 shadow-2xs">
-                                      Day&apos;s Pay Only (No OT hrs)
-                                    </span>
-                                  )
-                                ) : null
-                              ) : row.isHolidayOverride && hasOt ? (
-                                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
-                                  Col B: {row.totalFormatted}
-                                </span>
-                              ) : isRowSpecial && hasOt ? (
-                                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
-                                  Col B: {row.totalFormatted} (Special)
-                                </span>
-                              ) : hasOt ? (
-                                <div className="flex items-center gap-1">
-                                  {isOther ? (
-                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded border bg-amber-50 text-amber-900 border-amber-300 shadow-2xs">
-                                      Day&apos;s Pay + ({row.totalFormatted} OT)
-                                    </span>
-                                  ) : (
-                                    <span className="font-mono text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded">
-                                      Col A: {row.totalFormatted}
-                                    </span>
-                                  )}
-                                  {row.isLateDisqualified && (
-                                    <span className="text-[9px] font-bold text-rose-700 bg-rose-50 px-1 rounded border border-rose-200">
-                                      Late 0 OT
-                                    </span>
-                                  )}
-                                </div>
-                              ) : isOther && row.totalWorkMinutes > 0 && !(isHol && !row.isHolidayOverride) ? (
-                                <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded border bg-amber-50 text-amber-800 border-amber-200">
-                                  Day&apos;s Pay
-                                </span>
-                              ) : null}
+                            <div className="grid grid-cols-2 gap-2.5">
+                              <div>
+                                <label className="text-[11px] font-semibold text-slate-700 flex items-center gap-1.5 mb-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                                  <span>Time In</span>
+                                </label>
+                                <ScrollableTimePicker
+                                  isTimeIn={true}
+                                  disabled={isHol && !row.isHolidayOverride}
+                                  value={isHol && !row.isHolidayOverride ? '' : row.startTime}
+                                  onChange={val => updateRowField(index, 'startTime', val)}
+                                  onOpenChange={open => handleTimePickerOpenChange(row.id, open)}
+                                  label="Time In (Start)"
+                                  placeholder="Select In"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="text-[11px] font-semibold text-slate-700 flex items-center gap-1.5 mb-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 inline-block" />
+                                  <span>Time Out</span>
+                                </label>
+                                <ScrollableTimePicker
+                                  isTimeIn={false}
+                                  disabled={isHol && !row.isHolidayOverride}
+                                  value={isHol && !row.isHolidayOverride ? '' : row.endTime}
+                                  onChange={val => updateRowField(index, 'endTime', val)}
+                                  onOpenChange={open => handleTimePickerOpenChange(row.id, open)}
+                                  label="Time Out (End)"
+                                  placeholder="Select Out"
+                                  disableSession={isOpClaim ? null : row.startTime ? parse24To12(row.startTime).period : null}
+                                  autoSession={
+                                    isOpClaim
+                                      ? 'PM'
+                                      : row.startTime
+                                      ? parse24To12(row.startTime).period === 'AM'
+                                        ? 'PM'
+                                        : 'AM'
+                                      : 'PM'
+                                  }
+                                />
+                              </div>
                             </div>
 
-                            {/* Special OT toggle button (disabled/replaced on non-working days for locked-rate designations) */}
-                            {isDaysPayOnlyNonWorking && isOther ? (
-                              <span
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold border bg-amber-50 text-amber-800 border-amber-200 select-none"
-                                title="Locked designation: Only Day's Pay can be claimed on non-working days including Saturdays"
-                              >
-                                <Lock className="w-3 h-3 text-amber-600" />
-                                <span>Day&apos;s Pay Only</span>
-                              </span>
+                            {/* Friendly Inline Error Guidance */}
+                            {hasVisualIssue && val.friendlyMessage && (
+                              <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-300 text-rose-900 text-[11px] space-y-2">
+                                <div className="flex items-start gap-1.5 font-semibold">
+                                  <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0 mt-0.5" />
+                                  <span>{val.friendlyMessage}</span>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  {val.hasSameSession && (
+                                    <button
+                                      type="button"
+                                      onClick={() => fixSameSessionRow(index)}
+                                      className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] cursor-pointer transition"
+                                    >
+                                      Switch Out to {row.startTime && parse24To12(row.startTime).period === 'AM' ? 'PM' : 'AM'}
+                                    </button>
+                                  )}
+                                  {val.isMissingTimeIn && (
+                                    <button
+                                      type="button"
+                                      onClick={() => updateRowField(index, 'startTime', userShiftStartTime || GENERAL_SHIFT_START)}
+                                      className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] cursor-pointer transition"
+                                    >
+                                      Set Time In ({userShiftStartTime || GENERAL_SHIFT_START})
+                                    </button>
+                                  )}
+                                  {val.isMissingReason && defaultWeekdayReason && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        updateRowField(index, 'reason', isSat ? defaultSaturdayReason || 'Saturday Duty' : defaultWeekdayReason)
+                                      }
+                                      className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] cursor-pointer transition"
+                                    >
+                                      Fill Default Duties
+                                    </button>
+                                  )}
+                                  {val.isHolidayNotOverridden && (
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleHolidayOverride(index)}
+                                      className="px-2 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] cursor-pointer transition"
+                                    >
+                                      Enable Holiday Claim
+                                    </button>
+                                  )}
+                                  {val.isDuplicateDate && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteRow(index)}
+                                      className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] cursor-pointer transition"
+                                    >
+                                      Remove Duplicate
+                                    </button>
+                                  )}
+                                  {(val.isMissingTimeOut || val.isMissingTimeIn || val.isZeroDuration || val.isHolidayNotOverridden) && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => clearRowEntry(index)}
+                                        className="px-2 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 font-semibold text-[10px] cursor-pointer inline-flex items-center gap-1 transition"
+                                      >
+                                        <Eraser className="w-2.5 h-2.5" />
+                                        <span>Clear Times</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setRowDayStatus(index, 'leave')}
+                                        className="px-2 py-1 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-300 font-semibold text-[10px] cursor-pointer transition"
+                                      >
+                                        Mark Leave
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {!isOpClaim && hasWorkedNoOt && (
+                              <div className="px-2.5 py-1.5 rounded-lg bg-slate-100 border border-slate-200 text-[10px] font-medium text-slate-600">
+                                Normal shift / &lt;15m OT (0:00 OT) — will not print on sheet
+                              </div>
+                            )}
+
+                            {/* 4. Card Bottom Strip */}
+                            {isOpClaim ? (
+                              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center justify-between gap-2 flex-wrap text-xs">
+                                <div className="flex items-center gap-1.5 flex-wrap tabular-nums">
+                                  {row.totalWorkMinutes > 0 ? (
+                                    <span className="text-[11px] font-mono font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                                      {formatMinutesToTime(row.totalWorkMinutes, otDisplayFormat)} worked
+                                    </span>
+                                  ) : (
+                                    <span className="text-[11px] text-slate-400">No hours logged</span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[10px] font-bold text-slate-500 uppercase">Rs.</span>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    disabled={isHol && !row.isHolidayOverride}
+                                    value={row.daysPaymentAmount ? row.daysPaymentAmount : ''}
+                                    onChange={e => updateRowField(index, 'daysPaymentAmount', e.target.value)}
+                                    placeholder="0.00"
+                                    className="w-24 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-mono tabular-nums font-bold text-slate-800 text-right focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 disabled:bg-slate-100 disabled:text-slate-400"
+                                  />
+                                </div>
+                              </div>
                             ) : (
+                              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center justify-between gap-2 flex-wrap text-xs">
+                                <div className="flex items-center gap-1.5 flex-wrap tabular-nums">
+                                  {row.totalWorkMinutes > 0 ? (
+                                    <span className="text-[11px] font-mono font-semibold text-slate-600 bg-white px-2 py-0.5 rounded-md border border-slate-200">
+                                      {formatMinutesToTime(row.totalWorkMinutes, 'hhmm')} worked
+                                    </span>
+                                  ) : (
+                                    <span className="text-[11px] text-slate-400">—</span>
+                                  )}
+
+                                  {isDaysPayOnlyNonWorking && isOther ? (
+                                    row.totalWorkMinutes > 0 && !(isHol && !row.isHolidayOverride) ? (
+                                      isSat && row.totalWorkMinutes < 360 ? (
+                                        <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded border bg-slate-100 text-slate-600 border-slate-200">
+                                          Worked &lt; 6h (Min 6h Day&apos;s Pay &bull; No OT)
+                                        </span>
+                                      ) : (
+                                        <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded border bg-amber-50 text-amber-900 border-amber-300">
+                                          Day&apos;s Pay Only (No OT hrs)
+                                        </span>
+                                      )
+                                    ) : null
+                                  ) : row.isHolidayOverride && hasOt ? (
+                                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                      Col B: {row.totalFormatted}
+                                    </span>
+                                  ) : isRowSpecial && hasOt ? (
+                                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                      Col B: {row.totalFormatted} (Special)
+                                    </span>
+                                  ) : hasOt ? (
+                                    <div className="flex items-center gap-1">
+                                      {isOther ? (
+                                        <span className="text-[10px] font-bold px-2 py-0.5 rounded border bg-amber-50 text-amber-900 border-amber-300">
+                                          Day&apos;s Pay + ({row.totalFormatted} OT)
+                                        </span>
+                                      ) : (
+                                        <span className="font-mono text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded">
+                                          Col A: {row.totalFormatted}
+                                        </span>
+                                      )}
+                                      {row.isLateDisqualified && (
+                                        <span className="text-[9px] font-bold text-rose-700 bg-rose-50 px-1 rounded border border-rose-200">
+                                          Late 0 OT
+                                        </span>
+                                      )}
+                                    </div>
+                                  ) : isOther && row.totalWorkMinutes > 0 && !(isHol && !row.isHolidayOverride) ? (
+                                    <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded border bg-amber-50 text-amber-800 border-amber-200">
+                                      Day&apos;s Pay
+                                    </span>
+                                  ) : null}
+                                </div>
+
+                                {isDaysPayOnlyNonWorking && isOther ? (
+                                  <span
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold border bg-amber-50 text-amber-800 border-amber-200 select-none"
+                                    title="Locked designation: Day's Pay only on non-working days including Saturdays"
+                                  >
+                                    <Lock className="w-3 h-3 text-amber-600" />
+                                    <span>Day&apos;s Pay Only</span>
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => updateRowField(index, 'isSpecialAssignment', !isRowSpecial)}
+                                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition cursor-pointer select-none ${
+                                      isRowSpecial
+                                        ? 'bg-emerald-600 text-white border-emerald-700'
+                                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                                    }`}
+                                    title="Special Assigned OT (Column B, no daily limit)"
+                                  >
+                                    <Check className={`w-3 h-3 ${isRowSpecial ? 'text-white' : 'text-slate-300'}`} />
+                                    <span>Special OT</span>
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Day Scrubber / Progress Strip */}
+            {visibleCardRows.length > 1 && (
+              <div className="pt-1 space-y-1.5">
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1 px-0.5">
+                  {visibleCardRows.map(({ row }, idx) => {
+                    const rowVal = getRowValidation(row);
+                    const hasIssue = showValidationAttention && rowVal.hasIssue;
+                    const isCurrent = idx === activeCarouselIdx;
+                    const isDone = isRowCompleteWithData(row);
+                    const dayNum = toSafeStr(row.date).split('-')[2] || String(idx + 1).padStart(2, '0');
+                    const isHol = isRowHoliday(row);
+
+                    let chipStyle =
+                      'bg-white text-slate-600 border-slate-200 hover:bg-slate-100';
+                    if (hasIssue) {
+                      chipStyle = 'bg-rose-50 text-rose-700 border-rose-300 font-bold';
+                    } else if (row.isLeave) {
+                      chipStyle = 'bg-sky-50 text-sky-700 border-sky-200';
+                    } else if (isDone || (row.totalMinutes || 0) > 0) {
+                      chipStyle = 'bg-emerald-50 text-emerald-700 border-emerald-300 font-semibold';
+                    } else if (isHol) {
+                      chipStyle = 'bg-rose-50/60 text-rose-600 border-rose-200/80';
+                    }
+
+                    return (
+                      <button
+                        key={row.id}
+                        type="button"
+                        onClick={() => scrollToCardByRowId(row.id, 500)}
+                        title={`${row.date || `Day ${idx + 1}`} (${row.dayOfWeek || ''})`}
+                        className={`flex-none h-7 min-w-[30px] px-1.5 rounded-lg border text-[11px] font-mono tabular-nums transition cursor-pointer ${chipStyle} ${
+                          isCurrent ? 'ring-2 ring-indigo-600 ring-offset-1 font-bold text-indigo-900 bg-indigo-50 border-indigo-400' : ''
+                        }`}
+                      >
+                        {dayNum}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[11px] text-slate-400 text-center md:hidden">
+                  Swipe or tap arrows to switch dates &bull; Auto-advances once filled
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tabular Spreadsheet View */}
+        {viewMode === 'table' && (
+          <div className="overflow-x-auto w-full border-b border-slate-200 bg-white">
+            <table className={`w-full ${isOpClaim ? 'min-w-[820px]' : 'min-w-[920px]'} table-fixed text-left border-collapse text-xs`}>
+              <thead>
+                <tr className="bg-slate-100 text-slate-700 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200">
+                  <th className="py-2 px-1 w-8 text-center">#</th>
+                  <th className="py-2 px-1.5 w-32">Date &amp; Day</th>
+                  <th className="py-2 px-1.5 w-40 text-center">Day Status</th>
+                  <th className="py-2 px-2">Duties / Nature of Work</th>
+                  <th className="py-2 px-1 w-28 text-center">Time In</th>
+                  <th className="py-2 px-1 w-28 text-center">Time Out</th>
+                  <th className="py-2 px-1 w-16 text-center">Worked</th>
+                  {isOpClaim ? (
+                    <th className="py-2 px-2 w-28 text-center">OP Amount (Rs.)</th>
+                  ) : (
+                    <>
+                      <th className="py-2 px-1 w-28 text-center" title="Column A: Regular Overtime">OT (A)</th>
+                      <th className="py-2 px-1 w-16 text-center" title="Column B: Special & Holiday Overtime">OT (B)</th>
+                      <th className="py-2 px-1 w-20 text-center" title="Toggle Special Assigned OT">Special OT</th>
+                    </>
+                  )}
+                  <th className="py-2 px-1 w-8 text-center">Del</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-xs">
+                {rows.map((row, index) => {
+                  const val = getRowValidation(row);
+                  const hasVisualIssue = showValidationAttention && val.hasIssue;
+                  const isScrolledTarget = highlightedErrorRowId === row.id && val.hasIssue;
+                  const isLeave = Boolean(row.isLeave);
+                  const hasOt = !isLeave && row.totalMinutes > 0;
+                  const isSat = row.dayOfWeek === 'Sat' || getDayOfWeek(row.date) === 'Sat';
+                  const isSun = row.dayOfWeek === 'Sun' || getDayOfWeek(row.date) === 'Sun';
+                  const isHol = isRowHoliday(row);
+                  const isOther = !isLeave && (isSat || isSun || isHol);
+                  const isRowSpecial = row.isSpecialAssignment ?? isSpecialAssignedOt;
+                  const dayStatus: 'workday' | 'leave' | 'holiday' = isLeave ? 'leave' : isHol ? 'holiday' : 'workday';
+
+                  return (
+                    <tr
+                      key={row.id}
+                      ref={el => {
+                        rowElementRefs.current[row.id] = el;
+                      }}
+                      className={`transition-colors ${
+                        isScrolledTarget
+                          ? 'bg-rose-100/80 ring-2 ring-inset ring-rose-400'
+                          : hasVisualIssue
+                          ? 'bg-rose-50/70 hover:bg-rose-100/60'
+                          : isLeave
+                          ? 'bg-sky-50/50 hover:bg-sky-50/80'
+                          : hasOt
+                          ? 'bg-indigo-50/20 hover:bg-slate-50/80'
+                          : 'hover:bg-slate-50/80'
+                      }`}
+                    >
+                      <td className="py-2 px-1 text-center text-slate-400 font-mono tabular-nums text-[11px]">
+                        <div className="flex items-center justify-center gap-1">
+                          <span>{index + 1}</span>
+                          {hasVisualIssue && (
+                            <span title={val.friendlyMessage || val.primaryIssue || 'Issue'} className="cursor-help">
+                              <AlertCircle className="w-3.5 h-3.5 text-rose-600 inline" />
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      <td className="py-2 px-1.5">
+                        <div className="flex items-center gap-1">
+                          <input
+                            ref={el => {
+                              if (viewMode === 'table') dateInputRefs.current[row.id] = el;
+                            }}
+                            type="date"
+                            value={toSafeStr(row.date)}
+                            onChange={e => updateRowField(index, 'date', e.target.value)}
+                            className={`w-full min-w-0 rounded-md border bg-white px-1 py-1 text-xs text-slate-800 font-mono tabular-nums focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                              hasVisualIssue && val.isDuplicateDate ? 'border-rose-500 bg-rose-50' : 'border-slate-200'
+                            }`}
+                          />
+                          <span
+                            className={`inline-block px-1 py-0.5 rounded text-[10px] font-bold shrink-0 ${
+                              isLeave
+                                ? 'bg-sky-100 text-sky-800'
+                                : isHol
+                                ? 'bg-rose-100 text-rose-800'
+                                : isSun
+                                ? 'bg-purple-100 text-purple-800'
+                                : isSat
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-slate-100 text-slate-700'
+                            }`}
+                          >
+                            {row.dayOfWeek || '-'}
+                          </span>
+                        </div>
+                      </td>
+
+                      <td className="py-2 px-1.5 text-center">
+                        <div className="flex flex-col items-center gap-1">
+                          <select
+                            value={dayStatus}
+                            onChange={e => setRowDayStatus(index, e.target.value as 'workday' | 'leave' | 'holiday')}
+                            className={`w-full rounded-md border px-1.5 py-1 text-[11px] font-bold cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                              dayStatus === 'leave'
+                                ? 'border-sky-300 bg-sky-100 text-sky-900'
+                                : dayStatus === 'holiday'
+                                ? 'border-rose-300 bg-rose-50 text-rose-900'
+                                : 'border-slate-200 bg-white text-slate-700'
+                            }`}
+                          >
+                            <option value="workday">Workday</option>
+                            <option value="leave">Leave</option>
+                            <option value="holiday">Holiday</option>
+                          </select>
+
+                          {isLeave && (
+                            <select
+                              value={row.leaveType || 'Full Day'}
+                              onChange={e => updateRowLeaveType(index, e.target.value)}
+                              className="w-full rounded-md border border-sky-200 bg-white px-1 py-0.5 text-[10px] font-semibold text-sky-900 cursor-pointer"
+                            >
+                              <option value="Full Day">Full Day</option>
+                              <option value="Half Day">Half Day</option>
+                              <option value="Annual Leave">Annual</option>
+                              <option value="Casual Leave">Casual</option>
+                              <option value="Medical Leave">Medical</option>
+                              <option value="Short Leave">Short Leave</option>
+                            </select>
+                          )}
+
+                          {!isLeave && isHol && (
+                            <label
+                              className={`w-full inline-flex items-center justify-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] font-bold cursor-pointer select-none transition ${
+                                row.isHolidayOverride
+                                  ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={!!row.isHolidayOverride}
+                                onChange={() => toggleHolidayOverride(index)}
+                                className="w-3 h-3 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
+                              />
+                              <span>
+                                {row.isHolidayOverride
+                                  ? isDaysPayOnlyNonWorking
+                                    ? "Day's Pay"
+                                    : 'Claiming OT'
+                                  : isDaysPayOnlyNonWorking
+                                  ? "Day's Pay?"
+                                  : 'Claim OT?'}
+                              </span>
+                            </label>
+                          )}
+                        </div>
+                      </td>
+
+                      <td className="py-2 px-2">
+                        <input
+                          ref={el => {
+                            if (viewMode === 'table') reasonInputRefs.current[row.id] = el;
+                          }}
+                          type="text"
+                          disabled={!isLeave && isHol && !row.isHolidayOverride}
+                          value={toSafeStr(row.reason)}
+                          onChange={e => updateRowField(index, 'reason', e.target.value)}
+                          placeholder={
+                            isLeave
+                              ? `Leave note (${row.leaveType || 'Full Day'})...`
+                              : isHol && !row.isHolidayOverride
+                              ? 'Holiday off-day (tick Claim OT to edit)'
+                              : isSat
+                              ? 'Saturday Duty...'
+                              : 'Duties performed...'
+                          }
+                          className={`w-full rounded-md border px-2 py-1 text-xs truncate focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                            hasVisualIssue && val.isMissingReason
+                              ? 'border-rose-500 bg-rose-50 text-rose-900'
+                              : !isLeave && isHol && !row.isHolidayOverride
+                              ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed select-none'
+                              : 'border-slate-200 bg-white text-slate-800'
+                          }`}
+                        />
+                        {hasVisualIssue && val.friendlyMessage && (
+                          <div className="mt-1 flex items-center gap-1.5 text-[10px] font-bold text-rose-700">
+                            <span className="truncate">{val.friendlyMessage}</span>
+                            {val.hasSameSession && (
                               <button
                                 type="button"
-                                onClick={() => updateRowField(index, 'isSpecialAssignment', !isRowSpecial)}
-                                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border transition cursor-pointer select-none ${
-                                  isRowSpecial
-                                    ? 'bg-emerald-600 text-white border-emerald-700 shadow-2xs'
-                                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                                }`}
-                                title="Special Assigned OT (moves to Column B, no daily limit)"
+                                onClick={() => fixSameSessionRow(index)}
+                                className="shrink-0 px-1.5 py-0.5 rounded bg-rose-600 text-white hover:bg-rose-700 cursor-pointer"
                               >
-                                <Check className={`w-3 h-3 ${isRowSpecial ? 'text-white' : 'text-slate-300'}`} />
-                                <span>Special OT</span>
+                                Fix AM/PM
+                              </button>
+                            )}
+                            {(val.isMissingTimeOut || val.isZeroDuration) && (
+                              <button
+                                type="button"
+                                onClick={() => clearRowEntry(index)}
+                                className="shrink-0 px-1.5 py-0.5 rounded bg-slate-200 text-slate-800 hover:bg-slate-300 cursor-pointer"
+                              >
+                                Clear
                               </button>
                             )}
                           </div>
                         )}
-                      </>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+                      </td>
 
-        {/* Tabular Spreadsheet View (Available when user switches to Table) */}
-        {viewMode === 'table' && (
-          <div className="overflow-x-auto w-full rounded-xl border border-slate-200 bg-white">
-            <table className={`w-full ${isOpClaim ? 'min-w-[820px]' : 'min-w-[920px]'} table-fixed text-left border-collapse text-xs`}>
-            <thead>
-              <tr className="bg-slate-100 text-slate-700 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200">
-                <th className="py-2 px-1 w-8 text-center">#</th>
-                <th className="py-2 px-1.5 w-32">Date &amp; Day</th>
-                <th className="py-2 px-1.5 w-40 text-center">Day Status</th>
-                <th className="py-2 px-2">Duties / Nature of Work</th>
-                <th className="py-2 px-1 w-28 text-center">Time In</th>
-                <th className="py-2 px-1 w-28 text-center">Time Out</th>
-                <th className="py-2 px-1 w-16 text-center">Worked</th>
-                {isOpClaim ? (
-                  <th className="py-2 px-2 w-28 text-center">OP Amount (Rs.)</th>
-                ) : (
-                  <>
-                    <th className="py-2 px-1 w-28 text-center" title="Column A: Regular Weekday &amp; Non-working Day Overtime">OT (A)</th>
-                    <th className="py-2 px-1 w-16 text-center" title="Column B: Special Assigned OT &amp; Holiday Overridden Overtime">OT (B)</th>
-                    <th className="py-2 px-1 w-20 text-center" title="Toggle Special Assigned OT (no limit)">Special OT</th>
-                  </>
-                )}
-                <th className="py-2 px-1 w-8 text-center">Del</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-xs">
-              {rows.map((row, index) => {
-                const val = getRowValidation(row);
-                const hasVisualIssue = showValidationAttention && val.hasIssue;
-                const isScrolledTarget = highlightedErrorRowId === row.id && val.hasIssue;
-                const isLeave = Boolean(row.isLeave);
-                const hasOt = !isLeave && row.totalMinutes > 0;
-                const isSat = row.dayOfWeek === 'Sat' || getDayOfWeek(row.date) === 'Sat';
-                const isSun = row.dayOfWeek === 'Sun' || getDayOfWeek(row.date) === 'Sun';
-                const isHol = isRowHoliday(row);
-                const isOther = !isLeave && (isSat || isSun || isHol);
-                const isRowSpecial = row.isSpecialAssignment ?? isSpecialAssignedOt;
-                const dayStatus: 'workday' | 'leave' | 'holiday' = isLeave ? 'leave' : isHol ? 'holiday' : 'workday';
-
-                return (
-                  <tr
-                    key={row.id}
-                    ref={el => {
-                      rowElementRefs.current[row.id] = el;
-                    }}
-                    className={`transition-colors ${
-                      isScrolledTarget
-                        ? 'bg-rose-100/80 ring-2 ring-inset ring-rose-400'
-                        : hasVisualIssue
-                        ? 'bg-rose-50/70 hover:bg-rose-100/60'
-                        : isLeave
-                        ? 'bg-sky-50/50 hover:bg-sky-50/80'
-                        : hasOt
-                        ? 'bg-indigo-50/20 hover:bg-slate-50/80'
-                        : 'hover:bg-slate-50/80'
-                    }`}
-                  >
-                    {/* Index */}
-                    <td className="py-2 px-1 text-center text-slate-400 font-mono text-[11px]">
-                      <div className="flex items-center justify-center gap-1">
-                        <span>{index + 1}</span>
-                        {hasVisualIssue && (
-                          <span title={val.friendlyMessage || val.primaryIssue || 'Issue'} className="cursor-help">
-                            <AlertCircle className="w-3.5 h-3.5 text-rose-600 inline" />
-                          </span>
-                        )}
-                      </div>
-                    </td>
-
-                    {/* Date & Day */}
-                    <td className="py-2 px-1.5">
-                      <div className="flex items-center gap-1">
-                        <input
-                          ref={el => {
-                            if (viewMode === 'table') dateInputRefs.current[row.id] = el;
-                          }}
-                          type="date"
-                          value={toSafeStr(row.date)}
-                          onChange={e => updateRowField(index, 'date', e.target.value)}
-                          className={`w-full min-w-0 rounded-md border bg-white px-1 py-1 text-xs text-slate-800 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                            hasVisualIssue && val.isDuplicateDate ? 'border-rose-500 bg-rose-50' : 'border-slate-200'
-                          }`}
-                        />
-                        <span
-                          className={`inline-block px-1 py-0.5 rounded text-[10px] font-bold shrink-0 ${
-                            isLeave
-                              ? 'bg-sky-100 text-sky-800'
-                              : isHol
-                              ? 'bg-rose-100 text-rose-800'
-                              : isSun
-                              ? 'bg-purple-100 text-purple-800'
-                              : isSat
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-slate-100 text-slate-700'
-                          }`}
-                        >
-                          {row.dayOfWeek || '-'}
-                        </span>
-                      </div>
-                    </td>
-
-                    {/* Day Status: Workday / Leave / Holiday + Holiday Claim OT */}
-                    <td className="py-2 px-1.5 text-center">
-                      <div className="flex flex-col items-center gap-1">
-                        <select
-                          value={dayStatus}
-                          onChange={e => setRowDayStatus(index, e.target.value as 'workday' | 'leave' | 'holiday')}
-                          className={`w-full rounded-md border px-1.5 py-1 text-[11px] font-bold cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                            dayStatus === 'leave'
-                              ? 'border-sky-300 bg-sky-100 text-sky-900'
-                              : dayStatus === 'holiday'
-                              ? 'border-rose-300 bg-rose-50 text-rose-900'
-                              : 'border-slate-200 bg-white text-slate-700'
-                          }`}
-                        >
-                          <option value="workday">Workday</option>
-                          <option value="leave">Leave</option>
-                          <option value="holiday">Holiday</option>
-                        </select>
-
-                        {isLeave && (
-                          <select
-                            value={row.leaveType || 'Full Day'}
-                            onChange={e => updateRowLeaveType(index, e.target.value)}
-                            className="w-full rounded-md border border-sky-200 bg-white px-1 py-0.5 text-[10px] font-semibold text-sky-900 cursor-pointer"
-                          >
-                            <option value="Full Day">Full Day</option>
-                            <option value="Half Day">Half Day</option>
-                            <option value="Annual Leave">Annual</option>
-                            <option value="Casual Leave">Casual</option>
-                            <option value="Medical Leave">Medical</option>
-                            <option value="Short Leave">Short Leave</option>
-                          </select>
-                        )}
-
-                        {!isLeave && isHol && (
-                          <label
-                            className={`w-full inline-flex items-center justify-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] font-bold cursor-pointer select-none transition ${
-                              row.isHolidayOverride
-                                ? 'bg-amber-100 text-amber-900 border-amber-300'
-                                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                            }`}
-                            title={
-                              isDaysPayOnlyNonWorking
-                                ? "Tick if you worked on this holiday and want to claim Day's Pay (No OT hours)"
-                                : 'Tick if you worked on this holiday and want to claim OT'
-                            }
-                          >
-                            <input
-                              type="checkbox"
-                              checked={!!row.isHolidayOverride}
-                              onChange={() => toggleHolidayOverride(index)}
-                              className="w-3 h-3 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
-                            />
-                            <span>
-                              {row.isHolidayOverride
-                                ? (isDaysPayOnlyNonWorking ? "Day's Pay" : 'Claiming OT')
-                                : (isDaysPayOnlyNonWorking ? "Day's Pay?" : 'Claim OT?')}
-                            </span>
-                          </label>
-                        )}
-                      </div>
-                    </td>
-
-                    {/* Reason / Duties */}
-                    <td className="py-2 px-2">
-                      <input
-                        ref={el => {
-                          if (viewMode === 'table') reasonInputRefs.current[row.id] = el;
-                        }}
-                        type="text"
-                        disabled={!isLeave && isHol && !row.isHolidayOverride}
-                        value={toSafeStr(row.reason)}
-                        onChange={e => updateRowField(index, 'reason', e.target.value)}
-                        placeholder={
-                          isLeave
-                            ? `Leave note (${row.leaveType || 'Full Day'})...`
-                            : isHol && !row.isHolidayOverride
-                            ? 'Holiday off-day (tick Claim OT to edit)'
-                            : (isSat ? 'Saturday Duty...' : 'Duties performed...')
-                        }
-                        className={`w-full rounded-md border px-2 py-1 text-xs truncate focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                          hasVisualIssue && val.isMissingReason
-                            ? 'border-rose-500 bg-rose-50 text-rose-900'
-                            : !isLeave && isHol && !row.isHolidayOverride
-                            ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed select-none'
-                            : 'border-slate-200 bg-white text-slate-800'
-                        }`}
-                      />
-                      {hasVisualIssue && val.friendlyMessage && (
-                        <div className="mt-1 flex items-center gap-1.5 text-[10px] font-bold text-rose-700">
-                          <span className="truncate">{val.friendlyMessage}</span>
-                          {val.hasSameSession && (
-                            <button
-                              type="button"
-                              onClick={() => fixSameSessionRow(index)}
-                              className="shrink-0 px-1.5 py-0.5 rounded bg-rose-600 text-white hover:bg-rose-700 cursor-pointer"
-                            >
-                              Fix AM/PM
-                            </button>
-                          )}
-                          {(val.isMissingTimeOut || val.isZeroDuration) && (
-                            <button
-                              type="button"
-                              onClick={() => clearRowEntry(index)}
-                              className="shrink-0 px-1.5 py-0.5 rounded bg-slate-200 text-slate-800 hover:bg-slate-300 cursor-pointer"
-                            >
-                              Clear
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </td>
-
-                    {/* Time In */}
-                    <td className="py-2 px-1 text-center min-w-[130px]">
-                      {isLeave ? (
-                        <span className="text-[11px] font-semibold text-sky-700">On Leave</span>
-                      ) : (
-                        <ScrollableTimePicker
-                          isTimeIn={true}
-                          disabled={isHol && !row.isHolidayOverride}
-                          value={(isHol && !row.isHolidayOverride) ? '' : row.startTime}
-                          onChange={val => updateRowField(index, 'startTime', val)}
-                          label="Time In (Start)"
-                          placeholder="Time In"
-                        />
-                      )}
-                    </td>
-
-                    {/* Time Out */}
-                    <td className="py-2 px-1 text-center min-w-[130px]">
-                      {isLeave ? (
-                        <span className="text-[11px] text-slate-400">—</span>
-                      ) : (
-                        <ScrollableTimePicker
-                          isTimeIn={false}
-                          disabled={isHol && !row.isHolidayOverride}
-                          value={(isHol && !row.isHolidayOverride) ? '' : row.endTime}
-                          onChange={val => updateRowField(index, 'endTime', val)}
-                          label="Time Out (End)"
-                          placeholder="Time Out"
-                          disableSession={isOpClaim ? null : (row.startTime ? parse24To12(row.startTime).period : null)}
-                          autoSession={isOpClaim ? 'PM' : (row.startTime ? (parse24To12(row.startTime).period === 'AM' ? 'PM' : 'AM') : 'PM')}
-                        />
-                      )}
-                    </td>
-
-                    {/* Worked */}
-                    <td className="py-2 px-1 text-center font-mono text-[11px] text-slate-600">
-                      {!isLeave && row.isHolidayOverride && row.totalWorkMinutes > 0 ? (
-                        <span className="font-bold text-amber-800">{formatMinutesToTime(row.totalWorkMinutes, 'hhmm')}</span>
-                      ) : !isLeave && row.totalWorkMinutes > 0 ? (
-                        <span>{formatMinutesToTime(row.totalWorkMinutes, 'hhmm')}</span>
-                      ) : (
-                        <span className="text-slate-300">-</span>
-                      )}
-                    </td>
-
-                    {isOpClaim ? (
-                      <td className="py-2 px-1.5 text-center">
+                      <td className="py-2 px-1 text-center min-w-[130px]">
                         {isLeave ? (
-                          <span className="text-[10px] font-semibold text-sky-700">Excluded</span>
+                          <span className="text-[11px] font-semibold text-sky-700">On Leave</span>
                         ) : (
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
+                          <ScrollableTimePicker
+                            isTimeIn={true}
                             disabled={isHol && !row.isHolidayOverride}
-                            value={row.daysPaymentAmount ? row.daysPaymentAmount : ''}
-                            onChange={e => updateRowField(index, 'daysPaymentAmount', e.target.value)}
-                            placeholder="0.00"
-                            className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-mono font-bold text-slate-800 text-right focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 disabled:bg-slate-100 disabled:text-slate-400"
+                            value={isHol && !row.isHolidayOverride ? '' : row.startTime}
+                            onChange={val => updateRowField(index, 'startTime', val)}
+                            onOpenChange={open => handleTimePickerOpenChange(row.id, open)}
+                            label="Time In (Start)"
+                            placeholder="Time In"
                           />
                         )}
                       </td>
-                    ) : (
-                      <>
-                        {/* Overtime (A) */}
-                        <td className="py-2 px-1 text-center font-mono text-xs font-bold">
+
+                      <td className="py-2 px-1 text-center min-w-[130px]">
+                        {isLeave ? (
+                          <span className="text-[11px] text-slate-400">—</span>
+                        ) : (
+                          <ScrollableTimePicker
+                            isTimeIn={false}
+                            disabled={isHol && !row.isHolidayOverride}
+                            value={isHol && !row.isHolidayOverride ? '' : row.endTime}
+                            onChange={val => updateRowField(index, 'endTime', val)}
+                            onOpenChange={open => handleTimePickerOpenChange(row.id, open)}
+                            label="Time Out (End)"
+                            placeholder="Time Out"
+                            disableSession={isOpClaim ? null : row.startTime ? parse24To12(row.startTime).period : null}
+                            autoSession={
+                              isOpClaim
+                                ? 'PM'
+                                : row.startTime
+                                ? parse24To12(row.startTime).period === 'AM'
+                                  ? 'PM'
+                                  : 'AM'
+                                : 'PM'
+                            }
+                          />
+                        )}
+                      </td>
+
+                      <td className="py-2 px-1 text-center font-mono tabular-nums text-[11px] text-slate-600">
+                        {!isLeave && row.isHolidayOverride && row.totalWorkMinutes > 0 ? (
+                          <span className="font-bold text-amber-800">{formatMinutesToTime(row.totalWorkMinutes, 'hhmm')}</span>
+                        ) : !isLeave && row.totalWorkMinutes > 0 ? (
+                          <span>{formatMinutesToTime(row.totalWorkMinutes, 'hhmm')}</span>
+                        ) : (
+                          <span className="text-slate-300">-</span>
+                        )}
+                      </td>
+
+                      {isOpClaim ? (
+                        <td className="py-2 px-1.5 text-center">
                           {isLeave ? (
                             <span className="text-[10px] font-semibold text-sky-700">Excluded</span>
-                          ) : isDaysPayOnlyNonWorking && isOther ? (
-                            row.totalWorkMinutes > 0 && !(isHol && !row.isHolidayOverride) ? (
-                              isSat && row.totalWorkMinutes < 360 ? (
-                                <span className="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-semibold font-sans whitespace-nowrap" title="Saturday Day's Pay requires minimum 6 hours worked">
-                                  &lt; 6h (No Day&apos;s Pay)
+                          ) : (
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              disabled={isHol && !row.isHolidayOverride}
+                              value={row.daysPaymentAmount ? row.daysPaymentAmount : ''}
+                              onChange={e => updateRowField(index, 'daysPaymentAmount', e.target.value)}
+                              placeholder="0.00"
+                              className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-mono tabular-nums font-bold text-slate-800 text-right focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 disabled:bg-slate-100 disabled:text-slate-400"
+                            />
+                          )}
+                        </td>
+                      ) : (
+                        <>
+                          <td className="py-2 px-1 text-center font-mono tabular-nums text-xs font-bold">
+                            {isLeave ? (
+                              <span className="text-[10px] font-semibold text-sky-700">Excluded</span>
+                            ) : isDaysPayOnlyNonWorking && isOther ? (
+                              row.totalWorkMinutes > 0 && !(isHol && !row.isHolidayOverride) ? (
+                                isSat && row.totalWorkMinutes < 360 ? (
+                                  <span className="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-semibold font-sans whitespace-nowrap">
+                                    &lt; 6h (No Day&apos;s Pay)
+                                  </span>
+                                ) : (
+                                  <span className="inline-block px-1.5 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-300 text-[10px] font-bold font-sans whitespace-nowrap">
+                                    Day&apos;s Pay
+                                  </span>
+                                )
+                              ) : (
+                                <span className="text-slate-300 font-normal">-</span>
+                              )
+                            ) : !isRowSpecial && !row.isHolidayOverride && hasOt ? (
+                              isOther ? (
+                                <span className="inline-block px-1.5 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-300 text-[10px] font-bold whitespace-nowrap">
+                                  Day&apos;s Pay + ({row.totalFormatted} OT)
                                 </span>
                               ) : (
-                                <span className="inline-block px-1.5 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-300 text-[10px] font-bold font-sans whitespace-nowrap">
-                                  Day&apos;s Pay
-                                </span>
+                                <span className="text-indigo-600">{row.totalFormatted || '00:00'}</span>
                               )
-                            ) : (
-                              <span className="text-slate-300 font-normal">-</span>
-                            )
-                          ) : !isRowSpecial && !row.isHolidayOverride && hasOt ? (
-                            isOther ? (
-                              <span className="inline-block px-1.5 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-300 text-[10px] font-bold shadow-2xs whitespace-nowrap" title="Saturday / Non-working day OT">
-                                Day&apos;s Pay + ({row.totalFormatted} OT)
+                            ) : !isLeave && isOther && row.totalWorkMinutes > 0 && !(isHol && !row.isHolidayOverride) ? (
+                              <span className="inline-block px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-bold">
+                                Day&apos;s Pay
                               </span>
                             ) : (
-                              <span className="text-indigo-600">{row.totalFormatted || '00:00'}</span>
-                            )
-                          ) : !isLeave && isOther && row.totalWorkMinutes > 0 && !(isHol && !row.isHolidayOverride) ? (
-                            <span className="inline-block px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-bold">
-                              Day&apos;s Pay
-                            </span>
-                          ) : (
-                            <span className="text-slate-300 font-normal">-</span>
-                          )}
-                        </td>
+                              <span className="text-slate-300 font-normal">-</span>
+                            )}
+                          </td>
 
-                        {/* Overtime (B) */}
-                        <td className="py-2 px-1 text-center font-mono text-xs font-bold">
-                          {!isLeave && !(isDaysPayOnlyNonWorking && isOther) && (isRowSpecial || row.isHolidayOverride) && hasOt ? (
-                            <span className="inline-block px-1 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
-                              {row.totalFormatted || '00:00'}
-                            </span>
-                          ) : (
-                            <span className="text-slate-300 font-normal">-</span>
-                          )}
-                        </td>
+                          <td className="py-2 px-1 text-center font-mono tabular-nums text-xs font-bold">
+                            {!isLeave && !(isDaysPayOnlyNonWorking && isOther) && (isRowSpecial || row.isHolidayOverride) && hasOt ? (
+                              <span className="inline-block px-1 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                {row.totalFormatted || '00:00'}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300 font-normal">-</span>
+                            )}
+                          </td>
 
-                        {/* Special Assigned OT Toggle */}
-                        <td className="py-2 px-1 text-center">
-                          {isLeave ? (
-                            <span className="text-slate-300">-</span>
-                          ) : isDaysPayOnlyNonWorking && isOther ? (
-                            <span
-                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md border bg-amber-50 text-amber-800 border-amber-200 text-[9px] font-bold whitespace-nowrap"
-                              title="Locked designation: Day's Pay only on non-working days including Saturdays"
-                            >
-                              <Lock className="w-2.5 h-2.5" />
-                              <span>Day&apos;s Pay</span>
-                            </span>
-                          ) : (
-                            <label
-                              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-lg border text-[10px] font-bold cursor-pointer select-none transition ${
-                                isRowSpecial
-                                  ? 'bg-emerald-600 text-white border-emerald-700 shadow-2xs'
-                                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                              }`}
-                              title="Special Assigned OT (moves to Column B, no daily limit)"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={isRowSpecial}
-                                onChange={e => updateRowField(index, 'isSpecialAssignment', e.target.checked)}
-                                className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 cursor-pointer"
-                              />
-                              <span>Special</span>
-                            </label>
-                          )}
-                        </td>
-                      </>
-                    )}
+                          <td className="py-2 px-1 text-center">
+                            {isLeave ? (
+                              <span className="text-slate-300">-</span>
+                            ) : isDaysPayOnlyNonWorking && isOther ? (
+                              <span
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md border bg-amber-50 text-amber-800 border-amber-200 text-[9px] font-bold whitespace-nowrap"
+                                title="Locked designation: Day's Pay only on non-working days including Saturdays"
+                              >
+                                <Lock className="w-2.5 h-2.5" />
+                                <span>Day&apos;s Pay</span>
+                              </span>
+                            ) : (
+                              <label
+                                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-lg border text-[10px] font-bold cursor-pointer select-none transition ${
+                                  isRowSpecial
+                                    ? 'bg-emerald-600 text-white border-emerald-700'
+                                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isRowSpecial}
+                                  onChange={e => updateRowField(index, 'isSpecialAssignment', e.target.checked)}
+                                  className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 cursor-pointer"
+                                />
+                                <span>Special</span>
+                              </label>
+                            )}
+                          </td>
+                        </>
+                      )}
 
-                    {/* Actions */}
-                    <td className="py-2 px-1 text-center">
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteRow(index)}
-                        className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer transition"
-                        title="Delete row"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                      <td className="py-2 px-1 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteRow(index)}
+                          className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer transition"
+                          title="Delete row"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
 
-        {/* Footer */}
-        <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+        {/* Timesheet Panel Footer Totals */}
+        <div className="px-4 sm:px-5 py-3 bg-white flex flex-col sm:flex-row items-center justify-between gap-2.5 text-xs">
           <button
+            type="button"
             onClick={handleAddRow}
-            className="inline-flex items-center gap-1.5 text-indigo-600 hover:text-indigo-800 font-bold cursor-pointer"
+            className="inline-flex items-center gap-1.5 text-indigo-600 hover:text-indigo-800 font-semibold cursor-pointer whitespace-nowrap"
           >
             <Plus className="w-4 h-4" />
-            <span>Add Row</span>
+            <span>Add Extra Day Row</span>
           </button>
 
           {isOpClaim ? (
-            <div className="flex items-center gap-4 text-slate-700">
+            <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-slate-700 tabular-nums">
               <span>
                 Logged Days: <strong className="text-emerald-700">{opSummary.loggedDaysCount}</strong>
               </span>
-              <div className="h-4 w-px bg-slate-300" />
+              <div className="h-3.5 w-px bg-slate-200 hidden sm:block" />
               <span>
                 Total Worked:{' '}
-                <strong className="text-slate-900 font-black">{opSummary.totalHoursFormatted}</strong>{' '}
-                ({opSummary.totalDecimalHours} hrs)
+                <strong className="text-slate-900 font-bold">{opSummary.totalHoursFormatted}</strong>{' '}
+                ({opSummary.totalDecimalHours}h)
               </span>
-              <div className="h-4 w-px bg-slate-300" />
+              <div className="h-3.5 w-px bg-slate-200 hidden sm:block" />
               <span>
-                Total Amount:{' '}
-                <strong className="text-emerald-700 text-sm font-black font-mono">
+                Amount:{' '}
+                <strong className="text-emerald-700 font-bold font-mono">
                   Rs. {opSummary.totalAmountRs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </strong>
               </span>
             </div>
           ) : (
-            <div className="flex items-center gap-4 text-slate-700">
+            <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-slate-700 tabular-nums">
               <span>
-                Col A (Regular): <strong className="text-indigo-600">{summary.colAFormatted}</strong>
+                Col A: <strong className="text-indigo-600">{summary.colAFormatted}</strong>
               </span>
-              <div className="h-4 w-px bg-slate-300" />
+              <div className="h-3.5 w-px bg-slate-200 hidden sm:block" />
               <span>
-                Col B (Special/Hol): <strong className="text-emerald-700">{summary.colBFormatted}</strong>
+                Col B: <strong className="text-emerald-700">{summary.colBFormatted}</strong>
               </span>
-              <div className="h-4 w-px bg-slate-300" />
+              <div className="h-3.5 w-px bg-slate-200 hidden sm:block" />
               <span>
                 Total OT:{' '}
-                <strong className="text-slate-900 text-sm font-black">
-                  {summary.totalHoursFormatted}
-                </strong>{' '}
-                ({summary.totalDecimalHours} hrs)
+                <strong className="text-slate-900 font-bold">{summary.totalHoursFormatted}</strong>{' '}
+                ({summary.totalDecimalHours}h)
               </span>
             </div>
           )}
         </div>
       </div>
 
-      {/* Sentinel for detecting bottom scroll */}
-      <div ref={bottomSentinelRef} className="h-8 w-full pointer-events-none -mt-3 mb-2" />
-
-      {/* Modern floating scroll-to-bottom arrow button (label removed, sleek circular styling) */}
-      {!isScrolledToBottom && (
-        <button
-          type="button"
-          onClick={() => {
-            bottomSentinelRef.current?.scrollIntoView({ behavior: 'smooth' });
-            setIsScrolledToBottom(true);
-          }}
-          className="fixed claim-scroll-btn right-6 z-30 w-11 h-11 rounded-full bg-slate-900/90 hover:bg-indigo-600 text-white shadow-2xl backdrop-blur-md transition-all duration-300 hover:scale-110 active:scale-95 cursor-pointer border border-slate-700/60 flex items-center justify-center ring-4 ring-indigo-500/20 group"
-          title="Scroll down"
-          aria-label="Scroll down"
-        >
-          <ChevronDown className="w-5 h-5 text-indigo-400 group-hover:text-white transition-colors animate-bounce" />
-        </button>
-      )}
-
-      {/* Bottom Action Bar: Preview, Save, Download - Only visible when scrolling bottom down */}
-      <div className={`rounded-2xl bg-white p-4 sm:p-5 shadow-xl border border-slate-200 flex-col sm:flex-row items-center justify-between gap-4 sticky claim-sticky-bar z-30 backdrop-blur-md bg-white/95 transition-all duration-300 ${
-        isScrolledToBottom && !isKeyboardOpen
-          ? 'flex opacity-100 translate-y-0 pointer-events-auto'
-          : 'hidden opacity-0 translate-y-8 pointer-events-none'
-      }`}>
-        <div className="flex items-center gap-3">
+      {/* Submission & Export Action Bar */}
+      <div className="rounded-2xl bg-white p-4 sm:p-5 border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3.5">
+        <div className="min-w-0">
           {isOpClaim ? (
-            <div className="text-xs text-slate-500">
-              <span className="font-semibold text-slate-800">Out of Pocket Summary:</span>{' '}
-              <strong className="text-emerald-700 text-sm font-black">{opSummary.totalHoursFormatted}</strong> ({opSummary.totalDecimalHours} hrs)
-              <span className="mx-2 text-slate-300">&bull;</span>
+            <div className="text-xs text-slate-600 flex flex-wrap items-center gap-x-2 gap-y-1 tabular-nums">
+              <span className="font-semibold text-slate-900">Out of Pocket Summary:</span>
+              <strong className="text-emerald-700 text-sm font-bold">{opSummary.totalHoursFormatted}</strong>
+              <span className="text-slate-400">({opSummary.totalDecimalHours}h)</span>
+              <span className="text-slate-300">&bull;</span>
               <span className="font-medium text-slate-700">{opSummary.loggedDaysCount} Days</span>
-              <span className="mx-2 text-slate-300">&bull;</span>
+              <span className="text-slate-300">&bull;</span>
               <span className="font-bold text-emerald-700 font-mono">
                 Rs. {opSummary.totalAmountRs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
             </div>
           ) : (
-            <div className="text-xs text-slate-500">
-              <span className="font-semibold text-slate-800">Total Claimable OT:</span>{' '}
-              <strong className="text-indigo-600 text-sm font-black">{summary.totalHoursFormatted}</strong> ({summary.totalDecimalHours} hrs)
-              <span className="mx-2 text-slate-300">&bull;</span>
+            <div className="text-xs text-slate-600 flex flex-wrap items-center gap-x-2 gap-y-1 tabular-nums">
+              <span className="font-semibold text-slate-900">Claimable OT:</span>
+              <strong className="text-indigo-600 text-sm font-bold">{summary.totalHoursFormatted}</strong>
+              <span className="text-slate-400">({summary.totalDecimalHours}h)</span>
+              <span className="text-slate-300">&bull;</span>
               <span className="font-medium text-indigo-700">Col A: {summary.colAFormatted}</span>
-              <span className="mx-2 text-slate-300">&bull;</span>
+              <span className="text-slate-300">&bull;</span>
               <span className="font-medium text-emerald-700">Col B: {summary.colBFormatted}</span>
-              <span className="mx-2 text-slate-300">&bull;</span>
+              <span className="text-slate-300">&bull;</span>
               <span className="font-medium text-slate-700">
                 {summary.otDaysCount} OT {summary.otDaysCount === 1 ? 'Day' : 'Days'}
                 {summary.daysPayCount > 0 ? ` + ${summary.daysPayCount} Day's Pay` : ''}
               </span>
               {isSpecialAssignedOt && (
-                <span className="ml-2 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold border border-emerald-300">
-                  Special Assigned OT (No Limit)
+                <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 text-[10px] font-bold border border-emerald-200">
+                  Special OT (No Limit)
                 </span>
               )}
             </div>
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto justify-end">
-          {/* 1. Preview PDF Button */}
+        <div className="grid grid-cols-3 sm:flex sm:flex-wrap items-center gap-2 sm:gap-2.5 w-full md:w-auto shrink-0">
           <button
             type="button"
             onClick={handlePreviewPdf}
             disabled={isGeneratingPdf || isSavingClaim}
-            className="flex-1 sm:flex-none min-w-[100px] inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
             title="Preview print-ready A4 Overtime Sheet"
           >
-            <Eye className="w-4 h-4" />
+            <Eye className="w-4 h-4 shrink-0" />
             <span>{isGeneratingPdf ? 'Rendering...' : 'Preview'}</span>
           </button>
 
-          {/* 2. Save & Submit Claim Button */}
           <button
             type="button"
             onClick={handleSaveClaim}
             disabled={isGeneratingPdf || isSavingClaim}
-            className="flex-1 sm:flex-none min-w-[110px] inline-flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl border border-emerald-600 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2.5 rounded-xl border border-emerald-600 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
             title="Finalize and submit overtime claim"
           >
             {isSavingClaim ? (
-              <Loader2 className="w-4 h-4 text-white animate-spin" />
+              <Loader2 className="w-4 h-4 text-white animate-spin shrink-0" />
             ) : (
-              <CheckCircle2 className="w-4 h-4 text-white" />
+              <CheckCircle2 className="w-4 h-4 text-white shrink-0" />
             )}
             <span>
               {isSavingClaim
-                ? 'Submitting...'
+                ? 'Saving...'
                 : initialClaim && initialClaim.status !== 'draft'
-                ? 'Update Claim'
-                : 'Submit Claim'}
+                ? 'Update'
+                : 'Submit'}
             </span>
           </button>
 
-          {/* 3. Download PDF Button */}
           <button
             type="button"
             onClick={handleInitiateDownload}
             disabled={isGeneratingPdf || isSavingClaim}
-            className="flex-1 sm:flex-none min-w-[110px] inline-flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white text-xs font-bold shadow-md hover:shadow-lg transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center justify-center gap-1.5 px-3 sm:px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
             title="Download official PDF sheet & save claim"
           >
-            <Download className="w-4 h-4" />
+            <Download className="w-4 h-4 shrink-0" />
             <span>{isGeneratingPdf ? 'Generating...' : 'Download'}</span>
           </button>
         </div>

@@ -11,6 +11,7 @@ interface ScrollableTimePickerProps {
   autoSession?: 'AM' | 'PM' | null; // Auto-selected session if first one was AM/PM
   className?: string;
   isTimeIn?: boolean;
+  onOpenChange?: (isOpen: boolean) => void;
 }
 
 export function parse24To12(time24: string): { hour: number; minute: number; period: 'AM' | 'PM' } {
@@ -55,11 +56,18 @@ export const ScrollableTimePicker: React.FC<ScrollableTimePickerProps> = ({
   autoSession = null,
   className = '',
   isTimeIn = false,
+  onOpenChange,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const hoursColRef = useRef<HTMLDivElement>(null);
   const minutesColRef = useRef<HTMLDivElement>(null);
+  const onOpenChangeRef = useRef(onOpenChange);
+  onOpenChangeRef.current = onOpenChange;
+
+  useEffect(() => {
+    onOpenChangeRef.current?.(isOpen);
+  }, [isOpen]);
 
   // Parse current 24-hour value into 12-hour components
   const parsed = useMemo(() => {
