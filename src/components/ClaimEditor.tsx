@@ -990,7 +990,11 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
 
     const step = (now: number) => {
-      if (!isProgrammaticScrollRef.current) return;
+      if (!isProgrammaticScrollRef.current || !container.isConnected) {
+        isProgrammaticScrollRef.current = false;
+        scrollAnimFrameRef.current = null;
+        return;
+      }
       const elapsed = now - startTime;
       const progress = Math.min(1, elapsed / durationMs);
       const eased = easeOutCubic(progress);
@@ -1010,6 +1014,16 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
 
     scrollAnimFrameRef.current = requestAnimationFrame(step);
   };
+
+  useEffect(() => {
+    return () => {
+      if (scrollAnimFrameRef.current !== null) {
+        cancelAnimationFrame(scrollAnimFrameRef.current);
+        scrollAnimFrameRef.current = null;
+      }
+      isProgrammaticScrollRef.current = false;
+    };
+  }, []);
 
   const scrollToCardByRowId = (rowId: string, durationMs: number = 540, onComplete?: () => void) => {
     const container = horizontalScrollRef.current;

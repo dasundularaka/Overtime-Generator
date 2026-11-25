@@ -402,9 +402,15 @@ export default function App() {
   }, []);
 
   return (
-    <AuthProvider>
-      <AppContent />
-      <OTAUpdateBanner />
-    </AuthProvider>
+    <ErrorBoundary
+      fallbackTitle="OT Claim encountered an unexpected display issue"
+      onBackHome={() => window.location.reload()}
+      backHomeLabel="Reload App"
+    >
+      <AuthProvider>
+        <AppContent />
+        <OTAUpdateBanner />
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }

@@ -486,7 +486,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
           setClaims(strictOwnClaims);
         }
       } catch (err) {
-        handleFirestoreError(err, OperationType.LIST, 'claims');
+        console.error('Dashboard data load failed:', err);
+        if (active) {
+          setClaims([]);
+          setDirectoryUsers([]);
+        }
       } finally {
         if (active) setLoading(false);
       }

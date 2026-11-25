@@ -137,23 +137,29 @@ export const UserManagement: React.FC = () => {
 
   // Load branches, departments, and roles from Cloud Firestore
   useEffect(() => {
-    fetchBranchesFromFirestore().then(bList => {
-      setBranches(bList);
-    });
+    fetchBranchesFromFirestore()
+      .then(bList => {
+        setBranches(bList);
+      })
+      .catch(err => console.warn('Branches fetch note:', err));
     const unsubBranches = subscribeToBranches(bList => {
       setBranches(bList);
     });
 
-    fetchRoleRatesFromFirestore().then(rList => {
-      setRoleRates(rList);
-    });
+    fetchRoleRatesFromFirestore()
+      .then(rList => {
+        setRoleRates(rList);
+      })
+      .catch(err => console.warn('Role rates fetch note:', err));
     const unsubRoles = subscribeToRoleRates(rList => {
       setRoleRates(rList);
     });
 
-    fetchDepartmentsFromFirestore().then(dList => {
-      setDepartments(dList);
-    });
+    fetchDepartmentsFromFirestore()
+      .then(dList => {
+        setDepartments(dList);
+      })
+      .catch(err => console.warn('Departments fetch note:', err));
     const unsubDepts = subscribeToDepartments(dList => {
       setDepartments(dList);
     });
@@ -190,7 +196,7 @@ export const UserManagement: React.FC = () => {
         }
       }
     } catch (err) {
-      handleFirestoreError(err, OperationType.LIST, 'users');
+      console.error('UserManagement users fetch failed:', err);
     } finally {
       setLoading(false);
     }

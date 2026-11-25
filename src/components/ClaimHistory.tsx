@@ -230,7 +230,8 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
         setClaims(list);
       }
     } catch (err) {
-      handleFirestoreError(err, OperationType.LIST, 'claims');
+      console.error('ClaimHistory claims fetch failed:', err);
+      setToastMessage('Unable to sync claims right now. Please check your connection and try again.');
     } finally {
       setLoading(false);
     }

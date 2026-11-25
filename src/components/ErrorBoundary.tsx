@@ -6,6 +6,7 @@ interface ErrorBoundaryProps {
   resetKey?: string | number;
   fallbackTitle?: string;
   onBackHome?: () => void;
+  backHomeLabel?: string;
 }
 
 interface ErrorBoundaryState {
@@ -19,10 +20,16 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     this.state = { hasError: false, errorMessage: '' };
   }
 
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+  static getDerivedStateFromError(error: unknown): ErrorBoundaryState {
+    const message =
+      error instanceof Error
+        ? error.message
+        : typeof error === 'string'
+        ? error
+        : 'An unexpected rendering error occurred.';
     return {
       hasError: true,
-      errorMessage: error?.message || 'An unexpected rendering error occurred.',
+      errorMessage: message || 'An unexpected rendering error occurred.',
     };
   }
 
@@ -74,7 +81,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold border border-slate-200 transition cursor-pointer"
               >
                 <Home className="w-3.5 h-3.5" />
-                <span>Return to Dashboard</span>
+                <span>{this.props.backHomeLabel || 'Return to Dashboard'}</span>
               </button>
             )}
           </div>

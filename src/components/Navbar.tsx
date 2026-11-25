@@ -76,9 +76,11 @@ const MobileCurvedNavBar: React.FC<MobileCurvedNavBarProps> = ({ items }) => {
 
   const activeIndex = Math.max(0, items.findIndex((item) => item.isActive));
   const numItems = Math.max(1, items.length);
-  const itemWidth = navWidth / numItems;
+  const safeNavWidth = Number.isFinite(navWidth) && navWidth > 0 ? navWidth : 400;
+  const itemWidth = safeNavWidth / numItems;
   const targetX = (activeIndex + 0.5) * itemWidth;
   const [valleyX, setValleyX] = useState<number>(targetX);
+  const valleyXRef = useRef<number>(targetX);
 
   // Measure exact container width dynamically on load, resize, and orientation change
   useEffect(() => {
@@ -90,7 +92,7 @@ const MobileCurvedNavBar: React.FC<MobileCurvedNavBarProps> = ({ items }) => {
           return;
         }
       }
-      if (typeof window !== 'undefined') {
+      if (typeof window !== 'undefined' && window.innerWidth > 0) {
         setNavWidth(window.innerWidth);
       }
     };
@@ -113,33 +115,51 @@ const MobileCurvedNavBar: React.FC<MobileCurvedNavBarProps> = ({ items }) => {
     };
   }, []);
 
-  // Update valley position when screen width or active index changes
+  // Snap immediately on container width changes without lagging
   useEffect(() => {
-    const newTarget = (activeIndex + 0.5) * (navWidth / numItems);
+    const newTarget = (activeIndex + 0.5) * (safeNavWidth / numItems);
+    valleyXRef.current = newTarget;
     setValleyX(newTarget);
-  }, [navWidth, activeIndex, numItems]);
+  }, [safeNavWidth, numItems]);
 
+  // Smoothly animate curved valley horizontally when active tab changes
   useEffect(() => {
-    let animId: number;
+    let animId: number | null = null;
+    let active = true;
+
     const animate = () => {
-      setValleyX((prev) => {
-        const diff = targetX - prev;
-        if (Math.abs(diff) < 0.3) return targetX;
-        return prev + diff * 0.28;
-      });
-      if (Math.abs(targetX - valleyX) >= 0.3) {
-        animId = requestAnimationFrame(animate);
+      if (!active) return;
+      const current = valleyXRef.current;
+      const diff = targetX - current;
+      if (Math.abs(diff) < 0.3) {
+        valleyXRef.current = targetX;
+        setValleyX(targetX);
+        return;
       }
+      const next = current + diff * 0.28;
+      valleyXRef.current = next;
+      setValleyX(next);
+      animId = requestAnimationFrame(animate);
     };
-    animId = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(animId);
-  }, [targetX, valleyX]);
+
+    if (Math.abs(targetX - valleyXRef.current) >= 0.3) {
+      animId = requestAnimationFrame(animate);
+    } else {
+      valleyXRef.current = targetX;
+      setValleyX(targetX);
+    }
+
+    return () => {
+      active = false;
+      if (animId !== null) cancelAnimationFrame(animId);
+    };
+  }, [targetX]);
 
   // Compute exact 1:1 pixel coordinate SVG valley path
   // The curve bends away from the selected button in a pure circular arc of radius 34px (68px diameter),
   // leaving an exact 10px uniform air gap around the 48px circle on ANY screen width!
-  const cx = valleyX;
-  const totalW = Math.max(300, Math.round(navWidth));
+  const cx = Number.isFinite(valleyX) ? valleyX : targetX;
+  const totalW = Math.max(300, Math.round(safeNavWidth));
   const totalH = 76;
   const topY = 16;
   const r = 34;

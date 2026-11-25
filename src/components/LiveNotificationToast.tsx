@@ -20,8 +20,18 @@ const RECENT_PUSH_WINDOW_MS = 2 * 60 * 1000;
 // never replay the Dynamic Island animation twice for the same notification ID.
 const shownIslandIdsSession = new Set<string>();
 
-function readIdSet(storage: Storage, key: string): Set<string> {
+function getSafeStorage(kind: 'local' | 'session'): Storage | null {
   try {
+    if (typeof window === 'undefined') return null;
+    return kind === 'session' ? window.sessionStorage : window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function readIdSet(storage: Storage | null, key: string): Set<string> {
+  try {
+    if (!storage) return new Set();
     const raw = storage.getItem(key);
     if (!raw) return new Set();
     const parsed = JSON.parse(raw);
@@ -31,8 +41,9 @@ function readIdSet(storage: Storage, key: string): Set<string> {
   }
 }
 
-function appendStoredId(storage: Storage, key: string, id: string): void {
+function appendStoredId(storage: Storage | null, key: string, id: string): void {
   try {
+    if (!storage) return;
     const existing = Array.from(readIdSet(storage, key));
     const next = Array.from(new Set([...existing, id])).slice(-200);
     storage.setItem(key, JSON.stringify(next));
@@ -44,18 +55,18 @@ function appendStoredId(storage: Storage, key: string, id: string): void {
 function hasShownIsland(userId: string, notifId: string): boolean {
   const compositeKey = `${userId}:${notifId}`;
   if (shownIslandIdsSession.has(compositeKey)) return true;
-  const sessionIds = readIdSet(sessionStorage, `${SESSION_SHOWN_ISLAND_PREFIX}${userId}`);
+  const sessionIds = readIdSet(getSafeStorage('session'), `${SESSION_SHOWN_ISLAND_PREFIX}${userId}`);
   if (sessionIds.has(notifId)) {
     shownIslandIdsSession.add(compositeKey);
     return true;
   }
-  const dismissedIds = readIdSet(localStorage, `${DISMISSED_TOASTS_KEY_PREFIX}${userId}`);
+  const dismissedIds = readIdSet(getSafeStorage('local'), `${DISMISSED_TOASTS_KEY_PREFIX}${userId}`);
   return dismissedIds.has(notifId);
 }
 
 function markIslandShown(userId: string, notifId: string): void {
   shownIslandIdsSession.add(`${userId}:${notifId}`);
-  appendStoredId(sessionStorage, `${SESSION_SHOWN_ISLAND_PREFIX}${userId}`, notifId);
+  appendStoredId(getSafeStorage('session'), `${SESSION_SHOWN_ISLAND_PREFIX}${userId}`, notifId);
 }
 
 type IslandPhase = 'dot' | 'expanded' | 'closing';
@@ -173,7 +184,7 @@ export const LiveNotificationToast: React.FC = () => {
 
     const removeTimer = setTimeout(() => {
       if (uid) {
-        appendStoredId(localStorage, `${DISMISSED_TOASTS_KEY_PREFIX}${uid}`, activeNotif.id);
+        appendStoredId(getSafeStorage('local'), `${DISMISSED_TOASTS_KEY_PREFIX}${uid}`, activeNotif.id);
       }
       setQueue((prev) => prev.filter((item) => item.id !== activeNotif.id));
     }, 320);
@@ -190,14 +201,14 @@ export const LiveNotificationToast: React.FC = () => {
 
   const dismissCurrent = (notifId: string) => {
     if (uid) {
-      appendStoredId(localStorage, `${DISMISSED_TOASTS_KEY_PREFIX}${uid}`, notifId);
+      appendStoredId(getSafeStorage('local'), `${DISMISSED_TOASTS_KEY_PREFIX}${uid}`, notifId);
     }
     setIslandPhase('closing');
   };
 
   const openDetails = async (notif: AppNotification) => {
     if (uid) {
-      appendStoredId(localStorage, `${DISMISSED_TOASTS_KEY_PREFIX}${uid}`, notif.id);
+      appendStoredId(getSafeStorage('local'), `${DISMISSED_TOASTS_KEY_PREFIX}${uid}`, notif.id);
     }
     setQueue((prev) => prev.filter((item) => item.id !== notif.id));
     setFallbackSelectedNotification(notif);
