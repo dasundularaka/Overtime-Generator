@@ -86,8 +86,16 @@ import {
 
 import {
   getMakeWebhookDisplayInfo,
+  MakeTestEmailTemplateMode,
   sendTestEmailViaMake,
 } from '../services/makeEmailService';
+import {
+  DEFAULT_EMAIL_ACTIVITY_SETTINGS,
+  EmailActivitySettingKey,
+  EmailActivitySettings,
+  saveEmailActivitySettings,
+  subscribeToEmailActivitySettings,
+} from '../services/emailActivityService';
 import { getCallingName } from '../utils/userNameHelper';
 
 type AdminSettingsCategoryId =
@@ -164,12 +172,17 @@ export const SettingsPage: React.FC = () => {
   const [isCheckingOta, setIsCheckingOta] = useState(false);
   const [otaFeedback, setOtaFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Automated Email (Make Webhook) Test State
+  // Automated Email (Make Webhook) Test & Activity Alert Settings State
   const makeWebhookInfo = getMakeWebhookDisplayInfo();
+  const [activityEmailSettings, setActivityEmailSettings] = useState<EmailActivitySettings>(
+    DEFAULT_EMAIL_ACTIVITY_SETTINGS
+  );
+  const [savingActivityKey, setSavingActivityKey] = useState<EmailActivitySettingKey | null>(null);
   const [testEmailRecipient, setTestEmailRecipient] = useState(
     userProfile?.email || currentUser?.email || ''
   );
-  const [testEmailTemplateMode, setTestEmailTemplateMode] = useState<'standard' | 'password_reset'>('standard');
+  const [testEmailTemplateMode, setTestEmailTemplateMode] =
+    useState<MakeTestEmailTemplateMode>('standard');
   const [isSendingTestEmail, setIsSendingTestEmail] = useState(false);
   const [makeEmailFeedback, setMakeEmailFeedback] = useState<{
     type: 'success' | 'error';
@@ -189,6 +202,10 @@ export const SettingsPage: React.FC = () => {
 
   useEffect(() => {
     return subscribeOtaState(setOtaState);
+  }, []);
+
+  useEffect(() => {
+    return subscribeToEmailActivitySettings(setActivityEmailSettings);
   }, []);
 
   // Reset active category if role changes and an unavailable category was open
@@ -1868,8 +1885,12 @@ export const SettingsPage: React.FC = () => {
           </div>
 
           <p className="text-xs text-slate-600 leading-relaxed">
-            All automated system emails—including <strong>Broadcast Notification Emails</strong>,{' '}
-            <strong>New User Welcome Credentials</strong>, and <strong>Password Reset Notices</strong>—are dispatched directly through your configured Make webhook without requiring Gmail sign-in or Google OAuth popups.
+            All automated system emails—including <strong>Sign-In Security Alerts</strong>,{' '}
+            <strong>Password Changed Confirmations</strong>,{' '}
+            <strong>OT / OP Claim Submission Receipts</strong>,{' '}
+            <strong>Admin Role &amp; Policy Change Notices</strong>,{' '}
+            <strong>Broadcast Notifications</strong>, <strong>Welcome Credentials</strong>, and{' '}
+            <strong>6-Digit OTP Password Resets</strong>—are dispatched directly through your configured Make webhook without requiring Gmail OAuth popups.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
@@ -1902,8 +1923,124 @@ export const SettingsPage: React.FC = () => {
                 </div>
               </div>
               <div className="text-[11px] text-slate-500">
-                Map <code className="font-mono">html</code> (not <code className="font-mono">text</code>/<code className="font-mono">body</code>) in Make&apos;s HTML Content box to preserve cards, tables, and line breaks.
+                Map <code className="font-mono">html</code> (not <code className="font-mono">text</code>/<code className="font-mono">body</code>) in Make&apos;s HTML Content box to preserve cards, diff tables, and badges.
               </div>
+            </div>
+          </div>
+
+          {/* Automatic Activity Notification Controls */}
+          <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+              <div>
+                <h3 className="text-xs font-bold text-slate-900">
+                  Automatic Activity Email Triggers
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Control which system events automatically email the affected staff member via Make.
+                </p>
+              </div>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-600">
+                Synced Across Portal
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {(
+                [
+                  {
+                    key: 'loginAlerts' as EmailActivitySettingKey,
+                    title: 'System Sign-In Alerts',
+                    eventKey: 'activity_login',
+                    desc: 'Email staff whenever a Google, PF Number, or Email sign-in succeeds.',
+                  },
+                  {
+                    key: 'passwordChangeAlerts' as EmailActivitySettingKey,
+                    title: 'Password Changed Notices',
+                    eventKey: 'activity_password_changed',
+                    desc: 'Send confirmation after first-login setup, self-updates, or OTP resets.',
+                  },
+                  {
+                    key: 'claimSubmissionAlerts' as EmailActivitySettingKey,
+                    title: 'OT / OP Claim Submissions',
+                    eventKey: 'activity_claim_submitted',
+                    desc: 'Send a submission receipt with hours, days, and payable total.',
+                  },
+                  {
+                    key: 'roleChangeAlerts' as EmailActivitySettingKey,
+                    title: 'Admin Role & Policy Updates',
+                    eventKey: 'activity_role_changed',
+                    desc: 'Email a Before/After summary when role, designation, OT cap, or rate lock changes.',
+                  },
+                ] as const
+              ).map((item) => {
+                const enabled = activityEmailSettings[item.key];
+                const isSavingThis = savingActivityKey === item.key;
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    disabled={isSavingThis}
+                    onClick={async () => {
+                      if (savingActivityKey) return;
+                      const nextVal = !enabled;
+                      setSavingActivityKey(item.key);
+                      setMakeEmailFeedback(null);
+                      try {
+                        const saved = await saveEmailActivitySettings(
+                          { [item.key]: nextVal },
+                          getCallingName(userProfile, currentUser?.email || 'Administrator')
+                        );
+                        setActivityEmailSettings(saved);
+                        setMakeEmailFeedback({
+                          type: 'success',
+                          text: `${item.title} ${nextVal ? 'enabled' : 'paused'} for automatic email delivery.`,
+                        });
+                        await recordAuditLog({
+                          action: 'SETTINGS_UPDATE',
+                          actionLabel: `${nextVal ? 'Enabled' : 'Disabled'} ${item.title} Emails`,
+                          targetType: 'settings',
+                          targetId: 'emailActivitySettings',
+                          targetDescription: item.title,
+                          afterState: { [item.key]: nextVal },
+                        }).catch(() => {});
+                      } catch (err: any) {
+                        setMakeEmailFeedback({
+                          type: 'error',
+                          text: err?.message || 'Failed to save activity email setting.',
+                        });
+                      } finally {
+                        setSavingActivityKey(null);
+                      }
+                    }}
+                    className={`text-left p-3 rounded-xl border transition cursor-pointer flex items-start justify-between gap-3 ${
+                      enabled
+                        ? 'bg-white border-emerald-200 hover:border-emerald-300 shadow-2xs'
+                        : 'bg-slate-100/70 border-slate-200 hover:bg-white'
+                    } ${isSavingThis ? 'opacity-60' : ''}`}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-bold text-slate-900">{item.title}</span>
+                        <code className="text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                          {item.eventKey}
+                        </code>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1 leading-snug">{item.desc}</p>
+                    </div>
+                    <span
+                      className={`shrink-0 mt-0.5 inline-flex items-center w-9 h-5 rounded-full p-0.5 transition-colors ${
+                        enabled ? 'bg-emerald-500' : 'bg-slate-300'
+                      }`}
+                    >
+                      <span
+                        className={`w-4 h-4 rounded-full bg-white shadow-xs transform transition-transform ${
+                          enabled ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -1930,6 +2067,14 @@ export const SettingsPage: React.FC = () => {
               if (isSendingTestEmail) return;
               setIsSendingTestEmail(true);
               setMakeEmailFeedback(null);
+              const previewLabels: Record<MakeTestEmailTemplateMode, string> = {
+                standard: 'Standard integration test payload',
+                password_reset: 'Modern 6-digit OTP reset preview',
+                activity_login: 'System sign-in alert preview',
+                activity_password_changed: 'Password changed confirmation preview',
+                activity_claim_submitted: 'OT / OP claim submission receipt preview',
+                activity_role_changed: 'Admin role & policy change preview',
+              };
               try {
                 const res = await sendTestEmailViaMake({
                   to: testEmailRecipient,
@@ -1941,18 +2086,11 @@ export const SettingsPage: React.FC = () => {
                 if (res.success) {
                   setMakeEmailFeedback({
                     type: 'success',
-                    text: `${
-                      testEmailTemplateMode === 'password_reset'
-                        ? 'Modern password reset preview'
-                        : 'Test payload'
-                    } accepted by ${res.webhookHost} (${res.responseText || 'Accepted'}). Check your inbox or Make scenario execution log.`,
+                    text: `${previewLabels[testEmailTemplateMode]} accepted by ${res.webhookHost} (${res.responseText || 'Accepted'}). Check your inbox or Make scenario execution log.`,
                   });
                   await recordAuditLog({
                     action: 'EMAIL_DISPATCH',
-                    actionLabel:
-                      testEmailTemplateMode === 'password_reset'
-                        ? 'Sent Make Password Reset Template Preview'
-                        : 'Sent Make Webhook Test Email',
+                    actionLabel: `Sent Make Email Preview (${testEmailTemplateMode})`,
                     targetType: 'settings',
                     targetDescription: `Test dispatch to ${testEmailRecipient}`,
                     details: {
@@ -1981,36 +2119,37 @@ export const SettingsPage: React.FC = () => {
           >
             <div>
               <h3 className="text-xs font-bold text-indigo-950">
-                Verify Make Scenario With a Test Email
+                Verify Make Scenario &amp; Preview Email Templates
               </h3>
               <p className="text-[11px] text-indigo-800/80 mt-0.5">
-                Trigger a live webhook event to verify delivery or preview the modern 6-digit OTP Password Reset email template (with Copy Code button) in your inbox.
+                Pick any automated email template below and send a live sample straight to your inbox via Make.
               </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setTestEmailTemplateMode('standard')}
-                className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
-                  testEmailTemplateMode === 'standard'
-                    ? 'bg-indigo-600 text-white shadow-2xs'
-                    : 'bg-white text-slate-600 border border-indigo-200 hover:bg-indigo-50'
-                }`}
-              >
-                Standard Test Email
-              </button>
-              <button
-                type="button"
-                onClick={() => setTestEmailTemplateMode('password_reset')}
-                className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
-                  testEmailTemplateMode === 'password_reset'
-                    ? 'bg-indigo-600 text-white shadow-2xs'
-                    : 'bg-white text-slate-600 border border-indigo-200 hover:bg-indigo-50'
-                }`}
-              >
-                Modern OTP Reset Preview
-              </button>
+              {(
+                [
+                  { id: 'standard', label: 'Standard Test' },
+                  { id: 'password_reset', label: 'OTP Password Reset' },
+                  { id: 'activity_login', label: 'Sign-In Alert' },
+                  { id: 'activity_password_changed', label: 'Password Changed' },
+                  { id: 'activity_claim_submitted', label: 'OT/OP Claim Receipt' },
+                  { id: 'activity_role_changed', label: 'Role & Policy Update' },
+                ] as Array<{ id: MakeTestEmailTemplateMode; label: string }>
+              ).map((tpl) => (
+                <button
+                  key={tpl.id}
+                  type="button"
+                  onClick={() => setTestEmailTemplateMode(tpl.id)}
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
+                    testEmailTemplateMode === tpl.id
+                      ? 'bg-indigo-600 text-white shadow-2xs'
+                      : 'bg-white text-slate-600 border border-indigo-200 hover:bg-indigo-50'
+                  }`}
+                >
+                  {tpl.label}
+                </button>
+              ))}
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2.5">
@@ -2028,7 +2167,7 @@ export const SettingsPage: React.FC = () => {
                 className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs transition cursor-pointer whitespace-nowrap disabled:opacity-60"
               >
                 <Mail className="w-3.5 h-3.5" />
-                <span>{isSendingTestEmail ? 'Sending Test...' : 'Send Test Email'}</span>
+                <span>{isSendingTestEmail ? 'Sending Preview...' : 'Send Test Email'}</span>
               </button>
             </div>
           </form>

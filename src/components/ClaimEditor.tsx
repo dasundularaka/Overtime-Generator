@@ -103,6 +103,9 @@ import {
   getLocalRoleRates,
   DEFAULT_ROLE_RATES,
 } from '../utils/branchRoleManager';
+import { sendClaimSubmittedEmailViaMake } from '../services/makeEmailService';
+import { refreshEmailActivitySettingsFromFirestore } from '../services/emailActivityService';
+import { getCallingName } from '../utils/userNameHelper';
 import { ScrollableTimePicker, parse24To12, format12To24 } from './ScrollableTimePicker';
 
 function toSafeStr(val: unknown, fallback = ''): string {
@@ -3254,6 +3257,67 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
           daysPay: claim.daysPay,
         },
       });
+
+      // Dispatch automatic OT / OP claim submission confirmation email via Make (non-blocking)
+      const claimantProfile =
+        allUsers.find((u) => u.id === claim.userId) ||
+        (claim.userId === userProfile?.id ? userProfile : null);
+      const claimantEmail = (
+        claimantProfile?.email ||
+        (claim.userId === currentUser?.uid ? currentUser?.email : '') ||
+        ''
+      )
+        .trim()
+        .toLowerCase();
+
+      if (claimantEmail && claimantEmail.includes('@')) {
+        const activeClaimRows = Array.isArray(claim.rows) ? claim.rows : [];
+        const claimedDaysCount = activeClaimRows.filter(
+          (r) =>
+            !r.isLeave &&
+            ((r.totalMinutes || 0) > 0 ||
+              (r.daysPaymentAmount || 0) > 0 ||
+              Boolean(r.isDaysPayment) ||
+              (r.totalWorkMinutes || 0) > 0)
+        ).length;
+        const daysPayCount = activeClaimRows.filter((r) => (r.daysPaymentAmount || 0) > 0).length;
+        const totalAmountFormatted = `Rs. ${Number(claim.totalOtPayment || 0).toLocaleString('en-US', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })}`;
+        const submittedByRole: 'Self-Submitted' | 'Branch Admin' | 'Super Admin' =
+          claim.userId === currentUser?.uid
+            ? 'Self-Submitted'
+            : isSuperAdmin
+            ? 'Super Admin'
+            : 'Branch Admin';
+        const formMeta = getClaimTypeFormMeta(claim.claimType);
+
+        void (async () => {
+          await refreshEmailActivitySettingsFromFirestore();
+          await sendClaimSubmittedEmailViaMake({
+            to: claimantEmail,
+            recipientName: getCallingName(claimantProfile, claim.employeeName || 'Team Member'),
+            pfNumber: claim.employeeNumber || claimantProfile?.employeeNumber || claimantProfile?.pfNumber || '',
+            claimId: claim.id,
+            claimNumber: claim.claimNumber,
+            claimType: claim.claimType === 'OP' ? 'OP' : 'OT',
+            formCode: formMeta.formCode,
+            formName: formMeta.templateName,
+            month: claim.month,
+            year: claim.year,
+            branch: claim.branch,
+            department: claim.department,
+            designation: claim.designation,
+            isUpdate: Boolean(initialClaim && initialClaim.status !== 'draft'),
+            claimedDaysCount,
+            totalHoursFormatted: claim.totalHoursFormatted,
+            daysPayCount,
+            totalAmountFormatted,
+            submittedByRole,
+          });
+        })().catch(() => {});
+      }
 
       setClaimSavedSuccess(true);
       setIsConfirmSaveClaimOpen(false);

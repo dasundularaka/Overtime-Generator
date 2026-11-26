@@ -119,11 +119,32 @@ service cloud.firestore {
         && (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() <= 120));
     }
 
-    // Global OTA release signal metadata (non-sensitive build version & notes)
+    function isValidEmailActivitySettings(data) {
+      return data.keys().hasAll([
+          'id', 'loginAlerts', 'passwordChangeAlerts',
+          'claimSubmissionAlerts', 'roleChangeAlerts', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'loginAlerts', 'passwordChangeAlerts',
+          'claimSubmissionAlerts', 'roleChangeAlerts', 'updatedAt', 'updatedBy'
+        ])
+        && data.id == 'emailActivitySettings'
+        && data.loginAlerts is bool
+        && data.passwordChangeAlerts is bool
+        && data.claimSubmissionAlerts is bool
+        && data.roleChangeAlerts is bool
+        && data.updatedAt is string && data.updatedAt.size() > 0 && data.updatedAt.size() <= 64
+        && (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() <= 120));
+    }
+
+    // Global system metadata (OTA release signal & email activity toggles)
     match /systemConfig/{configId} {
       allow get: if isValidConfigId(configId);
       allow list: if false;
-      allow create, update: if isValidConfigId(configId) && isValidAppRelease(request.resource.data);
+      allow create, update: if isValidConfigId(configId) && (
+        (configId == 'emailActivitySettings' && isValidEmailActivitySettings(request.resource.data)) ||
+        (configId != 'emailActivitySettings' && isValidAppRelease(request.resource.data))
+      );
       allow delete: if false;
     }
 

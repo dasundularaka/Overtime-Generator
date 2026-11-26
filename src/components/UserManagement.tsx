@@ -40,8 +40,11 @@ import { sendUserWelcomeEmail, EmailDispatchResult } from '../utils/emailNotifie
 import {
   claimWelcomeDispatchLock,
   releaseWelcomeDispatchLock,
+  MakeRoleChangeItem,
   sendPasswordResetNotificationViaMake,
+  sendRoleChangedEmailViaMake,
 } from '../services/makeEmailService';
+import { refreshEmailActivitySettingsFromFirestore } from '../services/emailActivityService';
 import { generateStandardPfNumber, formatPfNumber, isValidPfNumber } from '../utils/pfHelper';
 import { upsertStoredAccount, deleteStoredAccount } from '../utils/localAuthManager';
 import { deleteEmployee } from '../utils/storage';
@@ -338,6 +341,39 @@ export const UserManagement: React.FC = () => {
         details: { isRatesLocked: nextState },
       });
 
+      if (u.email && u.email.includes('@')) {
+        const actorRoleLabel: 'Super Admin' | 'Branch Admin' = isSuperAdmin
+          ? 'Super Admin'
+          : 'Branch Admin';
+        const effectiveRoleLabel =
+          u.role === 'super_admin' || u.email.toLowerCase() === 'dasundularaka@gmail.com'
+            ? 'Super Admin'
+            : u.role === 'admin'
+            ? 'Branch Admin'
+            : 'Employee';
+        void (async () => {
+          await refreshEmailActivitySettingsFromFirestore();
+          await sendRoleChangedEmailViaMake({
+            to: u.email,
+            recipientName: getCallingName(u, 'Team Member'),
+            pfNumber: u.employeeNumber || u.pfNumber || '',
+            branch: u.branch || '',
+            changedByRole: actorRoleLabel,
+            changes: [
+              {
+                field: 'Non-Working Day Rates',
+                before: u.isRatesLocked ? "Locked (Day's Pay Only)" : 'Unlocked',
+                after: nextState ? "Locked (Day's Pay Only)" : 'Unlocked',
+              },
+            ],
+            currentRoleLabel: effectiveRoleLabel,
+            currentDesignation: u.designation || '',
+            currentClaimType:
+              u.claimType === 'OP' ? 'OP (Form 10610)' : 'OT (Form 10756)',
+          });
+        })().catch(() => {});
+      }
+
       setActionSuccess(`Rates for ${u.name} are now ${nextState ? 'LOCKED (User cannot edit)' : 'UNLOCKED (User can edit)'}.`);
       setTimeout(() => setActionSuccess(null), 3500);
     } catch (err: any) {
@@ -588,6 +624,112 @@ export const UserManagement: React.FC = () => {
             maxOtHoursPerDay: isOtClaimType ? (Number(maxOtHoursPerDay) || 0) : 0,
           },
         });
+
+        // Dispatch automatic Role / Policy Change notification email if key permissions or designations changed
+        if (editingUser.email && editingUser.email.includes('@')) {
+          const formatRoleLabel = (r?: string, mail?: string) => {
+            if (r === 'super_admin' || mail?.toLowerCase() === 'dasundularaka@gmail.com') {
+              return 'Super Admin';
+            }
+            return r === 'admin' ? 'Branch Admin' : 'Employee';
+          };
+
+          const prevRole = editingUser.role || 'user';
+          const prevRoleLabel = formatRoleLabel(prevRole, editingUser.email);
+          const nextRoleLabel = formatRoleLabel(effectiveSaveRole, editingUser.email);
+          const prevClaimLabel =
+            editingUser.claimType === 'OP' ? 'OP (Form 10610)' : 'OT (Form 10756)';
+          const nextClaimLabel =
+            claimType === 'OP' ? 'OP (Form 10610)' : 'OT (Form 10756)';
+
+          const changes: MakeRoleChangeItem[] = [];
+          if (prevRoleLabel !== nextRoleLabel) {
+            changes.push({ field: 'Access Role', before: prevRoleLabel, after: nextRoleLabel });
+          }
+          if ((editingUser.designation || '').trim() !== designation.trim()) {
+            changes.push({
+              field: 'Designation',
+              before: (editingUser.designation || '').trim() || 'Unassigned',
+              after: designation.trim() || 'Unassigned',
+            });
+          }
+          if ((editingUser.claimType || 'OT') !== claimType) {
+            changes.push({
+              field: 'Claim Form Category',
+              before: prevClaimLabel,
+              after: nextClaimLabel,
+            });
+          }
+          if ((editingUser.branch || '').trim() !== branch.trim()) {
+            changes.push({
+              field: 'Assigned Branch',
+              before: (editingUser.branch || '').trim() || 'Unassigned',
+              after: branch.trim() || 'Unassigned',
+            });
+          }
+          if ((editingUser.department || '').trim() !== department.trim()) {
+            changes.push({
+              field: 'Department',
+              before: (editingUser.department || '').trim() || 'Unassigned',
+              after: department.trim() || 'Unassigned',
+            });
+          }
+
+          if (isOtClaimType) {
+            const prevCap = Number(editingUser.maxOtHoursPerDay ?? 0);
+            const nextCap = Number(maxOtHoursPerDay || 0);
+            if (prevCap !== nextCap) {
+              changes.push({
+                field: 'Daily OT Cap',
+                before: `${prevCap} hrs/day`,
+                after: `${nextCap} hrs/day`,
+              });
+            }
+
+            const prevShift = `${editingUser.shiftStartTime || '08:00'} - ${editingUser.shiftEndTime || '16:45'}`;
+            const nextShift = `${shiftStartTime || '08:00'} - ${shiftEndTime || '16:45'}`;
+            if (prevShift !== nextShift) {
+              changes.push({
+                field: 'Working Shift Window',
+                before: prevShift,
+                after: nextShift,
+              });
+            }
+
+            if (Boolean(editingUser.isRatesLocked) !== Boolean(isRatesLocked)) {
+              changes.push({
+                field: 'Non-Working Day Rates',
+                before: editingUser.isRatesLocked ? "Locked (Day's Pay Only)" : 'Unlocked',
+                after: isRatesLocked ? "Locked (Day's Pay Only)" : 'Unlocked',
+              });
+            }
+          }
+
+          if (changes.length > 0) {
+            const actorRoleLabel: 'Super Admin' | 'Branch Admin' = isSuperAdmin
+              ? 'Super Admin'
+              : 'Branch Admin';
+            const updatedTargetProfile = {
+              ...editingUser,
+              ...localUpdatedData,
+            } as UserProfile;
+
+            void (async () => {
+              await refreshEmailActivitySettingsFromFirestore();
+              await sendRoleChangedEmailViaMake({
+                to: editingUser.email,
+                recipientName: getCallingName(updatedTargetProfile, 'Team Member'),
+                pfNumber: cleanPf,
+                branch: branch.trim(),
+                changedByRole: actorRoleLabel,
+                changes,
+                currentRoleLabel: nextRoleLabel,
+                currentDesignation: designation.trim(),
+                currentClaimType: nextClaimLabel,
+              });
+            })().catch(() => {});
+          }
+        }
 
         setActionSuccess(`User ${name} updated successfully!`);
       } else {

@@ -39,7 +39,16 @@ import {
 import { recordAuditLog } from '../utils/auditLogger';
 import { setCachedGoogleToken } from '../services/googleWorkspaceService';
 import { getAssignedTemplateIdsForClaimType } from '../utils/defaultTemplate';
-import { sendPasswordResetOtpViaMake } from '../services/makeEmailService';
+import {
+  formatClientDeviceSummary,
+  sendLoginAlertEmailViaMake,
+  sendPasswordChangedEmailViaMake,
+  sendPasswordResetOtpViaMake,
+} from '../services/makeEmailService';
+import {
+  refreshEmailActivitySettingsFromFirestore,
+  subscribeToEmailActivitySettings,
+} from '../services/emailActivityService';
 import { getCallingName } from '../utils/userNameHelper';
 
 interface AuthContextType {
@@ -234,6 +243,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(false);
     }
 
+    // Subscribe to global email activity notification toggles so the local dispatch cache stays current
+    const unsubActivityEmailSettings = subscribeToEmailActivitySettings(() => {});
+
     // 2. Listen to Firebase auth state
     let profileUnsub: (() => void) | null = null;
 
@@ -296,6 +308,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return () => {
       if (profileUnsub) profileUnsub();
+      unsubActivityEmailSettings();
       unsubscribe();
     };
   }, []);
@@ -342,6 +355,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setCurrentUser(cred.user);
       setUserProfile(profile);
       setActiveSession(profile);
+
+      // Fire automatic login alert email asynchronously (non-blocking)
+      if (profile.email) {
+        const roleLabel =
+          profile.role === 'super_admin' || profile.email.toLowerCase() === 'dasundularaka@gmail.com'
+            ? 'Super Admin'
+            : profile.role === 'admin'
+            ? 'Branch Admin'
+            : 'Staff Member';
+        void (async () => {
+          await refreshEmailActivitySettingsFromFirestore();
+          await sendLoginAlertEmailViaMake({
+            to: profile.email,
+            recipientName: getCallingName(profile, 'Team Member'),
+            pfNumber: profile.employeeNumber || profile.pfNumber || '',
+            branch: profile.branch || '',
+            roleLabel,
+            loginMethod: 'google',
+            deviceSummary: formatClientDeviceSummary(),
+          });
+        })().catch(() => {});
+      }
     } catch (err: any) {
       await fbSignOut(auth).catch(() => {});
       clearActiveSession();
@@ -748,6 +783,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           claimType: finalProfile.claimType,
         },
       });
+
+      // Fire automatic login alert email asynchronously (non-blocking)
+      if (finalProfile.email) {
+        const roleLabel =
+          finalProfile.role === 'super_admin' ||
+          finalProfile.email.toLowerCase() === 'dasundularaka@gmail.com'
+            ? 'Super Admin'
+            : finalProfile.role === 'admin'
+            ? 'Branch Admin'
+            : 'Staff Member';
+        void (async () => {
+          await refreshEmailActivitySettingsFromFirestore();
+          await sendLoginAlertEmailViaMake({
+            to: finalProfile.email,
+            recipientName: getCallingName(finalProfile, 'Team Member'),
+            pfNumber: finalProfile.employeeNumber || finalProfile.pfNumber || '',
+            branch: finalProfile.branch || '',
+            roleLabel,
+            loginMethod: identifier.includes('@') ? 'email' : 'pf_number',
+            deviceSummary: formatClientDeviceSummary(),
+          });
+        })().catch(() => {});
+      }
     } catch (err: any) {
       await fbSignOut(auth).catch(() => {});
       clearActiveSession();
@@ -956,7 +1014,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const verifyPasswordResetTokenOrCode = async (params: {
     uidOrIdentifier?: string;
     codeOrToken: string;
-  }): Promise<{ userId: string; name: string; email: string; pfNumber: string; expiresAt?: string }> => {
+  }): Promise<{
+    userId: string;
+    name: string;
+    email: string;
+    pfNumber: string;
+    branch?: string;
+    expiresAt?: string;
+  }> => {
     const rawIdentifier = (params.uidOrIdentifier || '').trim();
     const digitsOnly = params.codeOrToken.replace(/\D/g, '');
     if (!/^\d{6}$/.test(digitsOnly)) {
@@ -1043,6 +1108,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       name: getCallingName(p, 'Team Member'),
       email: (p.email || '').toLowerCase().trim(),
       pfNumber: (p.employeeNumber || p.pfNumber || '').toUpperCase().trim(),
+      branch: (p.branch || '').trim(),
       expiresAt: p.passwordResetExpiresAt,
     };
   };
@@ -1141,6 +1207,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       },
     });
 
+    if (verified.email) {
+      void (async () => {
+        await refreshEmailActivitySettingsFromFirestore();
+        await sendPasswordChangedEmailViaMake({
+          to: verified.email,
+          recipientName: verified.name,
+          pfNumber: pf,
+          branch: verified.branch || '',
+          changeMethod: 'otp_recovery',
+          timestamp: completedAtIso,
+          deviceSummary: formatClientDeviceSummary(),
+        });
+      })().catch(() => {});
+    }
+
     return {
       email: verified.email,
       pfNumber: pf,
@@ -1150,6 +1231,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateUserPassword = async (newPass: string) => {
     const cleanPass = newPass.trim();
+    const wasFirstTimeSetup = Boolean(
+      userProfile?.isFirstLogin || userProfile?.mustChangePassword || userProfile?.passwordMatchesPf
+    );
 
     // 1. Synchronize password in Firebase Auth
     if (auth.currentUser) {
@@ -1252,6 +1336,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       setActiveSession(updatedProfile);
       setUserProfile(updatedProfile);
+
+      if (updatedProfile.email) {
+        void (async () => {
+          await refreshEmailActivitySettingsFromFirestore();
+          await sendPasswordChangedEmailViaMake({
+            to: updatedProfile.email,
+            recipientName: getCallingName(updatedProfile, 'Team Member'),
+            pfNumber: updatedProfile.employeeNumber || updatedProfile.pfNumber || '',
+            branch: updatedProfile.branch || '',
+            changeMethod: wasFirstTimeSetup ? 'first_time_setup' : 'user_password_change',
+            deviceSummary: formatClientDeviceSummary(),
+          });
+        })().catch(() => {});
+      }
     }
   };
 

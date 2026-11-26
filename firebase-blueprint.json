@@ -337,6 +337,28 @@
       },
       "required": ["id", "version", "updatedAt"]
     },
+    "EmailActivitySettings": {
+      "title": "Email Activity Notification Settings",
+      "description": "Global toggles controlling automatic Make webhook activity emails for logins, password changes, claim submissions, and role updates",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "loginAlerts": { "type": "boolean" },
+        "passwordChangeAlerts": { "type": "boolean" },
+        "claimSubmissionAlerts": { "type": "boolean" },
+        "roleChangeAlerts": { "type": "boolean" },
+        "updatedAt": { "type": "string", "maxLength": 64 },
+        "updatedBy": { "type": "string", "maxLength": 120 }
+      },
+      "required": [
+        "id",
+        "loginAlerts",
+        "passwordChangeAlerts",
+        "claimSubmissionAlerts",
+        "roleChangeAlerts",
+        "updatedAt"
+      ]
+    },
     "Notification": {
       "title": "System Notification",
       "description": "Targeted notification broadcast by Super Admin or Branch Admin via in-app push and optional email",
@@ -437,7 +459,7 @@
       "schema": {
         "$ref": "#/entities/AppRelease"
       },
-      "description": "Global OTA release metadata for real-time version sync across open browser tabs"
+      "description": "Global system metadata documents including OTA release version signals and emailActivitySettings notification preferences"
     },
     "/notifications/{notificationId}": {
       "schema": {
