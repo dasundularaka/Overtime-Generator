@@ -26,8 +26,6 @@ import {
   Loader2,
   Tag,
   SlidersHorizontal,
-  Cloud,
-  CloudOff,
   LayoutGrid,
   Table as TableIcon,
   CalendarOff,
@@ -2681,26 +2679,6 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     calculatedPaymentB,
   ]);
 
-  const handleRemunerationChange = (val: string) => {
-    if (isOpClaim || !canEditRates) return;
-    markUserModified();
-    if (val === '') {
-      setTotalRemuneration('');
-      return;
-    }
-    const num = parseFloat(val);
-    setTotalRemuneration(isNaN(num) ? '' : num);
-    if (!isNaN(num) && num > 0) {
-      // Standard Banking / Commercial Form 10756 Overtime Formula:
-      // Day's Pay = Remuneration / 22 working days
-      // Hourly OT Rate = Day's Pay / 8 hours
-      const calculatedDayPay = Math.round((num / 22) * 100) / 100;
-      const calculatedHourlyRate = Math.round((calculatedDayPay / 8) * 100) / 100;
-      if (daysPay === '') setDaysPay(calculatedDayPay);
-      if (hourlyRate === '') setHourlyRate(calculatedHourlyRate);
-    }
-  };
-
   const validateForm = (): boolean => {
     setValidationError(null);
     setShowValidationAttention(true);
@@ -3506,7 +3484,7 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
     <div className="space-y-4 sm:space-y-5 pb-6">
       {/* Top Heading Island */}
       <div className="rounded-2xl bg-white p-4 sm:p-5 border border-slate-200 shadow-xs space-y-3.5">
-        <div className={`flex flex-col lg:flex-row lg:items-center justify-between gap-3 ${isAdmin ? 'pb-4 border-b border-slate-100' : ''}`}>
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">
@@ -3536,160 +3514,89 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             </p>
           </div>
 
-          {isAdmin && (
+          {isSuperAdmin && onNavigateToDesigner && (
             <div className="flex items-center gap-2 flex-wrap shrink-0">
-              {isSuperAdmin && onNavigateToDesigner && (
-                <button
-                  type="button"
-                  onClick={onNavigateToDesigner}
-                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition cursor-pointer whitespace-nowrap"
-                >
-                  Customize Form Layout
-                </button>
-              )}
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 text-[11px] font-semibold border border-slate-200 whitespace-nowrap">
-                <Calendar className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                <span>Full Month Auto-Filled</span>
-              </span>
+              <button
+                type="button"
+                onClick={onNavigateToDesigner}
+                className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition cursor-pointer whitespace-nowrap"
+              >
+                Customize Form Layout
+              </button>
             </div>
           )}
         </div>
 
-        {/* Non-Admin Compact Heading Bottom Line: Year + Month Dropdowns + Small Auto-save Draft Button */}
-        {!isAdmin && (
-          <div
-            ref={employeeHeaderRef}
-            className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2 flex-nowrap"
-          >
-            <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
-              <div className="relative shrink-0">
-                <select
-                  aria-label="Claim Year"
-                  value={Number.isFinite(claimYear) ? claimYear : new Date().getFullYear()}
-                  onChange={e => handleYearChange(parseInt(e.target.value, 10) || new Date().getFullYear())}
-                  className="h-8 rounded-lg border border-slate-200 bg-slate-50 hover:bg-white px-2 sm:px-2.5 text-xs font-bold font-mono tabular-nums text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 cursor-pointer"
-                >
-                  {yearOptions.map(y => (
-                    <option key={y} value={y}>{y}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="relative min-w-0">
-                <select
-                  aria-label="Claim Month"
-                  value={claimMonth}
-                  onChange={e => handleMonthChange(e.target.value)}
-                  className="h-8 rounded-lg border border-slate-200 bg-slate-50 hover:bg-white px-2 sm:px-3 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 cursor-pointer max-w-[125px] sm:max-w-none"
-                >
-                  {MONTH_NAMES.map(m => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
-              </div>
+        {/* Compact Heading Bottom Line: Year + Month Dropdowns + Small Auto-save Draft Button */}
+        <div
+          ref={employeeHeaderRef}
+          className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2 flex-nowrap"
+        >
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+            <div className="relative shrink-0">
+              <select
+                aria-label="Claim Year"
+                value={Number.isFinite(claimYear) ? claimYear : new Date().getFullYear()}
+                onChange={e => handleYearChange(parseInt(e.target.value, 10) || new Date().getFullYear())}
+                className="h-8 rounded-lg border border-slate-200 bg-slate-50 hover:bg-white px-2 sm:px-2.5 text-xs font-bold font-mono tabular-nums text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 cursor-pointer"
+              >
+                {yearOptions.map(y => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
             </div>
 
-            <button
-              type="button"
-              role="switch"
-              aria-checked={autoSaveDraftEnabled}
-              onClick={() => handleToggleAutoSave(!autoSaveDraftEnabled)}
-              title={
-                autoSaveDraftEnabled
-                  ? lastAutoSaveTime
-                    ? `Auto-save draft enabled (saved at ${lastAutoSaveTime})`
-                    : 'Auto-save draft enabled'
-                  : 'Auto-save draft paused'
-              }
-              className={`h-8 inline-flex items-center gap-1.5 px-2.5 rounded-lg border text-[11px] font-semibold transition cursor-pointer select-none whitespace-nowrap shrink-0 ${
-                autoSaveDraftEnabled
-                  ? 'bg-indigo-50/80 border-indigo-200 text-indigo-800 hover:bg-indigo-100/80'
-                  : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+            <div className="relative min-w-0">
+              <select
+                aria-label="Claim Month"
+                value={claimMonth}
+                onChange={e => handleMonthChange(e.target.value)}
+                className="h-8 rounded-lg border border-slate-200 bg-slate-50 hover:bg-white px-2 sm:px-3 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 cursor-pointer max-w-[125px] sm:max-w-none"
+              >
+                {MONTH_NAMES.map(m => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            role="switch"
+            aria-checked={autoSaveDraftEnabled}
+            onClick={() => handleToggleAutoSave(!autoSaveDraftEnabled)}
+            title={
+              autoSaveDraftEnabled
+                ? lastAutoSaveTime
+                  ? `Auto-save draft enabled (saved at ${lastAutoSaveTime})`
+                  : 'Auto-save draft enabled'
+                : 'Auto-save draft paused'
+            }
+            className={`h-8 inline-flex items-center gap-1.5 px-2.5 rounded-lg border text-[11px] font-semibold transition cursor-pointer select-none whitespace-nowrap shrink-0 ${
+              autoSaveDraftEnabled
+                ? 'bg-indigo-50/80 border-indigo-200 text-indigo-800 hover:bg-indigo-100/80'
+                : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+            }`}
+          >
+            <span
+              className={`relative inline-flex h-3.5 w-6 shrink-0 items-center rounded-full transition-colors ${
+                autoSaveDraftEnabled ? 'bg-indigo-600' : 'bg-slate-300'
               }`}
             >
               <span
-                className={`relative inline-flex h-3.5 w-6 shrink-0 items-center rounded-full transition-colors ${
-                  autoSaveDraftEnabled ? 'bg-indigo-600' : 'bg-slate-300'
+                className={`inline-block h-2.5 w-2.5 transform rounded-full bg-white transition-transform ${
+                  autoSaveDraftEnabled ? 'translate-x-3' : 'translate-x-0.5'
                 }`}
-              >
-                <span
-                  className={`inline-block h-2.5 w-2.5 transform rounded-full bg-white transition-transform ${
-                    autoSaveDraftEnabled ? 'translate-x-3' : 'translate-x-0.5'
-                  }`}
-                />
-              </span>
-              <span>Auto-save</span>
-              {isAutoSaving ? (
-                <Loader2 className="w-3 h-3 animate-spin text-indigo-600 shrink-0" />
-              ) : autoSaveDraftEnabled && lastAutoSaveTime ? (
-                <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-              ) : null}
-            </button>
-          </div>
-        )}
-
-        {/* Full Auto-Save Toggle Strip (Admins Only) */}
-        {isAdmin && (
-          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
-            <div className="flex items-center gap-3 min-w-0">
-              <label
-                className="relative inline-flex items-center cursor-pointer select-none shrink-0"
-                title="Toggle automatic draft saving for uncompleted sheets"
-              >
-                <input
-                  type="checkbox"
-                  checked={autoSaveDraftEnabled}
-                  onChange={e => handleToggleAutoSave(e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-10 h-5.5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4.5 after:w-4.5 after:transition-all peer-checked:bg-indigo-600" />
-              </label>
-
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-semibold text-slate-900 text-xs">
-                    Auto-save draft
-                  </span>
-                  {autoSaveDraftEnabled ? (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700">
-                      <Cloud className="w-3 h-3 text-emerald-600" />
-                      <span>Enabled</span>
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500">
-                      <CloudOff className="w-3 h-3 text-slate-400" />
-                      <span>Paused</span>
-                    </span>
-                  )}
-                </div>
-                <p className="text-[11px] text-slate-500 truncate">
-                  {autoSaveDraftEnabled
-                    ? 'Changes save automatically to Drafts and can be resumed anytime.'
-                    : 'Automatic draft saving is paused for this session.'}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
-              {isAutoSaving ? (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 font-semibold text-[11px] border border-indigo-200">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
-                  <span>Saving...</span>
-                </span>
-              ) : lastAutoSaveTime ? (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white text-slate-600 font-medium text-[11px] border border-slate-200 tabular-nums">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Saved at {lastAutoSaveTime}</span>
-                </span>
-              ) : hasUnsavedChanges && autoSaveDraftEnabled && hasUserModified ? (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 font-medium text-[11px] border border-amber-200">
-                  <Clock className="w-3.5 h-3.5 text-amber-500" />
-                  <span>Unsaved changes</span>
-                </span>
-              ) : null}
-            </div>
-          </div>
-        )}
+              />
+            </span>
+            <span>Auto-save</span>
+            {isAutoSaving ? (
+              <Loader2 className="w-3 h-3 animate-spin text-indigo-600 shrink-0" />
+            ) : autoSaveDraftEnabled && lastAutoSaveTime ? (
+              <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+            ) : null}
+          </button>
+        </div>
 
         {/* Status Alerts & Error Banner */}
         {(initialClaim?.status === 'draft' || (toSafeStr(activeClaimId).startsWith('clm_draft_') && hasUserModified) || draftToastMessage) && (
@@ -3790,97 +3697,6 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             </select>
           </div>
         )}
-
-        {/* Claimant Login Details + Period + Special OT (Admins Only) */}
-        {isAdmin && (
-          <div
-            ref={employeeHeaderRef}
-            className="p-3.5 sm:p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 text-xs"
-          >
-            <div className="flex items-center gap-3 min-w-0">
-              <div
-                className={`flex h-10 w-10 items-center justify-center rounded-xl text-white font-bold text-sm shrink-0 ${
-                  isOpClaim ? 'bg-emerald-600' : 'bg-indigo-600'
-                }`}
-              >
-                {toSafeStr(employeeName).trim() ? toSafeStr(employeeName).trim().charAt(0).toUpperCase() : 'U'}
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-bold text-slate-900 text-sm truncate">
-                    {employeeName || 'Staff Member'}
-                  </span>
-                  <span className="px-2 py-0.5 rounded-md bg-white text-indigo-700 font-mono font-bold text-[11px] border border-slate-200 tabular-nums">
-                    {employeeNumber || 'PF Number'}
-                  </span>
-                  <span className="text-[11px] text-slate-500 inline-flex items-center gap-1">
-                    <Lock className="w-3 h-3 text-slate-400" />
-                    <span>Profile Verified</span>
-                  </span>
-                </div>
-                <div className="text-[11px] text-slate-500 mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                  <span className="font-medium text-slate-700">{designation || 'Staff Member'}</span>
-                  <span className="text-slate-300">&bull;</span>
-                  <span>{branch || 'Head Office'}</span>
-                  <span className="text-slate-300">&bull;</span>
-                  <span>{department || 'IT Operations'}</span>
-                  {!isOpClaim && (
-                    <>
-                      <span className="text-slate-300">&bull;</span>
-                      <span className="font-medium text-slate-700 tabular-nums">
-                        Shift {userShiftStartTime} – {userShiftEndTime}
-                      </span>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2.5 flex-wrap shrink-0">
-              <div className="flex items-center gap-2 bg-white border border-slate-300 rounded-xl px-3 py-1.5">
-                <label className="font-semibold text-slate-500 text-[11px] uppercase tracking-wider">Period</label>
-                <select
-                  value={claimMonth}
-                  onChange={e => handleMonthChange(e.target.value)}
-                  className="bg-transparent font-bold text-slate-800 text-xs focus:outline-none cursor-pointer"
-                >
-                  {MONTH_NAMES.map(m => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
-                <input
-                  type="number"
-                  min={2000}
-                  max={2100}
-                  value={Number.isFinite(claimYear) ? claimYear : new Date().getFullYear()}
-                  onChange={e => handleYearChange(parseInt(e.target.value, 10) || new Date().getFullYear())}
-                  className="w-15 bg-transparent font-bold text-slate-800 text-xs font-mono tabular-nums text-center focus:outline-none border-l border-slate-200 pl-2"
-                />
-              </div>
-
-              {!isOpClaim && (
-                <button
-                  type="button"
-                  onClick={() => handleToggleSpecialAssignedOt(!isSpecialAssignedOt)}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer whitespace-nowrap ${
-                    isSpecialAssignedOt
-                      ? 'bg-emerald-600 text-white border-emerald-700'
-                      : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
-                  }`}
-                  title="Special Assigned OT (No limit / Col B)"
-                >
-                  <Check className={`w-3.5 h-3.5 ${isSpecialAssignedOt ? 'text-white' : 'text-slate-400'}`} />
-                  <span>Special OT</span>
-                  {isSpecialAssignedOt && (
-                    <span className="text-[10px] bg-emerald-700 text-white px-1.5 py-0.5 rounded font-mono">
-                      No Limit
-                    </span>
-                  )}
-                </button>
-              )}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Collapsible Rates / OP Allowance Bar */}
@@ -3909,8 +3725,8 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
             </span>
           </div>
         </div>
-      ) : !isAdmin ? (
-        /* Compact Two-Entry Overtime Payment Rates Island (Users Login) */
+      ) : (
+        /* Compact Two-Entry Overtime Payment Rates Island */
         <div className="rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden">
           <button
             type="button"
@@ -4026,184 +3842,6 @@ export const ClaimEditor: React.FC<ClaimEditorProps> = ({
                       }`}
                     />
                   </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      ) : (
-        /* Admin Overtime Payment Rates Island */
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setShowRatesPanel(prev => !prev)}
-            className="w-full px-4 sm:px-5 py-3 flex flex-wrap items-center justify-between gap-3 text-left hover:bg-slate-50/70 transition cursor-pointer"
-          >
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div
-                className={`p-2 rounded-xl shrink-0 border ${
-                  isTargetUserRatesLocked
-                    ? 'bg-amber-50 text-amber-700 border-amber-200'
-                    : 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                }`}
-              >
-                <Banknote className="w-4 h-4" />
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="text-sm font-bold text-slate-900">Overtime Payment Rates</h3>
-                  {userRelevantRole && (
-                    <span className="text-xs text-slate-500 font-medium">
-                      &bull; {userRelevantRole.name}
-                    </span>
-                  )}
-                  <span
-                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold border ${
-                      isTargetUserRatesLocked
-                        ? 'bg-amber-50 text-amber-800 border-amber-200'
-                        : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                    }`}
-                  >
-                    {isTargetUserRatesLocked ? (
-                      <>
-                        <Lock className="w-3 h-3" />
-                        <span>Rates Locked</span>
-                      </>
-                    ) : (
-                      <>
-                        <Unlock className="w-3 h-3" />
-                        <span>Editable</span>
-                      </>
-                    )}
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-500 mt-0.5 tabular-nums truncate">
-                  Hourly Rate: Rs. {hourlyRate !== '' && Number.isFinite(Number(hourlyRate)) ? Number(hourlyRate).toFixed(2) : '—'}
-                  {' • '}Days Pay: Rs. {daysPay !== '' && Number.isFinite(Number(daysPay)) ? Number(daysPay).toFixed(2) : '—'}
-                  {isDaysPayOnlyNonWorking ? " • Non-Working: Day's Pay Only" : ''}
-                </p>
-              </div>
-            </div>
-
-            <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 shrink-0">
-              <span>{showRatesPanel ? 'Hide Rates' : 'View / Edit Rates'}</span>
-              <ChevronDown
-                className={`w-4 h-4 text-slate-500 transition-transform duration-200 ${
-                  showRatesPanel ? 'rotate-180' : ''
-                }`}
-              />
-            </div>
-          </button>
-
-          {showRatesPanel && (
-            <div className="px-4 sm:px-5 pb-4 pt-3 border-t border-slate-100 space-y-3 bg-slate-50/40">
-              {isTargetUserRatesLocked ? (
-                <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2">
-                  <Lock className="w-3.5 h-3.5 text-amber-700 shrink-0 mt-0.5" />
-                  <p className="leading-relaxed">
-                    Rates are locked for <strong>{userRelevantRole?.name || designation || 'this designation'}</strong>. On non-working days (including Saturdays, Sundays &amp; Holidays), only <strong>Day&apos;s Pay</strong> applies.
-                  </p>
-                </div>
-              ) : (
-                <div className="p-2.5 rounded-xl bg-emerald-50/70 border border-emerald-200 text-emerald-900 text-xs flex items-center gap-2">
-                  <Unlock className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                  <span>
-                    Rates are unlocked for <strong>{userRelevantRole?.name || designation || 'your role'}</strong>.
-                  </span>
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <label className="font-semibold text-slate-700 text-[11px]">
-                      Hourly Rate <span className="text-rose-500">*</span>
-                    </label>
-                    {!canEditRates && <Lock className="w-3 h-3 text-slate-400" />}
-                  </div>
-                  <div className="relative">
-                    <span className="absolute left-2.5 top-2 text-slate-400 font-mono text-xs">Rs.</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      disabled={!canEditRates}
-                      readOnly={!canEditRates}
-                      value={hourlyRate === '' || !Number.isFinite(Number(hourlyRate)) ? '' : hourlyRate}
-                      onChange={e => {
-                        if (!canEditRates) return;
-                        setHourlyRate(toSafeRate(e.target.value));
-                        markUserModified();
-                      }}
-                      placeholder="e.g. 1850.00"
-                      className={`w-full rounded-lg border py-1.5 pl-9 pr-2.5 font-mono tabular-nums font-bold text-xs ${
-                        !canEditRates
-                          ? 'border-slate-200 bg-slate-100 text-slate-600 cursor-not-allowed select-none'
-                          : 'border-slate-300 bg-white text-slate-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
-                      }`}
-                    />
-                  </div>
-                  <span className="text-[10px] text-slate-400 block truncate">Overtime hourly rate</span>
-                </div>
-
-                <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <label className="font-semibold text-slate-700 text-[11px]">
-                      Days Pay <span className="text-rose-500">*</span>
-                    </label>
-                    {!canEditRates && <Lock className="w-3 h-3 text-slate-400" />}
-                  </div>
-                  <div className="relative">
-                    <span className="absolute left-2.5 top-2 text-slate-400 font-mono text-xs">Rs.</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      disabled={!canEditRates}
-                      readOnly={!canEditRates}
-                      value={daysPay === '' || !Number.isFinite(Number(daysPay)) ? '' : daysPay}
-                      onChange={e => {
-                        if (!canEditRates) return;
-                        setDaysPay(toSafeRate(e.target.value));
-                        markUserModified();
-                      }}
-                      placeholder="e.g. 12500.00"
-                      className={`w-full rounded-lg border py-1.5 pl-9 pr-2.5 font-mono tabular-nums font-bold text-xs ${
-                        !canEditRates
-                          ? 'border-slate-200 bg-slate-100 text-slate-600 cursor-not-allowed select-none'
-                          : 'border-slate-300 bg-white text-slate-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
-                      }`}
-                    />
-                  </div>
-                  <span className="text-[10px] text-slate-400 block truncate">Sat (min 6h) / Sun / Holiday</span>
-                </div>
-
-                <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <label className="font-semibold text-slate-700 text-[11px]">
-                      Monthly Remuneration
-                    </label>
-                    {!canEditRates && <Lock className="w-3 h-3 text-slate-400" />}
-                  </div>
-                  <div className="relative">
-                    <span className="absolute left-2.5 top-2 text-slate-400 font-mono text-xs">Rs.</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      disabled={!canEditRates}
-                      readOnly={!canEditRates}
-                      value={totalRemuneration === '' || !Number.isFinite(Number(totalRemuneration)) ? '' : totalRemuneration}
-                      onChange={e => {
-                        if (!canEditRates) return;
-                        handleRemunerationChange(e.target.value);
-                      }}
-                      placeholder="e.g. 275000.00"
-                      className={`w-full rounded-lg border py-1.5 pl-9 pr-2.5 font-mono tabular-nums text-xs ${
-                        !canEditRates
-                          ? 'border-slate-200 bg-slate-100 text-slate-600 cursor-not-allowed select-none'
-                          : 'border-slate-300 bg-white text-slate-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
-                      }`}
-                    />
-                  </div>
-                  <span className="text-[10px] text-slate-400 block truncate">Pay/22 day, Day/8 hr</span>
                 </div>
               </div>
             </div>
