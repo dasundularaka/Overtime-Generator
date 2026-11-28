@@ -263,7 +263,7 @@ export async function generateOvertimePdf(
     // Form 10756 Overtime-only fields (never populate on OP)
     hourlyRate: isOutOfPocket ? '' : formatRate(claim.hourlyRate),
     daysPay: isOutOfPocket ? '' : formatRate(claim.daysPay),
-    hourlyRateNonWorkingDays: (isOutOfPocket || isRatesLockedClaim) ? '' : formatRate(claim.hourlyRateNonWorkingDays),
+    hourlyRateNonWorkingDays: (isOutOfPocket || isRatesLockedClaim) ? '' : formatRate(claim.hourlyRate || claim.hourlyRateNonWorkingDays),
     daysPayCount: isOutOfPocket ? '' : String(claim.daysPayCount || 0),
     daysPayTotal: isOutOfPocket ? '' : formatRate(claim.daysPayTotal),
     totalRemuneration: isOutOfPocket ? '' : formatRate(claim.totalRemuneration),

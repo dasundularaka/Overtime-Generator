@@ -271,7 +271,7 @@ export const EmployeeManager: React.FC = () => {
       shiftEndTime: claimType === 'OT' ? (shiftEndTime || '16:45') : undefined,
       hourlyRate: claimType === 'OT' && hourlyRate !== '' ? Number(hourlyRate) : undefined,
       daysPay: claimType === 'OT' && daysPay !== '' ? Number(daysPay) : undefined,
-      hourlyRateNonWorkingDays: claimType === 'OT' && hourlyRateNonWorkingDays !== '' ? Number(hourlyRateNonWorkingDays) : undefined,
+      hourlyRateNonWorkingDays: claimType === 'OT' && hourlyRate !== '' ? Number(hourlyRate) : undefined,
       totalRemuneration: claimType === 'OT' && totalRemuneration !== '' ? Number(totalRemuneration) : undefined,
       createdAt: editingEmployee?.createdAt || new Date().toISOString(),
       role: editingEmployee?.role || 'user',
@@ -642,22 +642,16 @@ export const EmployeeManager: React.FC = () => {
                         OT • Form 10756
                       </span>
                     </div>
-                    {(emp.hourlyRate || emp.daysPay || emp.hourlyRateNonWorkingDays) && (
+                    {(emp.hourlyRate || emp.daysPay) && (
                       <div className="pt-1.5 flex flex-col gap-1 text-[11px] font-mono text-indigo-700 bg-indigo-50/50 p-2 rounded-xl">
                         <div className="flex items-center justify-between">
-                          <span>Working Days OT:</span>
+                          <span>Hourly Rate:</span>
                           <strong>{emp.hourlyRate ? `Rs. ${Number(emp.hourlyRate).toFixed(2)}/h` : 'Default'}</strong>
                         </div>
                         {emp.daysPay && (
                           <div className="flex items-center justify-between">
-                            <span>Non-Working Days Payment:</span>
+                            <span>Days Pay:</span>
                             <strong>Rs. {Number(emp.daysPay).toFixed(2)}</strong>
-                          </div>
-                        )}
-                        {emp.hourlyRateNonWorkingDays && (
-                          <div className="flex items-center justify-between">
-                            <span>Non-Working OT Rate:</span>
-                            <strong>Rs. {Number(emp.hourlyRateNonWorkingDays).toFixed(2)}/h</strong>
                           </div>
                         )}
                       </div>
@@ -882,23 +876,27 @@ export const EmployeeManager: React.FC = () => {
                       <Banknote className="w-3.5 h-3.5 text-indigo-600" />
                       <span>Assigned Overtime Rates Matrix (Form 10756)</span>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div>
                         <label className="block font-semibold text-slate-600 text-[10px] mb-1">
-                          Working Day OT (Rs.)
+                          Hourly Rate (Rs.)
                         </label>
                         <input
                           type="number"
                           step="0.01"
                           value={hourlyRate}
-                          onChange={e => setHourlyRate(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                          onChange={e => {
+                            const nextVal = e.target.value === '' ? '' : parseFloat(e.target.value);
+                            setHourlyRate(nextVal);
+                            setHourlyRateNonWorkingDays(nextVal);
+                          }}
                           placeholder="1850.00"
                           className="w-full rounded-lg border border-slate-300 px-2 py-1.5 font-mono text-xs bg-white font-bold"
                         />
                       </div>
                       <div>
                         <label className="block font-semibold text-slate-600 text-[10px] mb-1">
-                          Non-Working Day (Rs.)
+                          Days Pay (Rs.)
                         </label>
                         <input
                           type="number"
@@ -906,21 +904,6 @@ export const EmployeeManager: React.FC = () => {
                           value={daysPay}
                           onChange={e => setDaysPay(e.target.value === '' ? '' : parseFloat(e.target.value))}
                           placeholder="12500.00"
-                          className="w-full rounded-lg border border-slate-300 px-2 py-1.5 font-mono text-xs bg-white"
-                        />
-                      </div>
-                      <div>
-                        <label className="block font-semibold text-slate-600 text-[10px] mb-1">
-                          Non-Working OT (Rs.)
-                        </label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={hourlyRateNonWorkingDays}
-                          onChange={e =>
-                            setHourlyRateNonWorkingDays(e.target.value === '' ? '' : parseFloat(e.target.value))
-                          }
-                          placeholder="2312.50"
                           className="w-full rounded-lg border border-slate-300 px-2 py-1.5 font-mono text-xs bg-white"
                         />
                       </div>

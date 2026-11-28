@@ -295,12 +295,10 @@ export const UserManagement: React.FC = () => {
       if (nextClaimType === 'OT') {
         if (hourlyRate === '' && found.hourlyRateWorkingDays !== undefined) {
           setHourlyRate(found.hourlyRateWorkingDays);
+          setHourlyRateNonWorkingDays(found.hourlyRateWorkingDays);
         }
         if (daysPay === '' && found.daysPaymentNonWorkingDays !== undefined) {
           setDaysPay(found.daysPaymentNonWorkingDays);
-        }
-        if (hourlyRateNonWorkingDays === '' && found.hourlyRateNonWorkingDays !== undefined) {
-          setHourlyRateNonWorkingDays(found.hourlyRateNonWorkingDays);
         }
         if (found.isRatesLocked !== undefined && (!editingUser || editingUser.designation !== selectedDesignationName)) {
           setIsRatesLocked(Boolean(found.isRatesLocked));
@@ -510,20 +508,16 @@ export const UserManagement: React.FC = () => {
 
         if (isOtClaimType && hourlyRate !== '' && !isNaN(Number(hourlyRate))) {
           updatedData.hourlyRate = Number(hourlyRate);
+          updatedData.hourlyRateNonWorkingDays = Number(hourlyRate);
         } else {
           updatedData.hourlyRate = deleteField();
+          updatedData.hourlyRateNonWorkingDays = deleteField();
         }
 
         if (isOtClaimType && daysPay !== '' && !isNaN(Number(daysPay))) {
           updatedData.daysPay = Number(daysPay);
         } else {
           updatedData.daysPay = deleteField();
-        }
-
-        if (isOtClaimType && hourlyRateNonWorkingDays !== '' && !isNaN(Number(hourlyRateNonWorkingDays))) {
-          updatedData.hourlyRateNonWorkingDays = Number(hourlyRateNonWorkingDays);
-        } else {
-          updatedData.hourlyRateNonWorkingDays = deleteField();
         }
 
         if (isOtClaimType && totalRemuneration !== '' && !isNaN(Number(totalRemuneration))) {
@@ -557,7 +551,7 @@ export const UserManagement: React.FC = () => {
           defaultHolidayReason: isOtClaimType ? (defaultHolidayReason.trim() || undefined) : undefined,
           hourlyRate: isOtClaimType && hourlyRate !== '' && !isNaN(Number(hourlyRate)) ? Number(hourlyRate) : undefined,
           daysPay: isOtClaimType && daysPay !== '' && !isNaN(Number(daysPay)) ? Number(daysPay) : undefined,
-          hourlyRateNonWorkingDays: isOtClaimType && hourlyRateNonWorkingDays !== '' && !isNaN(Number(hourlyRateNonWorkingDays)) ? Number(hourlyRateNonWorkingDays) : undefined,
+          hourlyRateNonWorkingDays: isOtClaimType && hourlyRate !== '' && !isNaN(Number(hourlyRate)) ? Number(hourlyRate) : undefined,
           totalRemuneration: isOtClaimType && totalRemuneration !== '' && !isNaN(Number(totalRemuneration)) ? Number(totalRemuneration) : undefined,
           updatedAt: updatedData.updatedAt,
         };
@@ -779,12 +773,10 @@ export const UserManagement: React.FC = () => {
 
         if (isOtClaimType && hourlyRate !== '' && !isNaN(Number(hourlyRate))) {
           newProfile.hourlyRate = Number(hourlyRate);
+          newProfile.hourlyRateNonWorkingDays = Number(hourlyRate);
         }
         if (isOtClaimType && daysPay !== '' && !isNaN(Number(daysPay))) {
           newProfile.daysPay = Number(daysPay);
-        }
-        if (isOtClaimType && hourlyRateNonWorkingDays !== '' && !isNaN(Number(hourlyRateNonWorkingDays))) {
-          newProfile.hourlyRateNonWorkingDays = Number(hourlyRateNonWorkingDays);
         }
         if (isOtClaimType && totalRemuneration !== '' && !isNaN(Number(totalRemuneration))) {
           newProfile.totalRemuneration = Number(totalRemuneration);
@@ -2098,10 +2090,9 @@ export const UserManagement: React.FC = () => {
                             // Standard bank salary calculation formula (22 days * 8 hours = 176 work hours per month)
                             const calculatedRate = parseFloat((val / 176).toFixed(2));
                             const calculatedDaysPay = parseFloat((val / 22).toFixed(2));
-                            const calculatedNonWorkingRate = parseFloat((calculatedRate * 1.25).toFixed(2));
                             setHourlyRate(calculatedRate);
                             setDaysPay(calculatedDaysPay);
-                            setHourlyRateNonWorkingDays(calculatedNonWorkingRate);
+                            setHourlyRateNonWorkingDays(calculatedRate);
                           }
                         }}
                         placeholder="e.g. 85000.00"
@@ -2115,14 +2106,18 @@ export const UserManagement: React.FC = () => {
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="block font-bold text-slate-700 text-[11px]">
-                          Hourly Rate in Working Days (Rs.)
+                          Hourly Rate (Rs.)
                         </label>
                       </div>
                       <input
                         type="number"
                         step="0.01"
                         value={hourlyRate}
-                        onChange={e => setHourlyRate(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                        onChange={e => {
+                          const nextVal = e.target.value === '' ? '' : parseFloat(e.target.value);
+                          setHourlyRate(nextVal);
+                          setHourlyRateNonWorkingDays(nextVal);
+                        }}
                         placeholder="e.g. 1850.00"
                         className="w-full rounded-xl border border-indigo-300 bg-indigo-50/30 px-3 py-1.5 text-slate-900 font-mono font-bold text-xs"
                       />
@@ -2131,9 +2126,9 @@ export const UserManagement: React.FC = () => {
                       </span>
                     </div>
 
-                    <div>
+                    <div className="sm:col-span-2">
                       <label className="block font-bold text-slate-700 mb-1 text-[11px]">
-                        Days Payment in Non-Working Days (Rs.)
+                        Days Pay (Rs.)
                       </label>
                       <input
                         type="number"
@@ -2145,25 +2140,6 @@ export const UserManagement: React.FC = () => {
                       />
                       <span className="text-[10px] text-slate-400 mt-0.5 block">
                         Weekends &amp; Holidays Day Payment
-                      </span>
-                    </div>
-
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1 text-[11px]">
-                        Hourly Rate in Non-Working Days (Rs.)
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={hourlyRateNonWorkingDays}
-                        onChange={e =>
-                          setHourlyRateNonWorkingDays(e.target.value === '' ? '' : parseFloat(e.target.value))
-                        }
-                        placeholder="e.g. 2312.50"
-                        className="w-full rounded-xl border border-slate-300 px-3 py-1.5 text-slate-800 font-mono text-xs bg-white"
-                      />
-                      <span className="text-[10px] text-slate-400 mt-0.5 block">
-                        Saturday / Sunday / Holiday Hourly Rate
                       </span>
                     </div>
                   </div>

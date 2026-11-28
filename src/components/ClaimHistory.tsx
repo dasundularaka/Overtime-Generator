@@ -1633,7 +1633,7 @@ export const ClaimHistory: React.FC<ClaimHistoryProps> = ({
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span>Non-Working Days Payment ({selectedMobileClaim.daysPayCount || 0} days):</span>
+                    <span>Days Pay ({selectedMobileClaim.daysPayCount || 0} days):</span>
                     <span className="font-mono font-bold text-slate-900">
                       Rs. {Number(selectedMobileClaim.daysPayTotal || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
